@@ -96,14 +96,15 @@ class CStoreProxy:
             # Get dataset
             dataset = event.dataset
             
-            # Get transfer syntax - may be string or UID object
-            ts = event.context.transfer_syntax[0]
-            if isinstance(ts, str):
-                from pydicom.uid import UID
-                ts = UID(ts)
+            # Get transfer syntax UID as string
+            ts_uid = str(event.context.transfer_syntax[0])
             
-            dataset.is_little_endian = ts.is_little_endian
-            dataset.is_implicit_VR = ts.is_implicit_VR
+            # Determine endianness and VR based on transfer syntax
+            # Most transfer syntaxes are little endian explicit VR
+            # Only Implicit VR Little Endian (1.2.840.10008.1.2) is implicit
+            # Only Explicit VR Big Endian (1.2.840.10008.1.2.2) is big endian
+            dataset.is_little_endian = (ts_uid != '1.2.840.10008.1.2.2')  # Not Big Endian
+            dataset.is_implicit_VR = (ts_uid == '1.2.840.10008.1.2')  # Implicit VR Little Endian
             
             # Get metadata
             patient_name = str(dataset.get("PatientName", "Unknown"))
