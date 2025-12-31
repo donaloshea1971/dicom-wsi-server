@@ -95,8 +95,15 @@ class CStoreProxy:
         try:
             # Get dataset
             dataset = event.dataset
-            dataset.is_little_endian = event.context.transfer_syntax[0].is_little_endian
-            dataset.is_implicit_VR = event.context.transfer_syntax[0].is_implicit_VR
+            
+            # Get transfer syntax - may be string or UID object
+            ts = event.context.transfer_syntax[0]
+            if isinstance(ts, str):
+                from pydicom.uid import UID
+                ts = UID(ts)
+            
+            dataset.is_little_endian = ts.is_little_endian
+            dataset.is_implicit_VR = ts.is_implicit_VR
             
             # Get metadata
             patient_name = str(dataset.get("PatientName", "Unknown"))
