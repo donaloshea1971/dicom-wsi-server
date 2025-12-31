@@ -2,7 +2,9 @@
   "Name": "Orthanc DICOM Server",
   "HttpServerEnabled": true,
   "HttpPort": 8042,
-  "HttpThreadsCount": 20,
+  "HttpThreadsCount": 32,
+  "HttpTimeout": 120,
+  "HttpRequestTimeout": 120,
   
   "DicomServerEnabled": true,
   "DicomAet": "ORTHANC",
@@ -32,7 +34,8 @@
     "Username": "orthanc",
     "Password": "orthanc_secret",
     "MaximumConnectionRetries": 10,
-    "ConnectionRetryInterval": 5
+    "ConnectionRetryInterval": 5,
+    "Lock": false
   },
   
   "DicomWeb": {
@@ -57,12 +60,12 @@
   "LogExportedResources": false,
   "KeepAlive": true,
   "TcpNoDelay": true,
-  "HttpRequestTimeout": 600,
   "StoreDicom": true,
   "DicomScpTimeout": 600,
   "DicomScuTimeout": 600,
   
   "HttpVerbose": false,
+  "HttpDescribeErrors": false,
   "Verbose": false,
   "TraceEnabled": false,
   
@@ -84,14 +87,19 @@
   "MaximumStorageSize": 0,
   "MaximumPatientCount": 0,
   
+  "DicomCacheSize": 512,
+  
+  "ExecuteLuaEnabled": false,
+  "LuaScripts": [],
+  
   "WSI": {
     "Enable": true,
     "EnablePyramid": true,
     "EnableDicomizer": true,
-    "TileWidth": 512,
-    "TileHeight": 512,
+    "TileWidth": 256,
+    "TileHeight": 256,
     "Threads": 8,
-    "CacheSize": 2048,
+    "CacheSize": 10000,
     "EnableConcatenations": true,
     "ForcePyramidCreation": false
   }
