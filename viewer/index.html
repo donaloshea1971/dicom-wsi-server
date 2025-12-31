@@ -546,6 +546,7 @@
         <div class="status-bar">
             <div class="status-badge" id="server-status">Checking...</div>
             <div class="status-badge" id="zoom-level">1.0x</div>
+            <div class="status-badge" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
             <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
             <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
@@ -681,6 +682,13 @@
         function formatDicomDate(date) {
             if (!date || date.length !== 8) return null;
             return `${date.substring(0, 4)}-${date.substring(4, 6)}-${date.substring(6, 8)}`;
+        }
+
+        // Register Service Worker for tile caching
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.log('Service Worker registered for tile caching'))
+                .catch(err => console.log('Service Worker not available:', err));
         }
 
         // Initialize
@@ -1056,24 +1064,28 @@
                     prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
                     showNavigator: true,
                     navigatorPosition: 'BOTTOM_RIGHT',
-                    animationTime: 0.25,
-                    blendTime: 0.15,
+                    animationTime: 0.2,
+                    blendTime: 0.1,
                     constrainDuringPan: true,
                     maxZoomPixelRatio: 4,
                     minZoomImageRatio: 0.5,
-                    // Performance optimizations for smooth initial load
+                    // Performance optimizations
                     immediateRender: true,
-                    imageLoaderLimit: 10,  // More concurrent requests for faster initial load
-                    maxImageCacheCount: 2000, // Cache more tiles
-                    visibilityRatio: 1.0,  // Only load visible tiles initially
-                    placeholderFillStyle: '#1a1a25',  // Match background color
-                    zoomPerScroll: 1.2,
+                    imageLoaderLimit: 12,           // Concurrent tile requests
+                    maxImageCacheCount: 500,        // Tiles in memory (browser handles disk cache)
+                    visibilityRatio: 0.5,           // Start loading tiles before fully visible
+                    placeholderFillStyle: '#1a1a25',
+                    zoomPerScroll: 1.3,
                     tileSources: wsiTileSource,
                     crossOriginPolicy: 'Anonymous',
-                    timeout: 60000,
-                    // Tile loading priority - load from center outward
+                    timeout: 30000,
+                    // AJAX settings
                     loadTilesWithAjax: true,
                     ajaxWithCredentials: false,
+                    // Prefetch for smoother panning
+                    preload: true,
+                    // Subpixel rendering for smoother zooming
+                    subPixelRoundingForTransparency: OpenSeadragon.SUBPIXEL_ROUNDING_OCCURRENCES.ALWAYS,
                 });
 
                 // Update zoom display
@@ -1133,24 +1145,42 @@
                     showLoading(false);
                 });
                 
-                // Add tile loading diagnostics
-                let tileLoadStats = { requested: 0, loaded: 0, failed: 0, cached: 0 };
+                // Tile loading stats with cache tracking
+                let tileStats = { loaded: 0, cached: 0, failed: 0 };
                 
                 viewer.addHandler('tile-load-failed', (e) => {
-                    tileLoadStats.failed++;
-                    console.warn(`Tile load failed: ${e.tile.level}/${e.tile.x}/${e.tile.y}`, e.message);
+                    tileStats.failed++;
                 });
                 
                 viewer.addHandler('tile-loaded', (e) => {
-                    tileLoadStats.loaded++;
-                    if (tileLoadStats.loaded % 50 === 0) {
-                        console.log(`Tiles: ${tileLoadStats.loaded} loaded, ${tileLoadStats.failed} failed`);
+                    tileStats.loaded++;
+                    
+                    // Check X-Cache-Status header if available (set by Nginx)
+                    // Note: This only works for XHR-loaded tiles
+                    if (e.tileRequest && e.tileRequest.getResponseHeader) {
+                        const cacheStatus = e.tileRequest.getResponseHeader('X-Cache-Status');
+                        if (cacheStatus === 'HIT') {
+                            tileStats.cached++;
+                        }
+                    }
+                    
+                    // Update cache badge periodically
+                    if (tileStats.loaded % 20 === 0) {
+                        updateCacheBadge();
                     }
                 });
                 
-                viewer.addHandler('tile-drawing', (e) => {
-                    tileLoadStats.requested++;
-                });
+                function updateCacheBadge() {
+                    const badge = document.getElementById('cache-badge');
+                    if (badge && tileStats.loaded > 0) {
+                        const cacheRate = Math.round((tileStats.cached / tileStats.loaded) * 100);
+                        badge.style.display = 'block';
+                        badge.textContent = `⚡ ${cacheRate}% cached`;
+                        badge.title = `${tileStats.cached}/${tileStats.loaded} tiles from cache`;
+                        badge.style.background = cacheRate > 50 ? 'var(--accent)' : 'var(--bg-tertiary)';
+                        badge.style.color = cacheRate > 50 ? 'var(--bg-primary)' : 'var(--text-secondary)';
+                    }
+                }
 
             } catch (e) {
                 console.error('Failed to load study:', e);

@@ -5,6 +5,7 @@ COPY index.html /usr/share/nginx/html/
 COPY test.html /usr/share/nginx/html/
 COPY color-correction.js /usr/share/nginx/html/
 COPY dicomweb-tilesource.js /usr/share/nginx/html/
+COPY sw.js /usr/share/nginx/html/
 
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
@@ -47,9 +48,9 @@ http {
     gzip_types text/plain text/css text/xml application/json application/javascript 
                application/xml application/xml+rss text/javascript image/svg+xml;
 
-    # Proxy cache for WSI tiles (500MB cache, 7 day retention)
-    proxy_cache_path /var/cache/nginx/tiles levels=1:2 keys_zone=tile_cache:50m 
-                     max_size=500m inactive=7d use_temp_path=off;
+    # Proxy cache for WSI tiles (1GB cache, 7 day retention)
+    proxy_cache_path /var/cache/nginx/tiles levels=1:2 keys_zone=tile_cache:100m 
+                     max_size=1g inactive=7d use_temp_path=off;
 
     # Rate limiting (prevent abuse)
     limit_req_zone $binary_remote_addr zone=api_limit:10m rate=30r/s;
