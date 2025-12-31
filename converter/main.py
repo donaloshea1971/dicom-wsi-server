@@ -240,6 +240,22 @@ async def service_status():
     }
 
 
+@app.get("/system")
+async def get_orthanc_system():
+    """Proxy Orthanc system info - used by viewer for health check"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/system",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=10.0
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
 # =============================================================================
 # Direct DICOM Upload (proxy to Orthanc)
 # =============================================================================
