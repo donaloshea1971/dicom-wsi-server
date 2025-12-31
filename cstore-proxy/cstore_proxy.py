@@ -76,17 +76,28 @@ logger = logging.getLogger(__name__)
 
 
 class CStoreProxy:
-    """C-STORE Proxy that forwards to Orthanc REST API"""
+    """C-STORE Proxy that forwards to Orthanc via C-STORE (more efficient for large files)"""
     
     def __init__(self):
         self.orthanc_url = ORTHANC_URL
         self.orthanc_auth = (ORTHANC_USERNAME, ORTHANC_PASSWORD)
+        self.orthanc_host = "orthanc"  # Docker network hostname
+        self.orthanc_port = 4242  # Orthanc DICOM port
         self.stats = {
             "received": 0,
             "forwarded": 0,
             "failed": 0
         }
         self.last_log_time = time.time()
+        
+        # Set up C-STORE SCU for forwarding to Orthanc
+        self.forward_ae = AE(ae_title="CSTORE_PROXY")
+        for context in StoragePresentationContexts:
+            self.forward_ae.add_requested_context(context.abstract_syntax, EXTENDED_TRANSFER_SYNTAXES)
+        self.forward_ae.add_requested_context(VLWholeSlideMicroscopyImageStorage, EXTENDED_TRANSFER_SYNTAXES)
+        self.forward_ae.network_timeout = 1800
+        self.forward_ae.acse_timeout = 1800
+        self.forward_ae.dimse_timeout = 1800
         
     def handle_store(self, event):
         """Handle C-STORE requests"""
@@ -155,32 +166,61 @@ class CStoreProxy:
                     pass
     
     def forward_to_orthanc(self, file_path: str, sop_uid: str) -> bool:
-        """Forward DICOM file to Orthanc via REST API"""
+        """Forward DICOM file to Orthanc via C-STORE (better for large files)"""
         try:
-            # Read file
+            # Read DICOM file
+            ds = dcmread(file_path)
+            
+            # Connect to Orthanc via C-STORE
+            assoc = self.forward_ae.associate(self.orthanc_host, self.orthanc_port, ae_title="ORTHANC")
+            
+            if assoc.is_established:
+                # Send via C-STORE
+                status = assoc.send_c_store(ds)
+                assoc.release()
+                
+                if status and status.Status == 0:
+                    logger.info(f"Forwarded to Orthanc via C-STORE: SOP={sop_uid}")
+                    return True
+                else:
+                    status_code = status.Status if status else "None"
+                    logger.error(f"Orthanc C-STORE failed: Status=0x{status_code:04X}" if status else "No status")
+                    return False
+            else:
+                logger.error(f"Failed to connect to Orthanc C-STORE at {self.orthanc_host}:{self.orthanc_port}")
+                # Fallback to REST API for smaller files
+                return self.forward_to_orthanc_rest(file_path, sop_uid)
+                
+        except Exception as e:
+            logger.error(f"Error forwarding to Orthanc via C-STORE: {e}")
+            # Fallback to REST API
+            return self.forward_to_orthanc_rest(file_path, sop_uid)
+    
+    def forward_to_orthanc_rest(self, file_path: str, sop_uid: str) -> bool:
+        """Fallback: Forward DICOM file to Orthanc via REST API"""
+        try:
             with open(file_path, 'rb') as f:
                 dicom_data = f.read()
             
-            # Upload to Orthanc (long timeout for large WSI files)
             response = requests.post(
                 f"{self.orthanc_url}/instances",
                 auth=self.orthanc_auth,
                 data=dicom_data,
                 headers={"Content-Type": "application/dicom"},
-                timeout=1800  # 30 minutes for large WSI files
+                timeout=1800
             )
             
             if response.status_code == 200:
                 result = response.json()
                 instance_id = result.get("ID", "Unknown")
-                logger.info(f"Uploaded to Orthanc: Instance ID={instance_id}")
+                logger.info(f"Uploaded to Orthanc via REST: Instance ID={instance_id}")
                 return True
             else:
-                logger.error(f"Orthanc upload failed: {response.status_code} - {response.text}")
+                logger.error(f"Orthanc REST upload failed: {response.status_code} - {response.text}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error forwarding to Orthanc: {e}")
+            logger.error(f"Error forwarding to Orthanc via REST: {e}")
             return False
     
     def log_stats(self):
