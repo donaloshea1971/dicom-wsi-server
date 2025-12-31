@@ -306,7 +306,10 @@
         }
 
         .loading.active {
-            display: block;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
         }
 
         .spinner {
@@ -318,8 +321,56 @@
             animation: spin 1s linear infinite;
         }
 
+        .loading-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
         @keyframes spin {
             to { transform: rotate(360deg); }
+        }
+
+        /* Smooth fade-in for viewer */
+        #osd-viewer {
+            opacity: 0;
+            transition: opacity 0.4s ease-out;
+        }
+        
+        #osd-viewer.ready {
+            opacity: 1;
+        }
+        
+        /* Preview thumbnail overlay */
+        .preview-thumbnail {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 10;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        .preview-thumbnail.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .preview-thumbnail img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            filter: blur(2px);
+            animation: preview-pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes preview-pulse {
+            0%, 100% { filter: blur(2px); opacity: 0.8; }
+            50% { filter: blur(1px); opacity: 1; }
         }
 
         /* Button styles */
@@ -601,6 +652,12 @@
         <!-- Loading -->
         <div class="loading" id="loading">
             <div class="spinner"></div>
+            <div class="loading-text" id="loading-text">Loading image...</div>
+        </div>
+        
+        <!-- Preview thumbnail (shown while tiles load) -->
+        <div class="preview-thumbnail hidden" id="preview-thumbnail">
+            <img id="preview-img" src="" alt="Loading preview...">
         </div>
     </main>
 
@@ -797,8 +854,12 @@
 
         // Load a study into the viewer using Orthanc WSI plugin
         async function loadStudy(studyId) {
-            showLoading(true);
+            showLoading(true, 'Loading image metadata...');
             currentStudy = studyId;
+            
+            // Hide viewer until ready, show preview
+            const viewerEl = document.getElementById('osd-viewer');
+            viewerEl.classList.remove('ready');
             
             // Close metadata modal when switching images
             closeMetadataModal();
@@ -866,6 +927,10 @@
                     pyramid = await pyramidResponse.json();
                 }
                 console.log('WSI Pyramid:', pyramid);
+                
+                // Show low-res preview thumbnail while loading
+                showLoading(true, 'Loading preview...');
+                await showPreviewThumbnail(seriesId, pyramid);
 
                 if (viewer) {
                     viewer.destroy();
@@ -1049,26 +1114,31 @@
                     pyramid: pyramid  // Pass pyramid data for Leica handling
                 });
 
+                showLoading(true, 'Initializing viewer...');
+                
                 viewer = OpenSeadragon({
                     id: 'osd-viewer',
                     prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
                     showNavigator: true,
                     navigatorPosition: 'BOTTOM_RIGHT',
-                    animationTime: 0.3,
-                    blendTime: 0.1,
+                    animationTime: 0.25,
+                    blendTime: 0.15,
                     constrainDuringPan: true,
                     maxZoomPixelRatio: 4,
                     minZoomImageRatio: 0.5,
-                    // Performance optimizations
+                    // Performance optimizations for smooth initial load
                     immediateRender: true,
-                    imageLoaderLimit: 6,  // Limit concurrent requests to prevent browser throttling
-                    maxImageCacheCount: 1000, // Cache more tiles
-                    visibilityRatio: 0.8,  // Load tiles slightly before they're visible
-                    placeholderFillStyle: '#f0f0f0',  // Show placeholder for loading tiles
+                    imageLoaderLimit: 10,  // More concurrent requests for faster initial load
+                    maxImageCacheCount: 2000, // Cache more tiles
+                    visibilityRatio: 1.0,  // Only load visible tiles initially
+                    placeholderFillStyle: '#1a1a25',  // Match background color
                     zoomPerScroll: 1.2,
                     tileSources: wsiTileSource,
                     crossOriginPolicy: 'Anonymous',
                     timeout: 60000,
+                    // Tile loading priority - load from center outward
+                    loadTilesWithAjax: true,
+                    ajaxWithCredentials: false,
                 });
 
                 // Update zoom display
@@ -1079,7 +1149,13 @@
                 
                 viewer.addHandler('open', () => {
                     console.log('Viewer opened successfully');
-                    showLoading(false);
+                    
+                    // Wait for initial tiles to load before showing viewer
+                    waitForInitialTiles(() => {
+                        showLoading(false);
+                        hidePreviewThumbnail();
+                        document.getElementById('osd-viewer').classList.add('ready');
+                    });
                     
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
@@ -1153,8 +1229,91 @@
             }
         }
 
-        function showLoading(show) {
+        function showLoading(show, text = 'Loading image...') {
             document.getElementById('loading').classList.toggle('active', show);
+            const loadingText = document.getElementById('loading-text');
+            if (loadingText) loadingText.textContent = text;
+        }
+        
+        // Show a low-res preview thumbnail while full tiles load
+        async function showPreviewThumbnail(seriesId, pyramid) {
+            const previewContainer = document.getElementById('preview-thumbnail');
+            const previewImg = document.getElementById('preview-img');
+            
+            if (!previewContainer || !previewImg) return;
+            
+            try {
+                // Use the lowest resolution level (last in the Sizes array)
+                const lowestLevelIndex = pyramid.Sizes.length - 1;
+                const lowestWidth = pyramid.Sizes[lowestLevelIndex][0];
+                const lowestHeight = pyramid.Sizes[lowestLevelIndex][1];
+                
+                // If lowest level is small enough, fetch it as a single rendered image
+                if (lowestWidth <= 1024 && lowestHeight <= 1024) {
+                    // Try to get a rendered frame from the lowest level
+                    const previewUrl = `/wsi/tiles/${seriesId}/${lowestLevelIndex}/0/0?_=${Date.now()}`;
+                    
+                    previewImg.onload = () => {
+                        previewContainer.classList.remove('hidden');
+                        showLoading(true, 'Loading full resolution...');
+                    };
+                    previewImg.onerror = () => {
+                        // Preview failed, just continue without it
+                        previewContainer.classList.add('hidden');
+                    };
+                    previewImg.src = previewUrl;
+                } else {
+                    // Image too large for single tile preview, skip
+                    previewContainer.classList.add('hidden');
+                }
+            } catch (e) {
+                console.log('Preview thumbnail failed:', e);
+                previewContainer.classList.add('hidden');
+            }
+        }
+        
+        function hidePreviewThumbnail() {
+            const previewContainer = document.getElementById('preview-thumbnail');
+            if (previewContainer) {
+                previewContainer.classList.add('hidden');
+                // Clean up after transition
+                setTimeout(() => {
+                    const img = document.getElementById('preview-img');
+                    if (img) img.src = '';
+                }, 500);
+            }
+        }
+        
+        // Wait for initial visible tiles to load before revealing viewer
+        function waitForInitialTiles(callback) {
+            let tilesLoaded = 0;
+            const minTilesToShow = 4; // Wait for at least this many tiles
+            const maxWaitTime = 2000; // Max wait time in ms
+            const startTime = Date.now();
+            
+            const checkReady = () => {
+                const elapsed = Date.now() - startTime;
+                
+                // Check if enough tiles loaded or timeout reached
+                if (tilesLoaded >= minTilesToShow || elapsed >= maxWaitTime) {
+                    callback();
+                    return;
+                }
+                
+                requestAnimationFrame(checkReady);
+            };
+            
+            // Listen for tile loads
+            const tileHandler = () => {
+                tilesLoaded++;
+                if (tilesLoaded >= minTilesToShow) {
+                    viewer.removeHandler('tile-loaded', tileHandler);
+                }
+            };
+            viewer.addHandler('tile-loaded', tileHandler);
+            
+            // Start checking
+            checkReady();
         }
         
         // Toggle gamma correction for Hamamatsu NDPI images (legacy SVG filter method)
