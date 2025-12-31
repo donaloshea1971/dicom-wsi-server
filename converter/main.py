@@ -893,7 +893,7 @@ async def delete_job(job_id: str):
 
 @app.get("/studies")
 async def list_studies():
-    """List all studies in Orthanc"""
+    """List all studies in Orthanc - returns array of study IDs"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -902,17 +902,8 @@ async def list_studies():
                 timeout=30.0
             )
             response.raise_for_status()
-            
-            studies = []
-            for study_id in response.json():
-                study_response = await client.get(
-                    f"{settings.orthanc_url}/studies/{study_id}",
-                    auth=(settings.orthanc_username, settings.orthanc_password)
-                )
-                if study_response.status_code == 200:
-                    studies.append(study_response.json())
-            
-            return {"studies": studies, "total": len(studies)}
+            # Return the array of study IDs directly (same format as Orthanc)
+            return response.json()
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
