@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+*.egg-info/
+.eggs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (don't commit data)
+orthanc-storage/
+postgres-data/
+redis-data/
+
+# Test data (large files)
+testdata/
+*.dcm
+*.svs
+*.ndpi
+*.mrxs
+*.scn
+*.bif
+*.isyntax
+*.zip
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Uploads folder
+uploads/
+
+# Node modules (if any)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# C-STORE test venv
+c_store_tests/venv/

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Viewer Test</title>
+</head>
+<body>
+    <h1>Viewer API Test</h1>
+    <div id="status"></div>
+    <div id="studies"></div>
+    
+    <script>
+        async function testAPI() {
+            const statusDiv = document.getElementById('status');
+            const studiesDiv = document.getElementById('studies');
+            
+            try {
+                // Test API endpoint
+                statusDiv.innerHTML = 'Testing API...';
+                const response = await fetch('/api/studies');
+                const data = await response.json();
+                
+                statusDiv.innerHTML = `API Status: ${response.status} - Found ${data.studies ? data.studies.length : 0} studies`;
+                
+                if (data.studies) {
+                    studiesDiv.innerHTML = '<h2>Studies:</h2><ul>' + 
+                        data.studies.map(s => `<li>${s.PatientMainDicomTags.PatientName} - ${s.MainDicomTags.StudyDate}</li>`).join('') +
+                        '</ul>';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `Error: ${error.message}`;
+            }
+        }
+        
+        testAPI();
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+pynetdicom>=2.0.2
+pydicom>=2.4.3
+requests>=2.31.0
+colorama>=0.4.6

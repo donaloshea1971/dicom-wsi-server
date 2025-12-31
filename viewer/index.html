@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnexia WSI Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/openseadragon.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --accent: #00d4aa;
+            --accent-dim: #00a080;
+            --text-primary: #e8e8ec;
+            --text-secondary: #8888a0;
+            --border: #2a2a3a;
+            --danger: #ff4466;
+            --success: #00d4aa;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .logo {
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: auto;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 56px;
+            left: 0;
+            bottom: 0;
+            width: 320px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 90;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-header h2 {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .study-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .study-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .study-card:hover {
+            border-color: var(--accent-dim);
+            transform: translateX(4px);
+        }
+
+        .study-card.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 212, 170, 0.15);
+        }
+
+        .study-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        
+        .source-badge {
+            display: inline-block;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 500;
+            margin-left: 4px;
+        }
+        
+        .source-badge.converted {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        
+        .source-badge.native {
+            background: rgba(0, 212, 170, 0.2);
+            color: var(--accent);
+        }
+
+        .study-desc {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .study-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Viewer Container */
+        .viewer-container {
+            position: fixed;
+            top: 56px;
+            left: 320px;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+        }
+
+        #osd-viewer {
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+        
+        /* Gamma correction for Hamamatsu NDPI images (linear to sRGB) */
+        #osd-viewer.gamma-correct {
+            filter: url(#gamma-correction);
+        }
+
+        .viewer-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+        }
+
+        .viewer-placeholder svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .viewer-placeholder h3 {
+            font-size: 18px;
+            font-weight: 400;
+            margin-bottom: 8px;
+        }
+
+        .viewer-placeholder p {
+            font-size: 14px;
+            opacity: 0.7;
+        }
+
+        /* Toolbar */
+        .viewer-toolbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 8px;
+            display: flex;
+            gap: 4px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+        }
+
+        .toolbar-btn {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .toolbar-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .toolbar-btn.active {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            background: var(--border);
+            margin: 4px 8px;
+        }
+
+        /* Status bar */
+        .status-bar {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            display: flex;
+            gap: 8px;
+            z-index: 50;
+        }
+
+        .status-badge {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-badge.connected {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        /* Loading spinner */
+        .loading {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Button styles */
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-dim);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dim);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .metadata-section {
+            margin-bottom: 20px;
+        }
+
+        .metadata-section h4 {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .metadata-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .metadata-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .metadata-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .metadata-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .metadata-value.empty {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <!-- SVG filter for gamma correction (Hamamatsu NDPI images need gamma 2.2) -->
+    <svg style="position: absolute; width: 0; height: 0;">
+        <defs>
+            <filter id="gamma-correction" color-interpolation-filters="sRGB">
+                <feComponentTransfer>
+                    <feFuncR type="gamma" amplitude="1" exponent="0.4545" offset="0"/>
+                    <feFuncG type="gamma" amplitude="1" exponent="0.4545" offset="0"/>
+                    <feFuncB type="gamma" amplitude="1" exponent="0.4545" offset="0"/>
+                </feComponentTransfer>
+            </filter>
+        </defs>
+    </svg>
+    
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="4"/>
+                <line x1="12" y1="2" x2="12" y2="6"/>
+                <line x1="12" y1="18" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="6" y2="12"/>
+                <line x1="18" y1="12" x2="22" y2="12"/>
+            </svg>
+            Diagnexia WSI Viewer
+        </div>
+        <div class="header-controls">
+            <button class="btn" onclick="refreshStudies()">↻ Refresh</button>
+            <button class="btn btn-primary" onclick="openUploader()">+ Upload</button>
+        </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h2>Studies</h2>
+        </div>
+        <div class="study-list" id="study-list">
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <line x1="3" y1="9" x2="21" y2="9"/>
+                    <line x1="9" y1="21" x2="9" y2="9"/>
+                </svg>
+                <p>No studies found</p>
+                <p style="margin-top: 8px; font-size: 12px;">Upload a WSI file to get started</p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Viewer -->
+    <main class="viewer-container">
+        <div id="osd-viewer">
+            <div class="viewer-placeholder" id="viewer-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <h3>Select a study to view</h3>
+                <p>Choose from the sidebar or upload a new WSI file</p>
+            </div>
+        </div>
+
+        <!-- Status bar -->
+        <div class="status-bar">
+            <div class="status-badge" id="server-status">Checking...</div>
+            <div class="status-badge" id="zoom-level">1.0x</div>
+            <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
+            <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
+            <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="viewer-toolbar" id="viewer-toolbar" style="display: none;">
+            <button class="toolbar-btn" title="Zoom In" onclick="viewer.viewport.zoomBy(1.5)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+            </button>
+            <button class="toolbar-btn" title="Zoom Out" onclick="viewer.viewport.zoomBy(0.67)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    <line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+            </button>
+            <button class="toolbar-btn" title="Reset View" onclick="viewer.viewport.goHome()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                </svg>
+            </button>
+            <div class="toolbar-divider"></div>
+            <button class="toolbar-btn" title="Image Info" onclick="showMetadata()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+            </button>
+            <button class="toolbar-btn" title="Fullscreen" onclick="toggleFullscreen()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Metadata Modal -->
+        <div class="modal-overlay" id="metadata-modal" onclick="closeMetadataModal(event)">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>Image Metadata</h3>
+                    <button class="modal-close" onclick="closeMetadataModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="metadata-content">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+        </div>
+    </main>
+
+    <!-- Color Correction Panel -->
+    <div class="modal-overlay" id="color-panel" onclick="closeColorPanel(event)" style="display: none;">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>🎨 Color Correction</h3>
+                <button class="modal-close" onclick="closeColorPanel()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">PRESET</label>
+                    <select id="color-preset" onchange="applyColorPreset(this.value)" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary);">
+                        <option value="sRGB">sRGB (Standard)</option>
+                        <option value="Hamamatsu">Hamamatsu NDPI (γ 2.2)</option>
+                        <option value="Linear">Linear (No correction)</option>
+                        <option value="Vivid">Vivid (Enhanced)</option>
+                        <option value="Muted">Muted (Reduced)</option>
+                    </select>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">GAMMA: <span id="gamma-value">1.0</span></label>
+                    <input type="range" id="gamma-slider" min="0.2" max="3.0" step="0.1" value="1.0" onchange="updateColorParam('gamma', this.value)" style="width: 100%;">
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">BRIGHTNESS: <span id="brightness-value">0</span></label>
+                    <input type="range" id="brightness-slider" min="-0.5" max="0.5" step="0.05" value="0" onchange="updateColorParam('brightness', this.value)" style="width: 100%;">
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">CONTRAST: <span id="contrast-value">1.0</span></label>
+                    <input type="range" id="contrast-slider" min="0.5" max="2.0" step="0.1" value="1.0" onchange="updateColorParam('contrast', this.value)" style="width: 100%;">
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">SATURATION: <span id="saturation-value">1.0</span></label>
+                    <input type="range" id="saturation-slider" min="0" max="2.0" step="0.1" value="1.0" onchange="updateColorParam('saturation', this.value)" style="width: 100%;">
+                </div>
+                
+                <div id="icc-status-panel" style="margin-top: 16px; padding: 10px; background: var(--bg-primary); border-radius: 6px; font-size: 11px; color: var(--text-secondary); display: none;">
+                    <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
+                </div>
+                
+                <div style="display: flex; gap: 8px; margin-top: 20px;">
+                    <button class="btn" onclick="resetColorCorrection()" style="flex: 1;">Reset</button>
+                    <button class="btn btn-primary" onclick="closeColorPanel()" style="flex: 1;">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="dicomweb-tilesource.js"></script>
+    <script src="color-correction.js"></script>
+    <script>
+        // Configuration
+        const CONFIG = {
+            orthancUrl: '/dicom-web',
+            converterUrl: '/api'
+        };
+
+        let viewer = null;
+        let currentStudy = null;
+
+        // Format DICOM patient name (Last^First^Middle -> First Last)
+        function formatDicomName(name) {
+            if (!name) return null;
+            const parts = name.split('^');
+            if (parts.length >= 2) {
+                return `${parts[1]} ${parts[0]}`.trim();
+            }
+            return name;
+        }
+
+        // Format DICOM date (YYYYMMDD -> YYYY-MM-DD)
+        function formatDicomDate(date) {
+            if (!date || date.length !== 8) return null;
+            return `${date.substring(0, 4)}-${date.substring(4, 6)}-${date.substring(6, 8)}`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            checkServerStatus();
+            await refreshStudies();
+            
+            // Check URL parameters for direct loading
+            const params = new URLSearchParams(window.location.search);
+            const studyId = params.get('study');
+            const seriesId = params.get('series');
+            
+            if (studyId) {
+                // Load study directly
+                loadStudy(studyId);
+            } else if (seriesId) {
+                // Load by series ID - find the parent study first
+                try {
+                    const response = await fetch(`/api/series/${seriesId}`);
+                    const series = await response.json();
+                    if (series.ParentStudy) {
+                        loadStudy(series.ParentStudy);
+                    } else {
+                        console.error('Could not find parent study for series');
+                    }
+                } catch (e) {
+                    console.error('Failed to load series:', e);
+                }
+            }
+        });
+
+        // Check Orthanc server status
+        async function checkServerStatus() {
+            const badge = document.getElementById('server-status');
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                if (data.orthanc?.status === 'connected') {
+                    badge.textContent = `Orthanc ${data.orthanc.version || 'connected'}`;
+                    badge.classList.add('connected');
+                } else {
+                    badge.textContent = 'Orthanc disconnected';
+                    badge.classList.remove('connected');
+                }
+            } catch (e) {
+                badge.textContent = 'Server offline';
+                badge.classList.remove('connected');
+            }
+        }
+
+        // Load studies from Orthanc
+        async function refreshStudies() {
+            const list = document.getElementById('study-list');
+            list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin: 0 auto 16px;"></div><p>Loading studies...</p></div>';
+
+            try {
+                const response = await fetch('/api/studies');
+                const data = await response.json();
+
+                if (data.studies && data.studies.length > 0) {
+                    list.innerHTML = data.studies.map(study => {
+                        // Format patient name (DICOM uses ^ as separator)
+                        const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
+                        const accession = study.MainDicomTags?.AccessionNumber;
+                        const studyDesc = study.MainDicomTags?.StudyDescription;
+                        const studyDate = formatDicomDate(study.MainDicomTags?.StudyDate);
+                        
+                        // Build display name: prefer accession, then description, then patient
+                        const displayName = accession || studyDesc || patientName || 'Unnamed Study';
+                        const subtitle = patientName || 'Unknown Patient';
+                        
+                        return `
+                            <div class="study-card" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
+                                <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''}</div>
+                                <div class="study-desc">${displayName}</div>
+                                <div class="study-meta">
+                                    ${subtitle} • ${study.Series?.length || 0} series
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <line x1="3" y1="9" x2="21" y2="9"/>
+                                <line x1="9" y1="21" x2="9" y2="9"/>
+                            </svg>
+                            <p>No studies found</p>
+                            <p style="margin-top: 8px; font-size: 12px;">Upload a WSI file to get started</p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <p style="color: var(--danger);">Failed to load studies</p>
+                        <p style="margin-top: 8px; font-size: 12px;">${e.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Load a study into the viewer using Orthanc WSI plugin
+        async function loadStudy(studyId) {
+            showLoading(true);
+            currentStudy = studyId;
+            
+            // Close metadata modal when switching images
+            closeMetadataModal();
+
+            // Update sidebar selection
+            document.querySelectorAll('.study-card').forEach(card => {
+                card.classList.toggle('active', card.dataset.id === studyId);
+            });
+
+            // Hide placeholder (may be null after first load since OSD replaces container)
+            const placeholder = document.getElementById('viewer-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+            document.getElementById('viewer-toolbar').style.display = 'flex';
+
+            try {
+                // Get study info to find series ID
+                const studyResponse = await fetch(`/api/studies/${studyId}`);
+                const studyData = await studyResponse.json();
+                
+                if (!studyData.Series || studyData.Series.length === 0) {
+                    throw new Error('No series found in study');
+                }
+                
+                const seriesId = studyData.Series[0];
+                console.log('Loading series:', seriesId);
+                
+                // Check if this is a Hamamatsu image (needs gamma correction)
+                let needsGammaCorrection = false;
+                try {
+                    const seriesInfo = await fetch(`/api/series/${seriesId}`);
+                    const seriesData = await seriesInfo.json();
+                    if (seriesData.Instances && seriesData.Instances.length > 0) {
+                        const instanceId = seriesData.Instances[0];
+                        const tagsResponse = await fetch(`/api/instances/${instanceId}/simplified-tags`);
+                        const tags = await tagsResponse.json();
+                        const manufacturer = (tags.Manufacturer || '').toLowerCase();
+                        if (manufacturer.includes('hamamatsu')) {
+                            needsGammaCorrection = true;
+                            console.log('Detected Hamamatsu image - applying gamma 2.2 correction');
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not check manufacturer for gamma correction:', e);
+                }
+
+                // Get pyramid info from Orthanc WSI plugin
+                let pyramidResponse = await fetch(`/wsi/pyramids/${seriesId}`);
+                let pyramid;
+                
+                if (!pyramidResponse.ok) {
+                    // Check if this is a Leica multi-file pyramid
+                    console.log('Standard WSI pyramid not found, checking for Leica multi-file format...');
+                    const leicaResponse = await fetch(`/api/leica-pyramid/${studyId}`);
+                    
+                    if (leicaResponse.ok) {
+                        pyramid = await leicaResponse.json();
+                        if (pyramid.error) {
+                            throw new Error('Not a recognized WSI format');
+                        }
+                        console.log('Detected Leica multi-file pyramid:', pyramid);
+                    } else {
+                        throw new Error('WSI pyramid not available for this series');
+                    }
+                } else {
+                    pyramid = await pyramidResponse.json();
+                }
+                console.log('WSI Pyramid:', pyramid);
+
+                if (viewer) {
+                    viewer.destroy();
+                }
+
+                // Register and use custom WSI TileSource
+                const tileWidth = pyramid.TilesSizes[0][0];
+                const tileHeight = pyramid.TilesSizes[0][1];
+                const tilesX = pyramid.TilesCount[0][0];
+                const tilesY = pyramid.TilesCount[0][1];
+                const wsiSeriesId = seriesId;
+                
+                console.log(`Registering WsiTileSource for: ${seriesId}`);
+                console.log(`Image: ${pyramid.TotalWidth}x${pyramid.TotalHeight}, tiles=${tilesX}x${tilesY}`);
+                
+                // Build WSI levels array
+                const baseTileWidth = pyramid.TilesSizes[0][0];
+                const baseTileHeight = pyramid.TilesSizes[0][1];
+                const level0TilesX = pyramid.TilesCount[0][0];
+                const level0TilesY = pyramid.TilesCount[0][1];
+                
+                // For small images (< 100 tiles), use only level 0 for simplicity
+                // For large images, include levels with consistent tile sizes
+                let compatibleLevels;
+                
+                if (level0TilesX * level0TilesY < 200) {
+                    // Small image - just use highest res level
+                    console.log('Small image detected, using single level');
+                    compatibleLevels = [{
+                        wsiIndex: 0,
+                        scale: 1.0,
+                        width: pyramid.Sizes[0][0],
+                        height: pyramid.Sizes[0][1],
+                        tilesX: level0TilesX,
+                        tilesY: level0TilesY,
+                        tileWidth: baseTileWidth,
+                        tileHeight: baseTileHeight
+                    }];
+                } else {
+                    // Large image - use levels with consistent tile sizes
+                    // Also exclude levels where the image is much smaller than the tile (causes padding issues)
+                    compatibleLevels = pyramid.Resolutions.map((res, i) => ({
+                        wsiIndex: i,
+                        scale: 1.0 / res,
+                        width: pyramid.Sizes[i][0],
+                        height: pyramid.Sizes[i][1],
+                        tilesX: pyramid.TilesCount[i][0],
+                        tilesY: pyramid.TilesCount[i][1],
+                        tileWidth: pyramid.TilesSizes[i][0],
+                        tileHeight: pyramid.TilesSizes[i][1]
+                    })).filter(level => {
+                        // Include if tile size matches level 0
+                        const tileMatch = level.tileWidth === baseTileWidth && level.tileHeight === baseTileHeight;
+                        // Exclude levels where image is smaller than tile (causes white padding issues)
+                        const imageFillesTile = level.width >= level.tileWidth || level.height >= level.tileHeight;
+                        return tileMatch && imageFillesTile;
+                    });
+                    
+                    // If filtering removed all levels, fall back to just using level 0
+                    if (compatibleLevels.length === 0) {
+                        console.log('All levels filtered out, using level 0 only');
+                        compatibleLevels = [{
+                            wsiIndex: 0,
+                            scale: 1.0,
+                            width: pyramid.Sizes[0][0],
+                            height: pyramid.Sizes[0][1],
+                            tilesX: pyramid.TilesCount[0][0],
+                            tilesY: pyramid.TilesCount[0][1],
+                            tileWidth: pyramid.TilesSizes[0][0],
+                            tileHeight: pyramid.TilesSizes[0][1]
+                        }];
+                    }
+                }
+                
+                // Reverse for OSD: index 0 = lowest res, last = highest res
+                const wsiLevels = compatibleLevels.reverse();
+                
+                // Recalculate scales to form a proper progression for OpenSeadragon
+                // OSD expects scale to increase from level 0 (lowest res) to maxLevel (highest res)
+                // The highest resolution level should have scale = 1.0
+                const maxLevelIndex = wsiLevels.length - 1;
+                wsiLevels.forEach((level, idx) => {
+                    // Scale relative to highest res level (last in array)
+                    const highestResLevel = wsiLevels[maxLevelIndex];
+                    level.scale = level.width / highestResLevel.width;
+                });
+                
+                console.log('WSI Levels (filtered & reversed):', wsiLevels);
+                console.log(`Using ${wsiLevels.length} of ${pyramid.Resolutions.length} WSI levels`);
+                console.log(`Base tile size: ${baseTileWidth}x${baseTileHeight}`);
+                
+                // Debug: log each level
+                wsiLevels.forEach((level, idx) => {
+                    console.log(`  OSD Level ${idx}: wsiIndex=${level.wsiIndex}, scale=${level.scale.toFixed(4)}, ` +
+                                `size=${level.width}x${level.height}, tiles=${level.tilesX}x${level.tilesY}, ` +
+                                `tileSize=${level.tileWidth}x${level.tileHeight}`);
+                });
+                
+                // Session ID for cache busting (unique per image load)
+                const tileSessionId = Date.now();
+                
+                // Register custom tile source with proper multi-level support
+                if (!OpenSeadragon.WsiTileSource) {
+                    OpenSeadragon.WsiTileSource = function(options) {
+                        this.wsiSeriesId = options.wsiSeriesId;
+                        this.wsiLevels = options.wsiLevels;
+                        this.pyramid = options.pyramid;  // Store pyramid data for Leica handling
+                        this.sessionId = options.sessionId;  // Cache busting session ID
+                        
+                        // Don't call parent constructor - we'll set properties manually
+                        this.width = options.width;
+                        this.height = options.height;
+                        this.aspectRatio = options.width / options.height;
+                        this.dimensions = new OpenSeadragon.Point(options.width, options.height);
+                        this.tileOverlap = 0;
+                        this.minLevel = 0;
+                        this.maxLevel = this.wsiLevels.length - 1;
+                        this.ready = true;
+                    };
+                    
+                    OpenSeadragon.WsiTileSource.prototype = Object.create(OpenSeadragon.TileSource.prototype);
+                    OpenSeadragon.WsiTileSource.prototype.constructor = OpenSeadragon.WsiTileSource;
+                    
+                    OpenSeadragon.WsiTileSource.prototype.getNumLevels = function() {
+                        return this.wsiLevels.length;
+                    };
+                    
+                    OpenSeadragon.WsiTileSource.prototype.getLevelScale = function(level) {
+                        const wsi = this.wsiLevels[level];
+                        return wsi ? wsi.scale : 1;
+                    };
+                    
+                    OpenSeadragon.WsiTileSource.prototype.getTileWidth = function(level) {
+                        const wsi = this.wsiLevels[level];
+                        return wsi ? wsi.tileWidth : 256;
+                    };
+                    
+                    OpenSeadragon.WsiTileSource.prototype.getTileHeight = function(level) {
+                        const wsi = this.wsiLevels[level];
+                        return wsi ? wsi.tileHeight : 256;
+                    };
+                    
+                    OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
+                        const wsi = this.wsiLevels[level];
+                        if (!wsi) {
+                            console.warn(`getTileUrl: No WSI level for OSD level ${level}`);
+                            return null;
+                        }
+                        
+                        // Bounds check for this WSI level
+                        if (x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) {
+                            return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+                        }
+                        
+                        // Check if this is a Leica multi-file pyramid
+                        if (this.pyramid && this.pyramid.IsVirtualPyramid && this.pyramid.Type === 'LeicaMultiFile') {
+                            // For Leica, use instance-based rendering
+                            const instanceId = this.pyramid.InstanceIDs[wsi.wsiIndex];
+                            const left = x * wsi.tileWidth;
+                            const top = y * wsi.tileHeight;
+                            return `/wsi/instances/${instanceId}/frames/1/rendered?left=${left}&top=${top}&width=${wsi.tileWidth}&height=${wsi.tileHeight}&_=${this.sessionId}`;
+                        }
+                        
+                        const url = `/wsi/tiles/${this.wsiSeriesId}/${wsi.wsiIndex}/${x}/${y}?_=${this.sessionId}`;
+                        // Debug: log first few tile requests
+                        if (!this._loggedTiles) this._loggedTiles = 0;
+                        if (this._loggedTiles < 5) {
+                            console.log(`Tile request: OSD level ${level} -> WSI level ${wsi.wsiIndex}, tile (${x},${y}), URL: ${url}`);
+                            this._loggedTiles++;
+                        }
+                        return url;
+                    };
+                }
+                
+                const wsiTileSource = new OpenSeadragon.WsiTileSource({
+                    width: pyramid.TotalWidth,
+                    height: pyramid.TotalHeight,
+                    sessionId: tileSessionId,
+                    wsiSeriesId: seriesId,
+                    wsiLevels: wsiLevels,
+                    pyramid: pyramid  // Pass pyramid data for Leica handling
+                });
+
+                viewer = OpenSeadragon({
+                    id: 'osd-viewer',
+                    prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+                    showNavigator: true,
+                    navigatorPosition: 'BOTTOM_RIGHT',
+                    animationTime: 0.3,
+                    blendTime: 0.1,
+                    constrainDuringPan: true,
+                    maxZoomPixelRatio: 4,
+                    minZoomImageRatio: 0.5,
+                    // Performance optimizations
+                    immediateRender: true,
+                    imageLoaderLimit: 6,  // Limit concurrent requests to prevent browser throttling
+                    maxImageCacheCount: 1000, // Cache more tiles
+                    visibilityRatio: 0.8,  // Load tiles slightly before they're visible
+                    placeholderFillStyle: '#f0f0f0',  // Show placeholder for loading tiles
+                    zoomPerScroll: 1.2,
+                    tileSources: wsiTileSource,
+                    crossOriginPolicy: 'Anonymous',
+                    timeout: 60000,
+                });
+
+                // Update zoom display
+                viewer.addHandler('zoom', (e) => {
+                    document.getElementById('zoom-level').textContent = 
+                        e.zoom.toFixed(1) + 'x';
+                });
+                
+                viewer.addHandler('open', () => {
+                    console.log('Viewer opened successfully');
+                    showLoading(false);
+                    
+                    // Initialize color correction if not already done
+                    if (!colorCorrection) {
+                        initColorCorrection();
+                    }
+                    
+                    // Apply gamma correction for Hamamatsu images
+                    const viewerEl = document.getElementById('osd-viewer');
+                    const gammaBadge = document.getElementById('gamma-badge');
+                    const colorBadge = document.getElementById('color-badge');
+                    
+                    // Remove any existing correction classes
+                    viewerEl.classList.remove('gamma-correct', 'color-corrected');
+                    
+                    if (needsGammaCorrection && colorCorrection) {
+                        // Use new color correction system
+                        colorCorrection.setPreset('Hamamatsu');
+                        colorCorrection.enable();
+                        updateGammaBadge();
+                        console.log('Color correction applied (Hamamatsu preset - γ 2.2)');
+                    } else if (needsGammaCorrection) {
+                        // Fallback to SVG filter if color correction not available
+                        viewerEl.classList.add('gamma-correct');
+                        gammaBadge.textContent = 'γ 2.2';
+                        gammaBadge.style.display = 'block';
+                        gammaBadge.style.background = 'var(--accent)';
+                        gammaBadge.style.color = 'var(--bg-primary)';
+                        console.log('SVG gamma correction applied (2.2 fallback)');
+                    } else {
+                        // No automatic correction needed
+                        if (colorCorrection) {
+                            colorCorrection.reset();
+                        }
+                        gammaBadge.style.display = 'none';
+                    }
+                    
+                    // Always show color badge for manual adjustment
+                    if (colorBadge) colorBadge.style.display = 'block';
+                    
+                    // Check for ICC profile
+                    checkICCProfile(currentStudy);
+                });
+                
+                viewer.addHandler('open-failed', (e) => {
+                    console.error('Failed to open:', e);
+                    showLoading(false);
+                });
+                
+                // Add tile loading diagnostics
+                let tileLoadStats = { requested: 0, loaded: 0, failed: 0, cached: 0 };
+                
+                viewer.addHandler('tile-load-failed', (e) => {
+                    tileLoadStats.failed++;
+                    console.warn(`Tile load failed: ${e.tile.level}/${e.tile.x}/${e.tile.y}`, e.message);
+                });
+                
+                viewer.addHandler('tile-loaded', (e) => {
+                    tileLoadStats.loaded++;
+                    if (tileLoadStats.loaded % 50 === 0) {
+                        console.log(`Tiles: ${tileLoadStats.loaded} loaded, ${tileLoadStats.failed} failed`);
+                    }
+                });
+                
+                viewer.addHandler('tile-drawing', (e) => {
+                    tileLoadStats.requested++;
+                });
+
+            } catch (e) {
+                console.error('Failed to load study:', e);
+                showLoading(false);
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('active', show);
+        }
+        
+        // Toggle gamma correction for Hamamatsu NDPI images (legacy SVG filter method)
+        function toggleGamma() {
+            const viewerEl = document.getElementById('osd-viewer');
+            const badge = document.getElementById('gamma-badge');
+            const isActive = viewerEl.classList.toggle('gamma-correct');
+            badge.style.background = isActive ? 'var(--accent)' : 'var(--bg-tertiary)';
+            badge.style.color = isActive ? 'var(--bg-primary)' : 'var(--text-secondary)';
+            console.log('Gamma correction:', isActive ? 'ON' : 'OFF');
+        }
+
+        // Color Correction System
+        let colorCorrection = null;
+        
+        function initColorCorrection() {
+            if (typeof ColorCorrectionFilter !== 'undefined') {
+                colorCorrection = new ColorCorrectionFilter(viewer);
+                if (colorCorrection.initialize()) {
+                    document.getElementById('color-badge').style.display = 'block';
+                    console.log('Color correction ready');
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        function openColorPanel() {
+            document.getElementById('color-panel').style.display = 'flex';
+            updateColorUI();
+            updateICCStatusPanel();
+        }
+        
+        function closeColorPanel(event) {
+            if (!event || event.target.id === 'color-panel') {
+                document.getElementById('color-panel').style.display = 'none';
+            }
+        }
+        
+        function applyColorPreset(preset) {
+            if (!colorCorrection) return;
+            
+            colorCorrection.setPreset(preset);
+            colorCorrection.enable();
+            updateColorUI();
+            updateGammaBadge();
+        }
+        
+        function updateColorParam(param, value) {
+            if (!colorCorrection) return;
+            
+            const numValue = parseFloat(value);
+            
+            switch(param) {
+                case 'gamma': colorCorrection.setGamma(numValue); break;
+                case 'brightness': colorCorrection.setBrightness(numValue); break;
+                case 'contrast': colorCorrection.setContrast(numValue); break;
+                case 'saturation': colorCorrection.setSaturation(numValue); break;
+            }
+            
+            // Enable/disable based on default state
+            if (colorCorrection.isDefault()) {
+                colorCorrection.disable();
+            } else {
+                colorCorrection.enable();
+            }
+            
+            updateColorUI();
+            updateGammaBadge();
+        }
+        
+        function updateColorUI() {
+            if (!colorCorrection) return;
+            
+            const p = colorCorrection.params;
+            
+            document.getElementById('gamma-slider').value = p.gamma;
+            document.getElementById('gamma-value').textContent = p.gamma.toFixed(1);
+            
+            document.getElementById('brightness-slider').value = p.brightness;
+            document.getElementById('brightness-value').textContent = p.brightness.toFixed(2);
+            
+            document.getElementById('contrast-slider').value = p.contrast;
+            document.getElementById('contrast-value').textContent = p.contrast.toFixed(1);
+            
+            document.getElementById('saturation-slider').value = p.saturation;
+            document.getElementById('saturation-value').textContent = p.saturation.toFixed(1);
+            
+            document.getElementById('color-preset').value = colorCorrection.currentPreset;
+        }
+        
+        function updateGammaBadge() {
+            const gammaBadge = document.getElementById('gamma-badge');
+            if (!colorCorrection || !gammaBadge) return;
+            
+            const gamma = colorCorrection.params.gamma;
+            
+            if (colorCorrection.enabled && gamma !== 1.0) {
+                gammaBadge.textContent = `γ ${gamma.toFixed(1)}`;
+                gammaBadge.style.display = 'block';
+                gammaBadge.style.background = 'var(--accent)';
+                gammaBadge.style.color = 'var(--bg-primary)';
+            } else if (colorCorrection.enabled) {
+                // Color correction enabled but gamma is 1.0
+                gammaBadge.textContent = 'CC';
+                gammaBadge.style.display = 'block';
+                gammaBadge.style.background = 'var(--accent-dim)';
+                gammaBadge.style.color = 'var(--text-primary)';
+            } else {
+                gammaBadge.style.display = 'none';
+            }
+        }
+        
+        function resetColorCorrection() {
+            if (!colorCorrection) return;
+            
+            colorCorrection.reset();
+            updateColorUI();
+            updateGammaBadge();
+            
+            // Also disable old SVG filter class
+            document.getElementById('osd-viewer').classList.remove('gamma-correct');
+        }
+        
+        // ICC Profile Tracking
+        let currentICCProfile = null;
+        let iccApplied = false;
+        
+        async function checkICCProfile(studyId) {
+            const iccBadge = document.getElementById('icc-badge');
+            currentICCProfile = null;
+            iccApplied = false;
+            
+            try {
+                // Fetch ICC profile with transform data
+                const res = await fetch(`/api/studies/${studyId}/icc-profile?include_transform=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    currentICCProfile = data;
+                    
+                    if (data.has_icc) {
+                        const info = data.profile_info || {};
+                        const sizeKB = (data.size_bytes / 1024).toFixed(0);
+                        
+                        // Determine profile type for display
+                        let typeLabel = 'ICC';
+                        if (info.preferred_cmm === 'ADBE') typeLabel = 'Adobe';
+                        else if (info.preferred_cmm === 'lcms') typeLabel = 'sRGB';
+                        else if (info.preferred_cmm === 'APPL') typeLabel = 'Apple';
+                        else if (info.preferred_cmm === 'SICC') typeLabel = 'Scanner';
+                        
+                        iccBadge.textContent = `ICC: ${typeLabel}`;
+                        iccBadge.style.display = 'block';
+                        iccBadge.style.background = 'var(--bg-tertiary)';
+                        iccBadge.style.color = 'var(--text-secondary)';
+                        iccBadge.style.opacity = '1';
+                        iccBadge.title = `ICC Profile: ${sizeKB}KB ${info.color_space || 'RGB'} (Click to apply/info)`;
+                        
+                        // Load ICC into color correction filter if available
+                        if (colorCorrection && data.color_transform) {
+                            colorCorrection.iccData = data;
+                            colorCorrection.iccTransform = data.color_transform;
+                            console.log('ICC transform data loaded:', data.color_transform);
+                        }
+                        
+                        console.log(`ICC Profile detected: ${typeLabel} (${sizeKB}KB)`);
+                    } else {
+                        iccBadge.textContent = 'No ICC';
+                        iccBadge.style.display = 'block';
+                        iccBadge.style.background = 'var(--bg-tertiary)';
+                        iccBadge.style.color = 'var(--text-secondary)';
+                        iccBadge.style.opacity = '0.5';
+                        iccBadge.title = 'No ICC profile embedded';
+                    }
+                }
+            } catch (e) {
+                console.log('Could not check ICC profile:', e);
+                iccBadge.style.display = 'none';
+            }
+        }
+        
+        function toggleICC() {
+            console.log('toggleICC called');
+            console.log('currentICCProfile:', currentICCProfile);
+            console.log('colorCorrection:', colorCorrection);
+            
+            if (!currentICCProfile || !currentICCProfile.has_icc) {
+                alert('No ICC profile available for this image.');
+                return;
+            }
+            
+            if (!colorCorrection) {
+                alert('Color correction system not initialized.');
+                return;
+            }
+            
+            // Make sure ICC transform data is loaded
+            if (!colorCorrection.iccTransform && currentICCProfile.color_transform) {
+                console.log('Loading ICC transform into colorCorrection...');
+                colorCorrection.iccTransform = currentICCProfile.color_transform;
+            }
+            
+            console.log('colorCorrection.iccTransform:', colorCorrection.iccTransform);
+            
+            const iccBadge = document.getElementById('icc-badge');
+            
+            if (iccApplied) {
+                // Disable ICC
+                colorCorrection.disableICC();
+                iccApplied = false;
+                iccBadge.style.background = 'var(--bg-tertiary)';
+                iccBadge.style.color = 'var(--text-secondary)';
+                console.log('ICC profile disabled');
+            } else {
+                // Enable ICC
+                console.log('Enabling ICC with transform:', colorCorrection.iccTransform);
+                const result = colorCorrection.enableICC();
+                console.log('enableICC result:', result);
+                if (result) {
+                    iccApplied = true;
+                    iccBadge.style.background = 'var(--accent)';
+                    iccBadge.style.color = 'var(--bg-primary)';
+                    console.log('ICC profile enabled successfully');
+                } else {
+                    console.error('enableICC returned false');
+                    alert('Failed to enable ICC profile transformation. Check console for details.');
+                }
+            }
+            
+            updateICCStatusPanel();
+        }
+        
+        function toggleICCInfo() {
+            if (!currentICCProfile) {
+                alert('No ICC profile information available for this image.');
+                return;
+            }
+            
+            // Toggle ICC application if has profile
+            if (currentICCProfile.has_icc && colorCorrection) {
+                toggleICC();
+            } else {
+                showICCDetails();
+            }
+        }
+        
+        function showICCDetails() {
+            if (!currentICCProfile) return;
+            
+            const info = currentICCProfile.profile_info || {};
+            const sizeKB = (currentICCProfile.size_bytes / 1024).toFixed(1);
+            const transform = currentICCProfile.color_transform;
+            
+            let message = `ICC Color Profile Information\n`;
+            message += `${'='.repeat(40)}\n\n`;
+            message += `Profile Present: ${currentICCProfile.has_icc ? 'Yes ✓' : 'No'}\n`;
+            
+            if (currentICCProfile.has_icc) {
+                message += `Size: ${sizeKB} KB\n`;
+                message += `Color Space: ${info.color_space || 'Unknown'}\n`;
+                message += `Profile Class: ${info.profile_class || 'Unknown'}\n`;
+                message += `CMM: ${info.preferred_cmm || 'Unknown'}\n`;
+                message += `Version: ${info.version || 'Unknown'}\n`;
+                message += `Location: ${currentICCProfile.location || 'Unknown'}\n`;
+                
+                if (transform && transform.transform) {
+                    const t = transform.transform;
+                    message += `\n--- Color Transform Data ---\n`;
+                    message += `Gamma R: ${t.gamma?.r?.toFixed(2) || 'N/A'}\n`;
+                    message += `Gamma G: ${t.gamma?.g?.toFixed(2) || 'N/A'}\n`;
+                    message += `Gamma B: ${t.gamma?.b?.toFixed(2) || 'N/A'}\n`;
+                    message += `Has Matrix: ${t.has_full_transform ? 'Yes' : 'No'}\n`;
+                }
+                
+                message += `\n${'='.repeat(40)}\n`;
+                message += `\nStatus: ${iccApplied ? 'APPLIED ✓' : 'NOT APPLIED'}\n`;
+                
+                if (!iccApplied) {
+                    message += `\nClick the ICC badge to toggle color correction.\n`;
+                }
+            }
+            
+            alert(message);
+        }
+        
+        function updateICCStatusPanel() {
+            const iccPanel = document.getElementById('icc-status-panel');
+            const iccText = document.getElementById('icc-status-text');
+            
+            if (!iccPanel || !iccText) return;
+            
+            if (currentICCProfile && currentICCProfile.has_icc) {
+                const info = currentICCProfile.profile_info || {};
+                const transform = currentICCProfile.color_transform?.transform;
+                
+                iccPanel.style.display = 'block';
+                
+                let statusHtml = `<strong>${info.color_space || 'RGB'}</strong>`;
+                if (transform && transform.gamma) {
+                    statusHtml += ` | γ: ${transform.gamma.r?.toFixed(2)}`;
+                }
+                statusHtml += ` | <span style="color: ${iccApplied ? 'var(--success)' : 'var(--danger)'}">`;
+                statusHtml += iccApplied ? 'APPLIED ✓' : 'NOT APPLIED';
+                statusHtml += `</span>`;
+                statusHtml += ` <button onclick="toggleICC()" style="margin-left: 8px; padding: 2px 8px; font-size: 10px; background: var(--accent); color: var(--bg-primary); border: none; border-radius: 3px; cursor: pointer;">${iccApplied ? 'Disable' : 'Apply'}</button>`;
+                
+                iccText.innerHTML = statusHtml;
+            } else {
+                iccPanel.style.display = 'block';
+                iccText.innerHTML = '<span style="color: var(--text-secondary);">No ICC profile available</span>';
+            }
+        }
+
+        function toggleFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                document.querySelector('.viewer-container').requestFullscreen();
+            }
+        }
+
+        function openUploader() {
+            window.open('/api/docs', '_blank');
+        }
+
+        // Metadata modal functions
+        let currentMetadata = null;
+
+        async function showMetadata() {
+            if (!currentStudy) return;
+            
+            const modal = document.getElementById('metadata-modal');
+            const content = document.getElementById('metadata-content');
+            modal.classList.add('active');
+            content.innerHTML = '<div class="spinner"></div>';
+            
+            // Cache bust to ensure fresh data
+            const cacheBust = `?_=${Date.now()}`;
+            console.log('[Metadata] Loading for study:', currentStudy);
+
+            try {
+                // Fetch study details
+                const studyRes = await fetch(`/api/studies/${currentStudy}${cacheBust}`);
+                const study = await studyRes.json();
+                
+                // Fetch first instance metadata
+                const seriesId = study.Series[0];
+                console.log('[Metadata] Series:', seriesId);
+                const seriesRes = await fetch(`/api/series/${seriesId}${cacheBust}`);
+                let instances = [];
+                try {
+                    const series = await seriesRes.json();
+                    instances = series.Instances || [];
+                } catch(e) {}
+
+                // Fetch WSI pyramid info
+                const pyramidRes = await fetch(`/wsi/pyramids/${seriesId}${cacheBust}`);
+                let pyramid = null;
+                try {
+                    pyramid = await pyramidRes.json();
+                } catch(e) {}
+
+                // Fetch instance metadata for scanner info
+                let instanceTags = null;
+                if (instances.length > 0) {
+                    try {
+                        const tagsRes = await fetch(`/api/instances/${instances[0]}/simplified-tags${cacheBust}`);
+                        instanceTags = await tagsRes.json();
+                        console.log('[Metadata] Instance tags:', instanceTags);
+                    } catch(e) {
+                        console.log('[Metadata] Failed to fetch instance tags:', e);
+                    }
+                }
+
+                // Build metadata display
+                let html = '';
+
+                // Patient info
+                html += `<div class="metadata-section">
+                    <h4>Patient Information</h4>
+                    <div class="metadata-grid">
+                        ${metadataItem('Patient Name', study.PatientMainDicomTags?.PatientName)}
+                        ${metadataItem('Patient ID', study.PatientMainDicomTags?.PatientID)}
+                        ${metadataItem('Birth Date', formatDate(study.PatientMainDicomTags?.PatientBirthDate))}
+                        ${metadataItem('Sex', study.PatientMainDicomTags?.PatientSex)}
+                    </div>
+                </div>`;
+
+                // Study info
+                html += `<div class="metadata-section">
+                    <h4>Study Information</h4>
+                    <div class="metadata-grid">
+                        ${metadataItem('Study Description', study.MainDicomTags?.StudyDescription)}
+                        ${metadataItem('Study Date', formatDate(study.MainDicomTags?.StudyDate))}
+                        ${metadataItem('Accession Number', study.MainDicomTags?.AccessionNumber)}
+                        ${metadataItem('Study ID', study.MainDicomTags?.StudyID)}
+                        ${metadataItem('Referring Physician', study.MainDicomTags?.ReferringPhysicianName)}
+                        ${metadataItem('Study Instance UID', study.MainDicomTags?.StudyInstanceUID)}
+                    </div>
+                </div>`;
+
+                // Scanner/Acquisition info
+                const manufacturer = instanceTags?.Manufacturer || instanceTags?.['00080070']?.Value?.[0] || '';
+                const model = instanceTags?.ManufacturerModelName || instanceTags?.['00081090']?.Value?.[0] || '';
+                const software = instanceTags?.SoftwareVersions || instanceTags?.['00181020']?.Value?.[0] || '';
+                const stationName = instanceTags?.StationName || instanceTags?.['00081010']?.Value?.[0] || '';
+                const deviceSerial = instanceTags?.DeviceSerialNumber || instanceTags?.['00181000']?.Value?.[0] || '';
+                const acquisitionDate = instanceTags?.AcquisitionDateTime || instanceTags?.ContentDate || instanceTags?.['00080022']?.Value?.[0] || '';
+                
+                // Detect if native DICOM or converted
+                const sopClass = instanceTags?.SOPClassUID || instanceTags?.['00080016']?.Value?.[0] || '';
+                const isWSI = sopClass.includes('1.2.840.10008.5.1.4.1.1.77.1.6'); // VL Whole Slide Microscopy
+                
+                // Check for conversion markers
+                const sourceApp = instanceTags?.SourceApplicationEntityTitle || '';
+                const conversionType = instanceTags?.ConversionType || instanceTags?.['00080064']?.Value?.[0] || '';
+                const derivationDesc = instanceTags?.DerivationDescription || instanceTags?.['00082111']?.Value?.[0] || '';
+                const institutionName = instanceTags?.InstitutionName || instanceTags?.['00080080']?.Value?.[0] || '';
+                const seriesDesc = instanceTags?.SeriesDescription || '';
+                
+                // Heuristic: check for conversion markers
+                const isConverted = manufacturer.toLowerCase().includes('wsidicom') || 
+                                   software.toLowerCase().includes('wsidicom') ||
+                                   software.toLowerCase().includes('dicom server converter') ||
+                                   institutionName.toLowerCase().startsWith('converted:') ||
+                                   conversionType !== '' ||
+                                   derivationDesc.toLowerCase().includes('convert');
+                
+                // Extract original filename from InstitutionName if converted
+                let originalFile = '';
+                let sourceFormat = '';
+                if (institutionName.toLowerCase().startsWith('converted:')) {
+                    originalFile = institutionName.replace(/^converted:\s*/i, '').trim();
+                    // Remove job ID prefix if present (e.g., "b37a1ab6_CMU-1-Small-Region.svs")
+                    if (originalFile.match(/^[a-f0-9]{8}_/)) {
+                        originalFile = originalFile.substring(9);
+                    }
+                }
+                
+                // Extract source format from software or series description
+                if (software.includes('Converted from ')) {
+                    sourceFormat = software.split('Converted from ')[1]?.split('\\')[0] || '';
+                } else if (seriesDesc.includes('Source: ')) {
+                    sourceFormat = seriesDesc.split('Source: ')[1]?.replace(']', '') || '';
+                }
+                
+                const sourceType = isConverted ? 
+                    `Converted${sourceFormat ? ' from ' + sourceFormat : ''}` : 
+                    'Native DICOM WSI';
+                
+                html += `<div class="metadata-section">
+                    <h4>Scanner / Acquisition</h4>
+                    <div class="metadata-grid">
+                        ${metadataItem('Source Type', sourceType)}
+                        ${isConverted && originalFile ? metadataItem('Original File', originalFile) : ''}
+                        ${metadataItem('Manufacturer', manufacturer)}
+                        ${metadataItem('Scanner Model', model)}
+                        ${metadataItem('Software Version', software)}
+                        ${metadataItem('Station Name', stationName)}
+                        ${metadataItem('Device Serial', deviceSerial)}
+                        ${metadataItem('Acquisition Date', formatDate(acquisitionDate))}
+                        ${metadataItem('SOP Class', isWSI ? 'VL Whole Slide Microscopy' : sopClass)}
+                    </div>
+                </div>`;
+
+                // Image info from pyramid
+                if (pyramid && pyramid.TotalWidth) {
+                    const levels = pyramid.Resolutions?.length || 0;
+                    const megapixels = ((pyramid.TotalWidth * pyramid.TotalHeight) / 1000000).toFixed(1);
+                    
+                    html += `<div class="metadata-section">
+                        <h4>Image Information</h4>
+                        <div class="metadata-grid">
+                            ${metadataItem('Dimensions', `${pyramid.TotalWidth} × ${pyramid.TotalHeight} px`)}
+                            ${metadataItem('Megapixels', megapixels + ' MP')}
+                            ${metadataItem('Pyramid Levels', levels)}
+                            ${metadataItem('Tile Size', `${pyramid.TilesSizes?.[0]?.[0]} × ${pyramid.TilesSizes?.[0]?.[1]} px`)}
+                            ${metadataItem('Physical Width', pyramid.ImagedVolumeWidth?.toFixed(2) + ' mm')}
+                            ${metadataItem('Physical Height', pyramid.ImagedVolumeHeight?.toFixed(2) + ' mm')}
+                            ${metadataItem('Background Color', pyramid.BackgroundColor)}
+                        </div>
+                    </div>`;
+
+                    // Resolution levels
+                    if (pyramid.Resolutions && pyramid.Sizes) {
+                        html += `<div class="metadata-section">
+                            <h4>Pyramid Levels</h4>
+                            <div class="metadata-grid">`;
+                        for (let i = 0; i < pyramid.Resolutions.length; i++) {
+                            const tiles = pyramid.TilesCount?.[i];
+                            html += metadataItem(
+                                `Level ${i} (1:${pyramid.Resolutions[i].toFixed(1)})`,
+                                `${pyramid.Sizes[i][0]}×${pyramid.Sizes[i][1]}, ${tiles?.[0]}×${tiles?.[1]} tiles`
+                            );
+                        }
+                        html += `</div></div>`;
+                    }
+                }
+                
+                // Check for ICC profile
+                try {
+                    const iccRes = await fetch(`/api/studies/${currentStudy}/icc-profile`);
+                    if (iccRes.ok) {
+                        const iccData = await iccRes.json();
+                        if (iccData.has_icc) {
+                            const info = iccData.profile_info || {};
+                            const sizeKB = (iccData.size_bytes / 1024).toFixed(1);
+                            const cmm = info.preferred_cmm || 'Unknown';
+                            const colorSpace = info.color_space || 'Unknown';
+                            const profileClass = info.profile_class || 'Unknown';
+                            
+                            // Identify profile type
+                            let profileType = 'Custom Profile';
+                            if (cmm === 'lcms') profileType = 'LittleCMS (sRGB)';
+                            else if (cmm === 'ADBE') profileType = 'Adobe RGB';
+                            else if (cmm === 'APPL') profileType = 'Apple ColorSync';
+                            else if (cmm === 'SICC') profileType = 'Scanner ICC';
+                            else if (cmm === 'Lino') profileType = 'Linotype';
+                            else if (info.version) profileType = `ICC v${info.version}`;
+                            
+                            html += `<div class="metadata-section">
+                                <h4>🎨 Color Profile (ICC)</h4>
+                                <div class="metadata-grid">
+                                    ${metadataItem('Profile Present', '✓ Yes')}
+                                    ${metadataItem('Profile Type', profileType)}
+                                    ${metadataItem('Size', sizeKB + ' KB')}
+                                    ${metadataItem('Color Space', colorSpace)}
+                                    ${metadataItem('Profile Class', profileClass)}
+                                    ${metadataItem('Location', iccData.location || 'Unknown')}
+                                </div>
+                                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                                    <a href="/api/studies/${currentStudy}/icc-profile/raw" 
+                                       download="${currentStudy}.icc" 
+                                       style="color: var(--accent);">
+                                       ⬇ Download ICC Profile
+                                    </a>
+                                </p>
+                            </div>`;
+                        } else {
+                            html += `<div class="metadata-section">
+                                <h4>🎨 Color Profile</h4>
+                                <div class="metadata-grid">
+                                    ${metadataItem('Profile Present', 'No ICC profile embedded')}
+                                </div>
+                            </div>`;
+                        }
+                    }
+                } catch (iccErr) {
+                    console.log('Could not fetch ICC info:', iccErr);
+                }
+
+                content.innerHTML = html;
+
+            } catch (e) {
+                content.innerHTML = `<p style="color: var(--danger);">Failed to load metadata: ${e.message}</p>`;
+            }
+        }
+
+        function metadataItem(label, value) {
+            const displayValue = value || '';
+            const isEmpty = !value || value === '';
+            return `<div class="metadata-item">
+                <span class="metadata-label">${label}</span>
+                <span class="metadata-value ${isEmpty ? 'empty' : ''}">${displayValue || '—'}</span>
+            </div>`;
+        }
+
+        function formatDate(dicomDate) {
+            if (!dicomDate || dicomDate.length < 8) return dicomDate;
+            return `${dicomDate.substring(0,4)}-${dicomDate.substring(4,6)}-${dicomDate.substring(6,8)}`;
+        }
+
+        function closeMetadataModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('metadata-modal').classList.remove('active');
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeMetadataModal();
+        });
+    </script>
+</body>
+</html>
+

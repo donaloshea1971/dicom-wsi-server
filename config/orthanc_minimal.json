@@ -1,0 +1,20 @@
+{
+  "Name": "Minimal Orthanc",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "RemoteAccessAllowed": true,
+  "AuthenticationEnabled": false,
+  "DicomServerEnabled": true,
+  "DicomAet": "ORTHANC",
+  "DicomPort": 4242,
+  "DicomCheckCalledAet": false,
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowStore": true,
+  "HttpPort": 8042,
+  "Verbose": true,
+  "TraceEnabled": true,
+  "OverwriteInstances": true,
+  "StableAge": 0,
+  "StoreDicom": true,
+  "Plugins": []
+}

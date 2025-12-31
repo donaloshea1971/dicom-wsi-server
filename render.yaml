@@ -1,0 +1,83 @@
+# Render.com Blueprint - DICOM WSI Server
+# https://render.com/docs/blueprint-spec
+
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: dicom-postgres
+    env: docker
+    dockerfilePath: ./Dockerfile.postgres
+    disk:
+      name: postgres-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 10
+
+  # Redis Cache
+  - type: pserv
+    name: dicom-redis
+    env: docker
+    dockerfilePath: ./Dockerfile.redis
+    disk:
+      name: redis-data
+      mountPath: /data
+      sizeGB: 1
+
+  # Orthanc DICOM Server
+  - type: web
+    name: dicom-orthanc
+    env: docker
+    dockerfilePath: ./Dockerfile.orthanc
+    disk:
+      name: orthanc-storage
+      mountPath: /var/lib/orthanc/db
+      sizeGB: 50
+    envVars:
+      - key: POSTGRES_HOST
+        fromService:
+          name: dicom-postgres
+          type: pserv
+          property: host
+      - key: POSTGRES_PORT
+        value: 5432
+      - key: POSTGRES_DB
+        value: orthanc
+      - key: POSTGRES_USER
+        value: orthanc
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      - key: ORTHANC_USERNAME
+        value: admin
+      - key: ORTHANC_PASSWORD
+        generateValue: true
+
+  # WSI Format Converter
+  - type: pserv
+    name: dicom-converter
+    env: docker
+    dockerfilePath: ./converter/Dockerfile
+    disk:
+      name: converter-uploads
+      mountPath: /uploads
+      sizeGB: 20
+    envVars:
+      - key: ORTHANC_URL
+        value: http://dicom-orthanc:8042
+      - key: ORTHANC_USERNAME
+        value: admin
+      - key: ORTHANC_PASSWORD
+        fromService:
+          name: dicom-orthanc
+          type: web
+          envVarKey: ORTHANC_PASSWORD
+
+  # Web Viewer (Main Entry Point)
+  - type: web
+    name: dicom-viewer
+    env: docker
+    dockerfilePath: ./Dockerfile.viewer
+    envVars:
+      - key: ORTHANC_URL
+        value: http://dicom-orthanc:8042
+      - key: CONVERTER_URL
+        value: http://dicom-converter:8000
+

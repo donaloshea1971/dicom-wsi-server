@@ -1,0 +1,150 @@
+services:
+  # =============================================================================
+  # Orthanc DICOM Server with DICOMweb + WSI plugins
+  # =============================================================================
+  orthanc:
+    image: jodogne/orthanc-plugins:latest
+    container_name: dicom-orthanc
+    ports:
+      - "8042:8042"   # Orthanc Explorer + REST API
+      - "4242:4242"   # DICOM port (C-STORE, C-FIND, etc.)
+    volumes:
+      - ./config/orthanc.json:/etc/orthanc/orthanc.json:ro
+      - orthanc-storage:/var/lib/orthanc/db
+    environment:
+      - ORTHANC__POSTGRESQL__ENABLE_INDEX=true
+      - ORTHANC__POSTGRESQL__HOST=postgres
+      - ORTHANC__POSTGRESQL__PORT=5432
+      - ORTHANC__POSTGRESQL__DATABASE=orthanc
+      - ORTHANC__POSTGRESQL__USERNAME=orthanc
+      - ORTHANC__POSTGRESQL__PASSWORD=orthanc_secret
+      - VERBOSE_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dicom-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --user=admin --password=orthanc http://localhost:8042/system || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # =============================================================================
+  # PostgreSQL Database for Orthanc metadata
+  # =============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: dicom-postgres
+    environment:
+      POSTGRES_DB: orthanc
+      POSTGRES_USER: orthanc
+      POSTGRES_PASSWORD: orthanc_secret
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - dicom-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orthanc -d orthanc"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # Redis Cache for tile caching
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: dicom-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - dicom-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # Conversion Service (Python FastAPI + wsidicomizer)
+  # =============================================================================
+  converter:
+    build:
+      context: ./converter
+      dockerfile: Dockerfile
+    container_name: dicom-converter
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/uploads
+      - ./converter:/app
+      - ./testdata:/app/testdata
+    environment:
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_USERNAME=admin
+      - ORTHANC_PASSWORD=orthanc
+      - REDIS_URL=redis://redis:6379
+      - WATCH_FOLDER=/uploads
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      orthanc:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dicom-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # C-STORE Proxy (Workaround for mainline C-STORE bug)
+  # =============================================================================
+  cstore-proxy:
+    build:
+      context: ./cstore-proxy
+      dockerfile: Dockerfile
+    container_name: dicom-cstore-proxy
+    ports:
+      - "4243:4243"   # C-STORE proxy port
+    environment:
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_USERNAME=admin
+      - ORTHANC_PASSWORD=orthanc
+    depends_on:
+      orthanc:
+        condition: service_healthy
+    networks:
+      - dicom-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Web Viewer (OpenSeadragon + static files)
+  # =============================================================================
+  viewer:
+    image: nginx:alpine
+    container_name: dicom-viewer
+    ports:
+      - "3000:80"
+    volumes:
+      - ./viewer:/usr/share/nginx/html:ro
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - orthanc
+    networks:
+      - dicom-network
+    restart: unless-stopped
+
+volumes:
+  orthanc-storage:
+  postgres-data:
+  redis-data:
+
+networks:
+  dicom-network:
+    driver: bridge
+

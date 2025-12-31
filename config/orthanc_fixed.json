@@ -1,0 +1,86 @@
+{
+  "Name": "Diagnexia DICOM WSI Server",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "StorageCompression": false,
+  
+  "RemoteAccessAllowed": true,
+  "AuthenticationEnabled": true,
+  "RegisteredUsers": {
+    "admin": "orthanc",
+    "viewer": "viewer123"
+  },
+  
+  "DicomServerEnabled": true,
+  "DicomAet": "DIAGNEXIA",
+  "DicomPort": 4242,
+  "DicomCheckCalledAet": false,
+  
+  "HttpServerEnabled": true,
+  "HttpPort": 8042,
+  "HttpDescribeErrors": true,
+  "HttpCompressionEnabled": true,
+  
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado/",
+    "Host": "0.0.0.0",
+    "Ssl": false,
+    "StudiesMetadata": "Full",
+    "SeriesMetadata": "Full"
+  },
+  
+  "Worklists": {
+    "Enable": false
+  },
+  
+  "ConcurrentJobs": 4,
+  "JobsHistorySize": 100,
+  
+  "LuaScripts": [],
+  
+  "Plugins": [
+    "/usr/local/share/orthanc/plugins"
+  ],
+  
+  "PostgreSQL": {
+    "EnableIndex": true,
+    "EnableStorage": false,
+    "Host": "postgres",
+    "Port": 5432,
+    "Database": "orthanc",
+    "Username": "orthanc",
+    "Password": "orthanc_secret",
+    "Lock": false
+  },
+  
+  "WholeSlideMicroscopyImaging": {
+    "Enable": true
+  },
+
+  "KeepAlive": true,
+  "TcpNoDelay": true,
+  "HttpThreadsCount": 50,
+  
+  "OverwriteInstances": true,
+  "MediaArchiveSize": 1,
+  
+  "UserMetadata": {},
+  
+  "DicomModalitiesInDatabase": true,
+  "OrthancPeersInDatabase": true,
+
+  "StableAge": 60,
+  "StoreDicom": true,
+  "Verbose": true,
+  "TraceEnabled": true,
+  "StrictAetComparison": false,
+  "StoreMD5ForAttachments": true,
+  
+  "MaximumStorageSize": 0,
+  "MaximumPatientCount": 0,
+  
+  "DefaultEncoding": "Utf8"
+}

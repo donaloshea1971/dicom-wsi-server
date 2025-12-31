@@ -1,0 +1,93 @@
+{
+  "Name": "Orthanc DICOM Server",
+  "HttpServerEnabled": true,
+  "HttpPort": 8042,
+  "HttpThreadsCount": 10,
+  
+  "DicomServerEnabled": true,
+  "DicomAet": "ORTHANC",
+  "DicomPort": 4242,
+  "DicomCheckCalledAet": false,
+  
+  "RemoteAccessAllowed": true,
+  "AuthenticationEnabled": true,
+  "RegisteredUsers": {
+    "admin": "orthanc"
+  },
+  
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  
+  "Plugins": [
+    "/usr/share/orthanc/plugins",
+    "/usr/local/share/orthanc/plugins"
+  ],
+  
+  "PostgreSQL": {
+    "EnableIndex": true,
+    "EnableStorage": false,
+    "Host": "postgres",
+    "Port": 5432,
+    "Database": "orthanc",
+    "Username": "orthanc",
+    "Password": "orthanc_secret"
+  },
+  
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado",
+    "Ssl": false,
+    "QidoCaseSensitive": false,
+    "Host": "0.0.0.0",
+    "StudiesMetadata": "Full",
+    "SeriesMetadata": "Full"
+  },
+  
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowStore": true,
+  "StableAge": 3,
+  "StrictAetComparison": false,
+  "StoreMD5ForAttachments": false,
+  "LimitFindResults": 0,
+  "LimitFindInstances": 0,
+  "LogExportedResources": false,
+  "KeepAlive": true,
+  "TcpNoDelay": true,
+  "HttpRequestTimeout": 300,
+  "StoreDicom": true,
+  "DicomScpTimeout": 300,
+  "DicomScuTimeout": 300,
+  
+  "HttpVerbose": false,
+  "Verbose": true,
+  "TraceEnabled": true,
+  
+  "ConcurrentJobs": 4,
+  "JobsHistorySize": 100,
+  
+  "MediaArchiveSize": 1,
+  "StorageAccessOnFind": "Always",
+  "SaveJobs": true,
+  
+  "DefaultEncoding": "Latin1",
+  "AcceptedTransferSyntaxes": [ "1.2.*" ],
+  "UnknownSopClassAccepted": true,
+  "DicomModalitiesInDatabase": false,
+  "OrthancPeersInDatabase": false,
+  
+  "OverwriteInstances": true,
+  
+  "WSI": {
+    "Enable": true,
+    "EnablePyramid": true,
+    "EnableDicomizer": true,
+    "TileWidth": 512,
+    "TileHeight": 512,
+    "Threads": 4,
+    "CacheSize": 1024,
+    "EnableConcatenations": true,
+    "ForcePyramidCreation": false
+  }
+}
