@@ -26,6 +26,36 @@ import requests
 from pydicom import dcmread
 from pynetdicom import AE, evt, ALL_TRANSFER_SYNTAXES, StoragePresentationContexts
 from pynetdicom.sop_class import VLWholeSlideMicroscopyImageStorage
+from pydicom.uid import (
+    ImplicitVRLittleEndian,
+    ExplicitVRLittleEndian,
+    ExplicitVRBigEndian,
+    JPEGBaseline8Bit,
+    JPEGExtended12Bit,
+    JPEGLossless,
+    JPEGLosslessSV1,
+    JPEGLSLossless,
+    JPEGLSNearLossless,
+    JPEG2000Lossless,
+    JPEG2000,
+    RLELossless,
+)
+
+# Extended transfer syntaxes including all JPEG variants
+EXTENDED_TRANSFER_SYNTAXES = [
+    ImplicitVRLittleEndian,
+    ExplicitVRLittleEndian,
+    ExplicitVRBigEndian,
+    JPEGBaseline8Bit,        # 1.2.840.10008.1.2.4.50 - JPEG Baseline (Process 1)
+    JPEGExtended12Bit,       # 1.2.840.10008.1.2.4.51 - JPEG Extended (Process 2 & 4)
+    JPEGLossless,            # 1.2.840.10008.1.2.4.57 - JPEG Lossless
+    JPEGLosslessSV1,         # 1.2.840.10008.1.2.4.70 - JPEG Lossless SV1
+    JPEGLSLossless,          # 1.2.840.10008.1.2.4.80 - JPEG-LS Lossless
+    JPEGLSNearLossless,      # 1.2.840.10008.1.2.4.81 - JPEG-LS Near Lossless
+    JPEG2000Lossless,        # 1.2.840.10008.1.2.4.90 - JPEG 2000 Lossless
+    JPEG2000,                # 1.2.840.10008.1.2.4.91 - JPEG 2000
+    RLELossless,             # 1.2.840.10008.1.2.5 - RLE Lossless
+]
 
 # Configuration from environment
 ORTHANC_URL = os.environ.get("ORTHANC_URL", "http://localhost:8042")
@@ -123,13 +153,13 @@ class CStoreProxy:
             with open(file_path, 'rb') as f:
                 dicom_data = f.read()
             
-            # Upload to Orthanc
+            # Upload to Orthanc (long timeout for large WSI files)
             response = requests.post(
                 f"{self.orthanc_url}/instances",
                 auth=self.orthanc_auth,
                 data=dicom_data,
                 headers={"Content-Type": "application/dicom"},
-                timeout=30
+                timeout=1800  # 30 minutes for large WSI files
             )
             
             if response.status_code == 200:
@@ -177,26 +207,25 @@ def main():
     # Create Application Entity
     ae = AE(ae_title=PROXY_AET)
     
-    # Add all storage presentation contexts with all transfer syntaxes
-    # This is the simplest way to ensure we accept all DICOM files
+    # Add all storage presentation contexts with extended transfer syntaxes (including JPEG)
     for context in StoragePresentationContexts:
         ae.add_supported_context(
             context.abstract_syntax,
-            ALL_TRANSFER_SYNTAXES,
+            EXTENDED_TRANSFER_SYNTAXES,
             scp_role=True,
             scu_role=False
         )
     
-    # Ensure WSI is supported (it might not be in StoragePresentationContexts)
+    # Ensure WSI is supported with all JPEG variants (critical for 3DHISTECH, etc.)
     ae.add_supported_context(
         VLWholeSlideMicroscopyImageStorage,
-        ALL_TRANSFER_SYNTAXES,
+        EXTENDED_TRANSFER_SYNTAXES,
         scp_role=True,
         scu_role=False
     )
     
     logger.info(f"Supporting {len(StoragePresentationContexts) + 1} SOP classes "
-               f"with {len(ALL_TRANSFER_SYNTAXES)} transfer syntaxes each")
+               f"with {len(EXTENDED_TRANSFER_SYNTAXES)} transfer syntaxes each (including JPEG)")
     
     # Set handlers
     handlers = [
