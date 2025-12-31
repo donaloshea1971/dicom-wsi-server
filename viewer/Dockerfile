@@ -32,17 +32,19 @@ server {
         proxy_read_timeout 600s;
     }
 
-    location /wsi/ {
+    # WSI tiles - match all /wsi/* paths
+    location ~ ^/wsi/(.*)$ {
         set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/wsi/;
+        proxy_pass $orthanc/wsi/$1$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
         proxy_redirect off;
     }
 
-    location /dicom-web/ {
+    # DICOMweb - match all /dicom-web/* paths
+    location ~ ^/dicom-web/(.*)$ {
         set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/dicom-web/;
+        proxy_pass $orthanc/dicom-web/$1$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
         proxy_redirect off;
