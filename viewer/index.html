@@ -299,27 +299,21 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Simple loading overlay */
-        .viewer-loading-overlay {
+        /* Loading spinner */
+        .loading {
+            display: none;
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #000;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.5s ease-out;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
         }
-        
-        .viewer-loading-overlay.hidden {
-            opacity: 0;
-            pointer-events: none;
+
+        .loading.active {
+            display: block;
         }
-        
-        .viewer-loading-overlay .spinner {
+
+        .spinner {
             width: 48px;
             height: 48px;
             border: 3px solid var(--border);
@@ -604,8 +598,8 @@
             </div>
         </div>
 
-        <!-- Simple loading overlay - starts hidden -->
-        <div class="viewer-loading-overlay hidden" id="viewer-loading-overlay">
+        <!-- Loading spinner -->
+        <div class="loading" id="loading">
             <div class="spinner"></div>
         </div>
     </main>
@@ -803,7 +797,7 @@
 
         // Load a study into the viewer using Orthanc WSI plugin
         async function loadStudy(studyId) {
-            showLoadingOverlay('Loading image metadata...');
+            showLoading(true);
             currentStudy = studyId;
             
             // Close metadata modal when switching images
@@ -1090,11 +1084,7 @@
                 
                 viewer.addHandler('open', () => {
                     console.log('Viewer opened successfully');
-                    
-                    // Wait 1.2 seconds for tiles to load, then reveal
-                    setTimeout(() => {
-                        hideLoadingOverlay();
-                    }, 1200);
+                    showLoading(false);
                     
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
@@ -1140,7 +1130,7 @@
                 
                 viewer.addHandler('open-failed', (e) => {
                     console.error('Failed to open:', e);
-                    hideLoadingOverlay();
+                    showLoading(false);
                 });
                 
                 // Add tile loading diagnostics
@@ -1164,19 +1154,12 @@
 
             } catch (e) {
                 console.error('Failed to load study:', e);
-                hideLoadingOverlay();
+                showLoading(false);
             }
         }
 
-        // Simple loading overlay - show/hide
-        function showLoadingOverlay() {
-            const overlay = document.getElementById('viewer-loading-overlay');
-            if (overlay) overlay.classList.remove('hidden');
-        }
-        
-        function hideLoadingOverlay() {
-            const overlay = document.getElementById('viewer-loading-overlay');
-            if (overlay) overlay.classList.add('hidden');
+        function showLoading(show) {
+            document.getElementById('loading').classList.toggle('active', show);
         }
         
         // Toggle gamma correction for Hamamatsu NDPI images (legacy SVG filter method)
