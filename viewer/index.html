@@ -716,15 +716,15 @@
         async function checkServerStatus() {
             const badge = document.getElementById('server-status');
             try {
-                const response = await fetch('/api/status');
+                const response = await fetch('/api/system');
                 const data = await response.json();
                 
-                if (data.orthanc?.status === 'connected') {
-                    badge.textContent = `Orthanc ${data.orthanc.version || 'connected'}`;
+                if (data.Version) {
+                    badge.textContent = `Orthanc ${data.Version}`;
                     badge.classList.add('connected');
                 } else {
-                    badge.textContent = 'Orthanc disconnected';
-                    badge.classList.remove('connected');
+                    badge.textContent = 'Orthanc connected';
+                    badge.classList.add('connected');
                 }
             } catch (e) {
                 badge.textContent = 'Server offline';
