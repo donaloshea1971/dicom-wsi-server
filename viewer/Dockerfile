@@ -21,46 +21,15 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    location /api/studies {
+    # Orthanc API - match all /api/* paths
+    location ~ ^/api/(.*)$ {
         set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/studies;
+        proxy_pass $orthanc/$1$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
         proxy_redirect off;
         proxy_read_timeout 600s;
-    }
-
-    location /api/series {
-        set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/series;
-        proxy_set_header Host $host;
-        proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
-        proxy_redirect off;
-    }
-
-    location /api/instances {
-        set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/instances;
-        proxy_set_header Host $host;
-        proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
-        proxy_redirect off;
-    }
-
-    location /api/patients {
-        set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/patients;
-        proxy_set_header Host $host;
-        proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
-        proxy_redirect off;
-    }
-
-    location /api/system {
-        set $orthanc http://dicom-orthanc:8042;
-        proxy_pass $orthanc/system;
-        proxy_set_header Host $host;
-        proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
-        proxy_redirect off;
     }
 
     location /wsi/ {
