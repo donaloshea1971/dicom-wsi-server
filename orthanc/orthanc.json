@@ -2,7 +2,7 @@
   "Name": "Orthanc DICOM Server",
   "HttpServerEnabled": true,
   "HttpPort": 8042,
-  "HttpThreadsCount": 10,
+  "HttpThreadsCount": 20,
   
   "DicomServerEnabled": true,
   "DicomAet": "ORTHANC",
@@ -30,7 +30,9 @@
     "Port": 5432,
     "Database": "orthanc",
     "Username": "orthanc",
-    "Password": "orthanc_secret"
+    "Password": "orthanc_secret",
+    "MaximumConnectionRetries": 10,
+    "ConnectionRetryInterval": 5
   },
   
   "DicomWeb": {
@@ -55,21 +57,21 @@
   "LogExportedResources": false,
   "KeepAlive": true,
   "TcpNoDelay": true,
-  "HttpRequestTimeout": 300,
+  "HttpRequestTimeout": 600,
   "StoreDicom": true,
-  "DicomScpTimeout": 300,
-  "DicomScuTimeout": 300,
+  "DicomScpTimeout": 600,
+  "DicomScuTimeout": 600,
   
   "HttpVerbose": false,
-  "Verbose": true,
-  "TraceEnabled": true,
+  "Verbose": false,
+  "TraceEnabled": false,
   
-  "ConcurrentJobs": 4,
-  "JobsHistorySize": 100,
+  "ConcurrentJobs": 8,
+  "JobsHistorySize": 50,
   
   "MediaArchiveSize": 1,
-  "StorageAccessOnFind": "Always",
-  "SaveJobs": true,
+  "StorageAccessOnFind": "Never",
+  "SaveJobs": false,
   
   "DefaultEncoding": "Latin1",
   "AcceptedTransferSyntaxes": [ "1.2.*" ],
@@ -79,14 +81,17 @@
   
   "OverwriteInstances": true,
   
+  "MaximumStorageSize": 0,
+  "MaximumPatientCount": 0,
+  
   "WSI": {
     "Enable": true,
     "EnablePyramid": true,
     "EnableDicomizer": true,
     "TileWidth": 512,
     "TileHeight": 512,
-    "Threads": 4,
-    "CacheSize": 1024,
+    "Threads": 8,
+    "CacheSize": 2048,
     "EnableConcatenations": true,
     "ForcePyramidCreation": false
   }
