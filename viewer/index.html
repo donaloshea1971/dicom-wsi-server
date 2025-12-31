@@ -739,7 +739,9 @@
 
             try {
                 const response = await fetch('/api/studies?expand');
-                const studies = await response.json();
+                const data = await response.json();
+                // Orthanc returns { value: [...], Count: N } with ?expand
+                const studies = Array.isArray(data) ? data : (data.value || data);
 
                 if (studies && studies.length > 0) {
                     list.innerHTML = studies.map(study => {
