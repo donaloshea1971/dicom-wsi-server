@@ -738,12 +738,19 @@
             list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin: 0 auto 16px;"></div><p>Loading studies...</p></div>';
 
             try {
-                const response = await fetch('/api/studies?expand');
-                const data = await response.json();
-                // Orthanc returns { value: [...], Count: N } with ?expand
-                const studies = Array.isArray(data) ? data : (data.value || data);
-
-                if (studies && studies.length > 0) {
+                // Get list of study IDs
+                const response = await fetch('/api/studies');
+                const studyIds = await response.json();
+                
+                // Handle both array and {value:[]} formats
+                const ids = Array.isArray(studyIds) ? studyIds : (studyIds.value || []);
+                
+                if (ids && ids.length > 0) {
+                    // Fetch details for each study
+                    const studies = await Promise.all(
+                        ids.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
+                    );
+                    
                     list.innerHTML = studies.map(study => {
                         // Format patient name (DICOM uses ^ as separator)
                         const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
