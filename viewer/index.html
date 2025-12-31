@@ -299,7 +299,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Loading overlay - completely hides viewer until ready */
+        /* Simple loading overlay */
         .viewer-loading-overlay {
             position: absolute;
             top: 0;
@@ -309,11 +309,9 @@
             background: #000;
             z-index: 100;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 20px;
-            transition: opacity 0.6s ease-out;
+            transition: opacity 0.5s ease-out;
         }
         
         .viewer-loading-overlay.hidden {
@@ -321,42 +319,13 @@
             pointer-events: none;
         }
         
-        .viewer-loading-overlay .preview-img {
-            max-width: 80%;
-            max-height: 60%;
-            object-fit: contain;
-            border-radius: 4px;
-            box-shadow: 0 4px 30px rgba(0, 212, 170, 0.1);
-        }
-        
-        .viewer-loading-overlay .loading-spinner {
-            width: 40px;
-            height: 40px;
+        .viewer-loading-overlay .spinner {
+            width: 48px;
+            height: 48px;
             border: 3px solid var(--border);
             border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
-        }
-        
-        .viewer-loading-overlay .loading-status {
-            font-size: 13px;
-            color: var(--text-secondary);
-            text-align: center;
-        }
-        
-        .viewer-loading-overlay .loading-progress {
-            width: 200px;
-            height: 3px;
-            background: var(--border);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        
-        .viewer-loading-overlay .loading-progress-bar {
-            height: 100%;
-            background: var(--accent);
-            width: 0%;
-            transition: width 0.2s ease-out;
         }
 
         /* Button styles */
@@ -635,14 +604,9 @@
             </div>
         </div>
 
-        <!-- Loading overlay - covers viewer until tiles are ready -->
+        <!-- Simple loading overlay -->
         <div class="viewer-loading-overlay" id="viewer-loading-overlay">
-            <img class="preview-img" id="preview-img" src="" alt="" style="display: none;">
-            <div class="loading-spinner"></div>
-            <div class="loading-status" id="loading-status">Loading image...</div>
-            <div class="loading-progress">
-                <div class="loading-progress-bar" id="loading-progress-bar"></div>
-            </div>
+            <div class="spinner"></div>
         </div>
     </main>
 
@@ -908,10 +872,6 @@
                     pyramid = await pyramidResponse.json();
                 }
                 console.log('WSI Pyramid:', pyramid);
-                
-                // Load preview thumbnail while setting up viewer
-                updateLoadingProgress(0, 'Loading preview...');
-                await loadPreviewThumbnail(seriesId, pyramid);
 
                 if (viewer) {
                     viewer.destroy();
@@ -1131,10 +1091,10 @@
                 viewer.addHandler('open', () => {
                     console.log('Viewer opened successfully');
                     
-                    // Setup tile loading watcher - reveals viewer once enough tiles loaded
-                    setupTileLoadingWatcher(() => {
+                    // Wait 1.2 seconds for tiles to load, then reveal
+                    setTimeout(() => {
                         hideLoadingOverlay();
-                    });
+                    }, 1200);
                     
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
@@ -1208,138 +1168,15 @@
             }
         }
 
-        // Loading overlay management
-        let loadingTileCount = 0;
-        let loadingTileTarget = 20;
-        let loadingOverlayRevealed = false;
-        
-        function showLoadingOverlay(text = 'Loading image...') {
+        // Simple loading overlay - show/hide
+        function showLoadingOverlay() {
             const overlay = document.getElementById('viewer-loading-overlay');
-            const status = document.getElementById('loading-status');
-            const progressBar = document.getElementById('loading-progress-bar');
-            
-            if (overlay) {
-                overlay.classList.remove('hidden');
-                loadingOverlayRevealed = false;
-            }
-            if (status) status.textContent = text;
-            if (progressBar) progressBar.style.width = '0%';
-            loadingTileCount = 0;
-        }
-        
-        function updateLoadingProgress(tilesLoaded, text) {
-            const status = document.getElementById('loading-status');
-            const progressBar = document.getElementById('loading-progress-bar');
-            
-            if (status && text) status.textContent = text;
-            if (progressBar) {
-                const progress = Math.min(100, (tilesLoaded / loadingTileTarget) * 100);
-                progressBar.style.width = progress + '%';
-            }
+            if (overlay) overlay.classList.remove('hidden');
         }
         
         function hideLoadingOverlay() {
-            if (loadingOverlayRevealed) return;
-            loadingOverlayRevealed = true;
-            
             const overlay = document.getElementById('viewer-loading-overlay');
-            if (overlay) {
-                overlay.classList.add('hidden');
-                // Clean up preview image after transition
-                setTimeout(() => {
-                    const img = document.getElementById('preview-img');
-                    if (img) {
-                        img.src = '';
-                        img.style.display = 'none';
-                    }
-                }, 600);
-            }
-        }
-        
-        // Load a preview thumbnail into the loading overlay
-        async function loadPreviewThumbnail(seriesId, pyramid) {
-            const previewImg = document.getElementById('preview-img');
-            if (!previewImg) return;
-            
-            try {
-                // Use the lowest resolution level
-                const lowestLevelIndex = pyramid.Sizes.length - 1;
-                const lowestWidth = pyramid.Sizes[lowestLevelIndex][0];
-                const lowestHeight = pyramid.Sizes[lowestLevelIndex][1];
-                
-                // Only show preview if it's a small enough image
-                if (lowestWidth <= 512 && lowestHeight <= 512) {
-                    const previewUrl = `/wsi/tiles/${seriesId}/${lowestLevelIndex}/0/0?_=${Date.now()}`;
-                    
-                    return new Promise((resolve) => {
-                        previewImg.onload = () => {
-                            previewImg.style.display = 'block';
-                            resolve(true);
-                        };
-                        previewImg.onerror = () => resolve(false);
-                        previewImg.src = previewUrl;
-                        
-                        // Timeout after 2 seconds
-                        setTimeout(() => resolve(false), 2000);
-                    });
-                }
-            } catch (e) {
-                console.log('Preview thumbnail failed:', e);
-            }
-            return false;
-        }
-        
-        // Wait for enough tiles to load before revealing viewer
-        function setupTileLoadingWatcher(onReady) {
-            loadingTileCount = 0;
-            loadingOverlayRevealed = false;
-            
-            // Calculate target based on viewport
-            const viewerEl = document.getElementById('osd-viewer');
-            const viewportWidth = viewerEl?.clientWidth || 800;
-            const viewportHeight = viewerEl?.clientHeight || 600;
-            const tileSize = 256;
-            const tilesAcross = Math.ceil(viewportWidth / tileSize);
-            const tilesDown = Math.ceil(viewportHeight / tileSize);
-            loadingTileTarget = Math.max(6, tilesAcross * tilesDown);
-            
-            console.log(`Waiting for ~${loadingTileTarget} tiles before revealing viewer`);
-            
-            let revealed = false;
-            const maxWaitTime = 3000; // Max 3 seconds wait
-            const startTime = Date.now();
-            
-            const tileHandler = (e) => {
-                loadingTileCount++;
-                const progress = Math.min(loadingTileCount, loadingTileTarget);
-                updateLoadingProgress(progress, `Loading tiles... ${progress}/${loadingTileTarget}`);
-                
-                // Reveal once we have enough tiles
-                if (!revealed && loadingTileCount >= loadingTileTarget) {
-                    revealed = true;
-                    viewer.removeHandler('tile-loaded', tileHandler);
-                    onReady();
-                }
-            };
-            
-            viewer.addHandler('tile-loaded', tileHandler);
-            
-            // Fallback timeout - reveal after max wait time even if not all tiles loaded
-            setTimeout(() => {
-                if (!revealed) {
-                    revealed = true;
-                    viewer.removeHandler('tile-loaded', tileHandler);
-                    console.log(`Timeout reached, revealing with ${loadingTileCount} tiles`);
-                    onReady();
-                }
-            }, maxWaitTime);
-        }
-        
-        // Legacy function for compatibility
-        function showLoading(show, text) {
-            if (show) {
-                showLoadingOverlay(text);
-            }
+            if (overlay) overlay.classList.add('hidden');
         }
         
         // Toggle gamma correction for Hamamatsu NDPI images (legacy SVG filter method)
