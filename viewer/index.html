@@ -738,11 +738,11 @@
             list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin: 0 auto 16px;"></div><p>Loading studies...</p></div>';
 
             try {
-                const response = await fetch('/api/studies');
-                const data = await response.json();
+                const response = await fetch('/api/studies?expand');
+                const studies = await response.json();
 
-                if (data.studies && data.studies.length > 0) {
-                    list.innerHTML = data.studies.map(study => {
+                if (studies && studies.length > 0) {
+                    list.innerHTML = studies.map(study => {
                         // Format patient name (DICOM uses ^ as separator)
                         const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
                         const accession = study.MainDicomTags?.AccessionNumber;
