@@ -90,15 +90,6 @@ class CStoreProxy:
         }
         self.last_log_time = time.time()
         
-        # Set up C-STORE SCU for forwarding to Orthanc
-        self.forward_ae = AE(ae_title="CSTORE_PROXY")
-        for context in StoragePresentationContexts:
-            self.forward_ae.add_requested_context(context.abstract_syntax, EXTENDED_TRANSFER_SYNTAXES)
-        self.forward_ae.add_requested_context(VLWholeSlideMicroscopyImageStorage, EXTENDED_TRANSFER_SYNTAXES)
-        self.forward_ae.network_timeout = 1800
-        self.forward_ae.acse_timeout = 1800
-        self.forward_ae.dimse_timeout = 1800
-        
     def handle_store(self, event):
         """Handle C-STORE requests"""
         self.stats["received"] += 1
@@ -171,8 +162,15 @@ class CStoreProxy:
             # Read DICOM file
             ds = dcmread(file_path)
             
+            # Create AE on-demand with just the needed context
+            forward_ae = AE(ae_title="CSTORE_PROXY")
+            forward_ae.add_requested_context(ds.SOPClassUID, EXTENDED_TRANSFER_SYNTAXES)
+            forward_ae.network_timeout = 1800
+            forward_ae.acse_timeout = 1800
+            forward_ae.dimse_timeout = 1800
+            
             # Connect to Orthanc via C-STORE
-            assoc = self.forward_ae.associate(self.orthanc_host, self.orthanc_port, ae_title="ORTHANC")
+            assoc = forward_ae.associate(self.orthanc_host, self.orthanc_port, ae_title="ORTHANC")
             
             if assoc.is_established:
                 # Send via C-STORE
@@ -188,7 +186,7 @@ class CStoreProxy:
                     return False
             else:
                 logger.error(f"Failed to connect to Orthanc C-STORE at {self.orthanc_host}:{self.orthanc_port}")
-                # Fallback to REST API for smaller files
+                # Fallback to REST API
                 return self.forward_to_orthanc_rest(file_path, sop_uid)
                 
         except Exception as e:
