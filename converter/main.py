@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -254,6 +254,33 @@ async def get_orthanc_system():
             return response.json()
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
+@app.post("/instances")
+async def upload_dicom_instance(request: Request):
+    """Upload a DICOM instance directly to Orthanc"""
+    try:
+        content = await request.body()
+        
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            response = await client.post(
+                f"{settings.orthanc_url}/instances",
+                content=content,
+                headers={"Content-Type": "application/dicom"},
+                auth=(settings.orthanc_username, settings.orthanc_password)
+            )
+            
+            if response.status_code in [200, 201]:
+                return response.json()
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Orthanc error: {response.text}"
+                )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Upload timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
