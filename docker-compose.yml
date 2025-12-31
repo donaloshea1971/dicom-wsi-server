@@ -4,8 +4,8 @@ services:
   # =============================================================================
   orthanc:
     build:
-      context: .
-      dockerfile: orthanc/Dockerfile
+      context: ./orthanc
+      dockerfile: Dockerfile
     container_name: dicom-orthanc
     ports:
       - "8042:8042"
