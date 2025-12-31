@@ -5,11 +5,11 @@ services:
   orthanc:
     build:
       context: .
-      dockerfile: Dockerfile.orthanc
+      dockerfile: orthanc/Dockerfile
     container_name: dicom-orthanc
     ports:
-      - "8042:8042"   # Orthanc Explorer + REST API
-      - "4242:4242"   # DICOM port (C-STORE, C-FIND, etc.)
+      - "8042:8042"
+      - "4242:4242"
     volumes:
       - orthanc-storage:/var/lib/orthanc/db
     environment:
@@ -38,8 +38,8 @@ services:
   # =============================================================================
   postgres:
     build:
-      context: .
-      dockerfile: Dockerfile.postgres
+      context: ./postgres
+      dockerfile: Dockerfile
     container_name: dicom-postgres
     environment:
       POSTGRES_DB: orthanc
@@ -61,8 +61,8 @@ services:
   # =============================================================================
   redis:
     build:
-      context: .
-      dockerfile: Dockerfile.redis
+      context: ./redis
+      dockerfile: Dockerfile
     container_name: dicom-redis
     volumes:
       - redis-data:/data
@@ -112,7 +112,7 @@ services:
       dockerfile: Dockerfile
     container_name: dicom-cstore-proxy
     ports:
-      - "4243:4243"   # C-STORE proxy port
+      - "4243:4243"
     environment:
       - ORTHANC_URL=http://orthanc:8042
       - ORTHANC_USERNAME=admin
@@ -129,8 +129,8 @@ services:
   # =============================================================================
   viewer:
     build:
-      context: .
-      dockerfile: Dockerfile.viewer
+      context: ./viewer
+      dockerfile: Dockerfile
     container_name: dicom-viewer
     ports:
       - "3000:80"
