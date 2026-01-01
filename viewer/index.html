@@ -571,6 +571,13 @@
             padding: 10px 12px;
             margin-bottom: 6px;
             font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .annotation-item:hover {
+            border-color: var(--accent);
+            background: rgba(0, 212, 170, 0.1);
         }
 
         .annotation-item-header {
@@ -1852,10 +1859,10 @@
             }
             
             list.innerHTML = annotations.map(a => `
-                <div class="annotation-item" data-id="${a.id}">
+                <div class="annotation-item" data-id="${a.id}" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;" title="Click to navigate">
                     <div class="annotation-item-header">
                         <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.tool}</span>
-                        <button class="annotation-item-delete" onclick="deleteAnnotation('${a.id}')" title="Delete">×</button>
+                        <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
                     </div>
                     ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
                     ${a.label ? `<div style="color: var(--text-secondary); font-size: 11px;">${a.label}</div>` : ''}
@@ -1881,6 +1888,11 @@
                 await annotationManager.deleteAnnotation(annotationId);
                 updateAnnotationsList();
             }
+        }
+        
+        function goToAnnotation(annotationId) {
+            if (!annotationManager) return;
+            annotationManager.goToAnnotation(annotationId);
         }
         
         async function clearAnnotations() {

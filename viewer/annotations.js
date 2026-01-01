@@ -428,14 +428,27 @@ class AnnotationManager {
         return { value: areaUm2, unit: 'µm²', display: `${areaUm2.toFixed(0)} µm²` };
     }
     
-    // Create annotations
+    // Get current zoom level for storing with annotation
+    getCurrentZoom() {
+        try {
+            return this.viewer.viewport.getZoom();
+        } catch (e) {
+            return 1;
+        }
+    }
+    
+    // Create annotations (with zoom level capture)
     async createLineAnnotation(start, end) {
         const measurement = this.calculateDistance(start, end);
         await this.saveAnnotation({
             type: 'measurement',
             tool: 'line',
             geometry: { type: 'LineString', coordinates: [[start.x, start.y], [end.x, end.y]] },
-            properties: { color: this.styles.line.stroke, measurement }
+            properties: { 
+                color: this.styles.line.stroke, 
+                measurement,
+                zoom: this.getCurrentZoom()
+            }
         });
     }
     
@@ -445,7 +458,11 @@ class AnnotationManager {
             type: 'measurement',
             tool: 'rectangle',
             geometry: { type: 'Rectangle', coordinates: [[start.x, start.y], [end.x, end.y]] },
-            properties: { color: this.styles.rectangle.stroke, measurement }
+            properties: { 
+                color: this.styles.rectangle.stroke, 
+                measurement,
+                zoom: this.getCurrentZoom()
+            }
         });
     }
     
@@ -455,7 +472,11 @@ class AnnotationManager {
             type: 'region',
             tool: 'polygon',
             geometry: { type: 'Polygon', coordinates: points.map(p => [p.x, p.y]) },
-            properties: { color: this.styles.polygon.stroke, measurement }
+            properties: { 
+                color: this.styles.polygon.stroke, 
+                measurement,
+                zoom: this.getCurrentZoom()
+            }
         });
     }
     
@@ -464,7 +485,11 @@ class AnnotationManager {
             type: 'marker',
             tool: 'point',
             geometry: { type: 'Point', coordinates: [point.x, point.y] },
-            properties: { color: this.styles.point.fill, label: `Point ${this.annotations.length + 1}` }
+            properties: { 
+                color: this.styles.point.fill, 
+                label: `Point ${this.annotations.length + 1}`,
+                zoom: this.getCurrentZoom()
+            }
         });
     }
     
@@ -473,8 +498,89 @@ class AnnotationManager {
             type: 'marker',
             tool: 'arrow',
             geometry: { type: 'LineString', coordinates: [[start.x, start.y], [end.x, end.y]] },
-            properties: { color: this.styles.arrow.stroke }
+            properties: { 
+                color: this.styles.arrow.stroke,
+                zoom: this.getCurrentZoom()
+            }
         });
+    }
+    
+    // Navigate to an annotation
+    goToAnnotation(annotationId) {
+        const annotation = this.annotations.find(a => a.id === annotationId);
+        if (!annotation) {
+            console.warn('Annotation not found:', annotationId);
+            return;
+        }
+        
+        const geom = annotation.geometry;
+        const props = annotation.properties || {};
+        
+        // Calculate center and bounds based on geometry type
+        let centerX, centerY;
+        
+        switch (geom.type) {
+            case 'Point':
+                centerX = geom.coordinates[0];
+                centerY = geom.coordinates[1];
+                break;
+            case 'LineString':
+            case 'Rectangle':
+                // Center of two points
+                centerX = (geom.coordinates[0][0] + geom.coordinates[1][0]) / 2;
+                centerY = (geom.coordinates[0][1] + geom.coordinates[1][1]) / 2;
+                break;
+            case 'Polygon':
+                // Centroid
+                centerX = geom.coordinates.reduce((sum, c) => sum + c[0], 0) / geom.coordinates.length;
+                centerY = geom.coordinates.reduce((sum, c) => sum + c[1], 0) / geom.coordinates.length;
+                break;
+            default:
+                console.warn('Unknown geometry type:', geom.type);
+                return;
+        }
+        
+        // Convert image coordinates to viewport coordinates
+        const viewportPoint = this.viewer.viewport.imageToViewportCoordinates(
+            new OpenSeadragon.Point(centerX, centerY)
+        );
+        
+        // Use stored zoom or calculate appropriate zoom
+        const zoom = props.zoom || this.viewer.viewport.getZoom();
+        
+        // Animate to the annotation
+        this.viewer.viewport.panTo(viewportPoint, false);
+        this.viewer.viewport.zoomTo(zoom, null, false);
+        
+        console.log('Navigated to annotation:', annotationId, 'at zoom:', zoom);
+        
+        // Flash the annotation briefly
+        this.highlightAnnotation(annotationId);
+    }
+    
+    // Briefly highlight an annotation
+    highlightAnnotation(annotationId) {
+        const annotation = this.annotations.find(a => a.id === annotationId);
+        if (!annotation) return;
+        
+        // Store original color
+        const originalColor = annotation.properties?.color;
+        
+        // Flash yellow
+        if (annotation.properties) {
+            annotation.properties._originalColor = originalColor;
+            annotation.properties.color = '#ffff00';
+        }
+        this.render();
+        
+        // Restore after 500ms
+        setTimeout(() => {
+            if (annotation.properties) {
+                annotation.properties.color = annotation.properties._originalColor || originalColor;
+                delete annotation.properties._originalColor;
+            }
+            this.render();
+        }, 500);
     }
     
     // Render all annotations
