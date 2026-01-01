@@ -244,7 +244,7 @@ class AnnotationManager {
         }
     }
     
-    onMouseUp(e) {
+    async onMouseUp(e) {
         if (!this.isDrawing) return;
         
         const canvasPoint = this.getCanvasPoint(e);
@@ -252,36 +252,47 @@ class AnnotationManager {
         
         console.log('MouseUp:', this.currentTool, imagePoint);
         
+        // Reset drawing state immediately
         this.isDrawing = false;
+        const start = this.startPoint;
+        const tool = this.currentTool;
+        
+        // Clear points
+        this.startPoint = null;
+        this.currentEndPoint = null;
         
         // Check minimum distance to avoid accidental clicks
-        if (this.startPoint) {
-            const dx = Math.abs(imagePoint.x - this.startPoint.x);
-            const dy = Math.abs(imagePoint.y - this.startPoint.y);
+        if (start) {
+            const dx = Math.abs(imagePoint.x - start.x);
+            const dy = Math.abs(imagePoint.y - start.y);
             
             if (dx < 5 && dy < 5) {
                 console.log('Too small, ignoring');
-                this.startPoint = null;
-                this.currentEndPoint = null;
                 this.render();
                 return;
             }
         }
         
-        switch (this.currentTool) {
-            case 'line':
-                this.createLineAnnotation(this.startPoint, imagePoint);
-                break;
-            case 'arrow':
-                this.createArrowAnnotation(this.startPoint, imagePoint);
-                break;
-            case 'rectangle':
-                this.createRectangleAnnotation(this.startPoint, imagePoint);
-                break;
+        // Create annotation (async but don't block)
+        try {
+            switch (tool) {
+                case 'line':
+                    await this.createLineAnnotation(start, imagePoint);
+                    break;
+                case 'arrow':
+                    await this.createArrowAnnotation(start, imagePoint);
+                    break;
+                case 'rectangle':
+                    await this.createRectangleAnnotation(start, imagePoint);
+                    break;
+            }
+        } catch (err) {
+            console.error('Failed to create annotation:', err);
         }
         
-        this.startPoint = null;
-        this.currentEndPoint = null;
+        // Ensure render happens
+        this.render();
+        console.log('Ready for next annotation');
     }
     
     onDblClick(e) {
