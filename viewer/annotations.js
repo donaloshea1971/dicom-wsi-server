@@ -170,18 +170,10 @@ class AnnotationManager {
         this.canvas.removeEventListener('dblclick', this._onDblClick);
         
         if (tool) {
-            // Enable interaction
+            // Enable interaction - pointer-events:auto makes canvas receive clicks
+            // OSD will still get events that pass through (when not on canvas)
             this.canvas.style.pointerEvents = 'auto';
             this.canvas.style.cursor = 'crosshair';
-            
-            // Safely disable OSD mouse navigation
-            try {
-                if (this.viewer && this.viewer.innerTracker) {
-                    this.viewer.setMouseNavEnabled(false);
-                }
-            } catch (e) {
-                console.warn('Could not disable mouse nav:', e.message);
-            }
             
             // Add event listeners
             this.canvas.addEventListener('mousedown', this._onMouseDown);
@@ -191,18 +183,9 @@ class AnnotationManager {
             
             console.log('Tool enabled:', tool);
         } else {
-            // Disable interaction (pan mode)
+            // Disable interaction (pan mode) - pointer-events:none lets clicks pass through to OSD
             this.canvas.style.pointerEvents = 'none';
             this.canvas.style.cursor = 'default';
-            
-            // Safely enable OSD mouse navigation
-            try {
-                if (this.viewer && this.viewer.innerTracker) {
-                    this.viewer.setMouseNavEnabled(true);
-                }
-            } catch (e) {
-                console.warn('Could not enable mouse nav:', e.message);
-            }
             
             console.log('Pan mode enabled');
         }
