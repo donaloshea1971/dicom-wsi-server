@@ -61,6 +61,123 @@ class UploadResponse(BaseModel):
     status: str
 
 
+# =============================================================================
+# LZW/Unsupported Compression Handling
+# =============================================================================
+
+def check_tiff_compression(file_path: Path) -> tuple[bool, int]:
+    """
+    Check if a TIFF/SVS file uses LZW or other unsupported compression.
+    Returns (needs_conversion, compression_type)
+    
+    TIFF Compression codes:
+    - 1: Uncompressed
+    - 5: LZW (not supported by OpenSlide)
+    - 6: JPEG (old-style)
+    - 7: JPEG (new-style, supported)
+    - 8: Adobe Deflate
+    - 32773: PackBits
+    - 33003: JPEG2000 (supported by OpenSlide with plugins)
+    - 33005: JPEG2000 (supported by OpenSlide with plugins)
+    """
+    try:
+        import tifffile
+        with tifffile.TiffFile(str(file_path)) as tif:
+            # Check all pages for compression
+            unsupported_compressions = {5, 6, 8, 32773}  # LZW, old JPEG, Deflate, PackBits
+            for page in tif.pages:
+                compression = page.compression
+                if isinstance(compression, int) and compression in unsupported_compressions:
+                    logger.info(f"Found unsupported compression {compression} in {file_path.name}")
+                    return True, compression
+                # tifffile uses enum, check value
+                if hasattr(compression, 'value') and compression.value in unsupported_compressions:
+                    logger.info(f"Found unsupported compression {compression.value} in {file_path.name}")
+                    return True, compression.value
+        return False, 0
+    except Exception as e:
+        logger.warning(f"Could not check TIFF compression: {e}")
+        return False, 0
+
+
+def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
+    """
+    Convert a TIFF with unsupported compression (LZW, Deflate, etc.) 
+    to a JPEG-compressed pyramid TIFF using pyvips.
+    
+    This creates a proper pyramid TIFF that OpenSlide/wsidicomizer can read.
+    """
+    import pyvips
+    
+    logger.info(f"Pre-processing {source_path.name} - converting to JPEG compression...")
+    
+    output_path = output_dir / f"{source_path.stem}_jpeg.tiff"
+    
+    # Load image with pyvips (handles LZW natively)
+    image = pyvips.Image.new_from_file(str(source_path), access='sequential')
+    
+    logger.info(f"Loaded image: {image.width}x{image.height}, {image.bands} bands")
+    
+    # Save as pyramid TIFF with JPEG compression
+    # tile=True creates tiled TIFF
+    # pyramid=True creates multi-resolution pyramid
+    # compression='jpeg' uses JPEG for tiles
+    # Q=90 sets JPEG quality
+    image.tiffsave(
+        str(output_path),
+        tile=True,
+        tile_width=256,
+        tile_height=256,
+        pyramid=True,
+        compression='jpeg',
+        Q=90,
+        bigtiff=True  # Support files > 4GB
+    )
+    
+    logger.info(f"Created JPEG-compressed pyramid TIFF: {output_path}")
+    return output_path
+
+
+def preprocess_for_conversion(file_path: Path, output_dir: Path, job=None) -> Path:
+    """
+    Pre-process a WSI file if it uses unsupported compression.
+    Returns the path to use for conversion (may be original or converted file).
+    """
+    # Only check TIFF-based formats
+    ext = file_path.suffix.lower()
+    if ext not in ['.tiff', '.tif', '.svs', '.scn', '.bif']:
+        return file_path
+    
+    needs_conversion, compression = check_tiff_compression(file_path)
+    
+    if not needs_conversion:
+        return file_path
+    
+    compression_names = {
+        5: 'LZW',
+        6: 'Old JPEG',
+        8: 'Deflate/ZIP',
+        32773: 'PackBits'
+    }
+    comp_name = compression_names.get(compression, f'Type {compression}')
+    
+    if job:
+        job.message = f"Converting {comp_name} compression to JPEG..."
+        job.progress = 25
+    
+    logger.info(f"File uses {comp_name} compression - pre-processing with pyvips")
+    
+    try:
+        converted_path = convert_to_jpeg_tiff(file_path, output_dir)
+        logger.info(f"Pre-processing complete: {converted_path}")
+        return converted_path
+    except Exception as e:
+        logger.error(f"Pre-processing failed: {e}")
+        # Try to continue with original file anyway
+        logger.info("Attempting to continue with original file...")
+        return file_path
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
@@ -642,6 +759,12 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
             job.message = f"Found {source_format.upper()} file: {index_file.name}"
             logger.info(f"Processing multi-file WSI: {source_format} from {index_file}")
         
+        # Pre-process files with unsupported compression (LZW, Deflate, etc.)
+        # This converts them to JPEG-compressed pyramid TIFF using pyvips
+        job.progress = 18
+        job.message = "Checking file compression..."
+        actual_file_path = preprocess_for_conversion(actual_file_path, output_dir, job)
+        
         # Use wsidicomizer for all supported formats (including iSyntax)
         from wsidicomizer import WsiDicomizer
         
@@ -732,8 +855,40 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
                     logger.info(f"Generated {len(generated_files)} DICOM files (with pyramid)")
                     
             except Exception as e:
-                logger.error(f"wsidicomizer failed: {str(e)}")
-                raise
+                error_msg = str(e).lower()
+                # Check if this is a compression-related error
+                if 'compression' in error_msg or 'unsupported' in error_msg or 'decode' in error_msg:
+                    logger.warning(f"wsidicomizer failed with compression error: {e}")
+                    logger.info("Attempting pyvips fallback conversion...")
+                    
+                    job.message = "Trying alternative conversion method..."
+                    job.progress = 25
+                    
+                    try:
+                        # Force conversion through pyvips
+                        converted_path = convert_to_jpeg_tiff(file_path, output_dir)
+                        
+                        job.message = "Re-attempting DICOM conversion..."
+                        job.progress = 35
+                        
+                        with WsiDicomizer.open(str(converted_path), metadata_post_processor=metadata_post_processor) as wsi:
+                            logger.info(f"Opened converted WSI: {wsi.size.width}x{wsi.size.height}")
+                            num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
+                            logger.info(f"Source has {num_levels} pyramid levels")
+                            
+                            job.message = f"Generating DICOM pyramid ({wsi.size.width}x{wsi.size.height})..."
+                            job.progress = 45
+                            
+                            wsi.save(str(output_dir), add_missing_levels=True)
+                            
+                            generated_files = list(output_dir.glob("*.dcm"))
+                            logger.info(f"Fallback generated {len(generated_files)} DICOM files")
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback conversion also failed: {fallback_error}")
+                        raise Exception(f"Conversion failed: {e}. Fallback also failed: {fallback_error}")
+                else:
+                    logger.error(f"wsidicomizer failed: {str(e)}")
+                    raise
         
         dicom_files = list(output_dir.glob("*.dcm"))
         job.message = f"Created {len(dicom_files)} DICOM files"

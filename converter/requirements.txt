@@ -20,6 +20,8 @@ pyisyntax @ git+https://github.com/anibali/pyisyntax.git@master
 Pillow>=10.0.0
 numpy>=1.26.0
 imagecodecs>=2024.1.0
+pyvips>=2.2.0
+tifffile>=2024.1.0
 # For JPEG2000 support in Pillow
 pillow-heif>=0.15.0
 
