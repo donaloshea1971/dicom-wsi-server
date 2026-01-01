@@ -578,7 +578,9 @@
 
         .annotation-item:hover {
             border-color: var(--accent);
-            background: rgba(0, 212, 170, 0.1);
+            background: rgba(0, 212, 170, 0.15);
+            box-shadow: 0 0 0 1px var(--accent), 0 4px 12px rgba(0, 212, 170, 0.2);
+            transform: translateX(4px);
         }
 
         .annotation-item-header {
@@ -1952,15 +1954,51 @@
             }
             
             list.innerHTML = annotations.map(a => `
-                <div class="annotation-item" data-id="${a.id}" onclick="selectAnnotation('${a.id}')">
+                <div class="annotation-item" data-id="${a.id}">
                     <div class="annotation-item-header">
                         <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.label || a.tool}</span>
-                        <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
+                        <button class="annotation-item-delete" data-delete="${a.id}" title="Delete">×</button>
                     </div>
                     ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
                     ${a.description ? `<div style="color: var(--text-secondary); font-size: 11px; margin-top: 4px; font-style: italic;">${a.description}</div>` : ''}
                 </div>
             `).join('');
+            
+            // Attach event listeners (more reliable than inline onclick)
+            list.querySelectorAll('.annotation-item').forEach(item => {
+                const id = item.dataset.id;
+                
+                // Click to navigate and edit
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('.annotation-item-delete')) return; // Let delete button handle itself
+                    console.log('Annotation clicked:', id);
+                    selectAnnotation(id);
+                });
+                
+                // Hover to highlight on viewer
+                item.addEventListener('mouseenter', () => {
+                    if (annotationManager) {
+                        annotationManager.highlightAnnotation(id, true);
+                    }
+                    item.style.borderColor = 'var(--accent)';
+                });
+                
+                item.addEventListener('mouseleave', () => {
+                    if (annotationManager) {
+                        annotationManager.highlightAnnotation(id, false);
+                    }
+                    item.style.borderColor = '';
+                });
+            });
+            
+            // Attach delete button listeners
+            list.querySelectorAll('.annotation-item-delete').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.delete;
+                    deleteAnnotation(id);
+                });
+            });
         }
         
         function getToolIcon(tool) {

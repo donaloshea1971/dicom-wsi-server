@@ -559,29 +559,46 @@ class AnnotationManager {
         this.highlightAnnotation(annotationId);
     }
     
-    // Briefly highlight an annotation
-    highlightAnnotation(annotationId) {
+    // Highlight an annotation (for hover or flash)
+    // If highlight is boolean: true = highlight on, false = highlight off
+    // If highlight is undefined: flash briefly
+    highlightAnnotation(annotationId, highlight) {
         const annotation = this.annotations.find(a => a.id === annotationId);
         if (!annotation) return;
         
-        // Store original color
-        const originalColor = annotation.properties?.color;
+        if (!annotation.properties) annotation.properties = {};
         
-        // Flash yellow
-        if (annotation.properties) {
-            annotation.properties._originalColor = originalColor;
-            annotation.properties.color = '#ffff00';
-        }
-        this.render();
-        
-        // Restore after 500ms
-        setTimeout(() => {
-            if (annotation.properties) {
-                annotation.properties.color = annotation.properties._originalColor || originalColor;
+        if (highlight === true) {
+            // Persistent highlight on
+            if (!annotation.properties._originalColor) {
+                annotation.properties._originalColor = annotation.properties.color;
+            }
+            annotation.properties.color = '#00ffaa';
+            annotation.properties._highlighted = true;
+            this.render();
+        } else if (highlight === false) {
+            // Highlight off
+            if (annotation.properties._highlighted) {
+                annotation.properties.color = annotation.properties._originalColor;
                 delete annotation.properties._originalColor;
+                delete annotation.properties._highlighted;
             }
             this.render();
-        }, 500);
+        } else {
+            // Brief flash (original behavior)
+            const originalColor = annotation.properties.color;
+            annotation.properties._originalColor = originalColor;
+            annotation.properties.color = '#ffff00';
+            this.render();
+            
+            setTimeout(() => {
+                if (annotation.properties && !annotation.properties._highlighted) {
+                    annotation.properties.color = annotation.properties._originalColor || originalColor;
+                    delete annotation.properties._originalColor;
+                }
+                this.render();
+            }, 500);
+        }
     }
     
     // Render all annotations
