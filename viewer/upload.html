@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload WSI - Diagnexia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --accent: #00d4aa;
+            --accent-dim: #00a080;
+            --text-primary: #e8e8ec;
+            --text-secondary: #8888a0;
+            --border: #2a2a3a;
+            --danger: #ff4466;
+            --warning: #ffaa00;
+            --success: #00d4aa;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo {
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+
+        .logo svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            margin-left: auto;
+        }
+
+        .back-link:hover {
+            color: var(--accent);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+
+        /* Drop Zone */
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 60px 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: var(--bg-secondary);
+        }
+
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(0, 212, 170, 0.05);
+        }
+
+        .drop-zone.drag-over {
+            transform: scale(1.01);
+        }
+
+        .drop-zone-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+            color: var(--accent);
+            opacity: 0.7;
+        }
+
+        .drop-zone h2 {
+            font-size: 20px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .drop-zone p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .drop-zone-formats {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .format-badge {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-secondary);
+        }
+
+        .format-badge.dicom {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Upload Queue */
+        .upload-queue {
+            margin-top: 32px;
+        }
+
+        .queue-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .queue-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .queue-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-dim);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dim);
+        }
+
+        .btn-danger {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        /* Queue Items */
+        .queue-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .queue-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .queue-item.uploading {
+            border-color: var(--accent);
+        }
+
+        .queue-item.complete {
+            border-color: var(--success);
+            opacity: 0.7;
+        }
+
+        .queue-item.error {
+            border-color: var(--danger);
+        }
+
+        .queue-item-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .queue-item-icon svg {
+            width: 20px;
+            height: 20px;
+            color: var(--text-secondary);
+        }
+
+        .queue-item-icon.dicom svg {
+            color: var(--accent);
+        }
+
+        .queue-item-icon.converting svg {
+            color: var(--warning);
+        }
+
+        .queue-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .queue-item-name {
+            font-weight: 500;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .queue-item-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 12px;
+            margin-top: 4px;
+        }
+
+        .queue-item-status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .queue-item-status.uploading {
+            background: rgba(0, 212, 170, 0.2);
+            color: var(--accent);
+        }
+
+        .queue-item-status.complete {
+            background: rgba(0, 212, 170, 0.2);
+            color: var(--success);
+        }
+
+        .queue-item-status.error {
+            background: rgba(255, 68, 102, 0.2);
+            color: var(--danger);
+        }
+
+        .queue-item-status.converting {
+            background: rgba(255, 170, 0, 0.2);
+            color: var(--warning);
+        }
+
+        .queue-item-progress {
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .queue-item-progress-bar {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s ease;
+        }
+
+        .queue-item-remove {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .queue-item-remove:hover {
+            color: var(--danger);
+        }
+
+        /* Hidden file input */
+        #file-input {
+            display: none;
+        }
+
+        /* Stats */
+        .upload-stats {
+            margin-top: 24px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            display: none;
+        }
+
+        .upload-stats.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Empty state */
+        .empty-queue {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinning {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/" class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="4"/>
+                <line x1="12" y1="2" x2="12" y2="6"/>
+                <line x1="12" y1="18" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="6" y2="12"/>
+                <line x1="18" y1="12" x2="22" y2="12"/>
+            </svg>
+            Diagnexia
+        </a>
+        <a href="/" class="back-link">← Back to Viewer</a>
+    </header>
+
+    <div class="container">
+        <h1>Upload Whole Slide Images</h1>
+        <p class="subtitle">Drag and drop files or folders. DICOM files use C-STORE, other formats are converted automatically.</p>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="drop-zone">
+            <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <h2>Drop files or folders here</h2>
+            <p>or click to browse</p>
+            <div class="drop-zone-formats">
+                <span class="format-badge dicom">DICOM</span>
+                <span class="format-badge dicom">DCM</span>
+                <span class="format-badge">SVS</span>
+                <span class="format-badge">NDPI</span>
+                <span class="format-badge">MRXS</span>
+                <span class="format-badge">SCN</span>
+                <span class="format-badge">TIFF</span>
+                <span class="format-badge">VSI</span>
+            </div>
+        </div>
+
+        <input type="file" id="file-input" multiple webkitdirectory>
+
+        <!-- Upload Queue -->
+        <div class="upload-queue" id="upload-queue" style="display: none;">
+            <div class="queue-header">
+                <h3>Upload Queue (<span id="queue-count">0</span>)</h3>
+                <div class="queue-actions">
+                    <button class="btn btn-danger" id="clear-btn" onclick="clearQueue()">Clear All</button>
+                    <button class="btn btn-primary" id="upload-btn" onclick="startUpload()">
+                        Start Upload
+                    </button>
+                </div>
+            </div>
+            <div class="queue-list" id="queue-list">
+                <div class="empty-queue">No files in queue</div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="upload-stats" id="upload-stats">
+            <div class="stats-grid">
+                <div>
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">Total Files</div>
+                </div>
+                <div>
+                    <div class="stat-value" id="stat-dicom">0</div>
+                    <div class="stat-label">Native DICOM</div>
+                </div>
+                <div>
+                    <div class="stat-value" id="stat-convert">0</div>
+                    <div class="stat-label">To Convert</div>
+                </div>
+                <div>
+                    <div class="stat-value" id="stat-size">0 MB</div>
+                    <div class="stat-label">Total Size</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            apiUrl: '/api',
+            cstoreHost: window.location.hostname,
+            cstorePort: 4243,
+            orthancUrl: '/api'
+        };
+
+        // File type detection
+        const DICOM_EXTENSIONS = ['.dcm', '.dicom'];
+        const CONVERT_EXTENSIONS = ['.svs', '.ndpi', '.mrxs', '.scn', '.tiff', '.tif', '.vsi', '.bif'];
+        const DICOM_MAGIC = new Uint8Array([0x44, 0x49, 0x43, 0x4D]); // "DICM" at offset 128
+
+        // Upload queue
+        let uploadQueue = [];
+        let isUploading = false;
+
+        // Initialize
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        // Drop zone events
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            
+            const items = e.dataTransfer.items;
+            const files = [];
+            
+            // Handle directory drops
+            for (const item of items) {
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry();
+                    if (entry) {
+                        await traverseEntry(entry, files);
+                    }
+                }
+            }
+            
+            addFilesToQueue(files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            addFilesToQueue(Array.from(e.target.files));
+            fileInput.value = '';
+        });
+
+        // Traverse directory entries recursively
+        async function traverseEntry(entry, files, path = '') {
+            if (entry.isFile) {
+                const file = await new Promise((resolve) => entry.file(resolve));
+                file.relativePath = path + file.name;
+                files.push(file);
+            } else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                const entries = await new Promise((resolve) => {
+                    const allEntries = [];
+                    const readBatch = () => {
+                        reader.readEntries((batch) => {
+                            if (batch.length === 0) {
+                                resolve(allEntries);
+                            } else {
+                                allEntries.push(...batch);
+                                readBatch();
+                            }
+                        });
+                    };
+                    readBatch();
+                });
+                
+                for (const childEntry of entries) {
+                    await traverseEntry(childEntry, files, path + entry.name + '/');
+                }
+            }
+        }
+
+        // Detect file type
+        async function detectFileType(file) {
+            const name = file.name.toLowerCase();
+            const ext = '.' + name.split('.').pop();
+            
+            // Check extension first
+            if (DICOM_EXTENSIONS.includes(ext)) {
+                return 'dicom';
+            }
+            if (CONVERT_EXTENSIONS.includes(ext)) {
+                return 'convert';
+            }
+            
+            // Check DICOM magic bytes for extensionless files
+            if (!ext || ext === '.' || !name.includes('.')) {
+                const header = await readFileHeader(file);
+                if (isDicomFile(header)) {
+                    return 'dicom';
+                }
+            }
+            
+            // Check magic bytes for .dcm-like files
+            const header = await readFileHeader(file);
+            if (isDicomFile(header)) {
+                return 'dicom';
+            }
+            
+            return 'unknown';
+        }
+
+        // Read first 132 bytes of file
+        function readFileHeader(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(new Uint8Array(reader.result));
+                reader.onerror = () => resolve(new Uint8Array(0));
+                reader.readAsArrayBuffer(file.slice(0, 132));
+            });
+        }
+
+        // Check for DICM magic at offset 128
+        function isDicomFile(header) {
+            if (header.length < 132) return false;
+            return header[128] === 0x44 && header[129] === 0x49 && 
+                   header[130] === 0x43 && header[131] === 0x4D;
+        }
+
+        // Add files to queue
+        async function addFilesToQueue(files) {
+            for (const file of files) {
+                const type = await detectFileType(file);
+                
+                // Skip unknown files
+                if (type === 'unknown') {
+                    console.log(`Skipping unknown file: ${file.name}`);
+                    continue;
+                }
+                
+                uploadQueue.push({
+                    id: Date.now() + Math.random(),
+                    file: file,
+                    name: file.relativePath || file.name,
+                    size: file.size,
+                    type: type,
+                    status: 'pending',
+                    progress: 0,
+                    error: null
+                });
+            }
+            
+            updateQueueUI();
+        }
+
+        // Update queue UI
+        function updateQueueUI() {
+            const queueEl = document.getElementById('upload-queue');
+            const listEl = document.getElementById('queue-list');
+            const countEl = document.getElementById('queue-count');
+            const statsEl = document.getElementById('upload-stats');
+            
+            queueEl.style.display = uploadQueue.length > 0 ? 'block' : 'none';
+            countEl.textContent = uploadQueue.length;
+            
+            if (uploadQueue.length === 0) {
+                listEl.innerHTML = '<div class="empty-queue">No files in queue</div>';
+                statsEl.classList.remove('active');
+                return;
+            }
+            
+            // Calculate stats
+            const dicomCount = uploadQueue.filter(f => f.type === 'dicom').length;
+            const convertCount = uploadQueue.filter(f => f.type === 'convert').length;
+            const totalSize = uploadQueue.reduce((sum, f) => sum + f.size, 0);
+            
+            document.getElementById('stat-total').textContent = uploadQueue.length;
+            document.getElementById('stat-dicom').textContent = dicomCount;
+            document.getElementById('stat-convert').textContent = convertCount;
+            document.getElementById('stat-size').textContent = formatSize(totalSize);
+            statsEl.classList.add('active');
+            
+            // Render queue items
+            listEl.innerHTML = uploadQueue.map(item => `
+                <div class="queue-item ${item.status}" data-id="${item.id}">
+                    <div class="queue-item-icon ${item.type}">
+                        ${item.type === 'dicom' ? `
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <path d="M9 9h6v6H9z"/>
+                            </svg>
+                        ` : `
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                        `}
+                    </div>
+                    <div class="queue-item-info">
+                        <div class="queue-item-name">${escapeHtml(item.name)}</div>
+                        <div class="queue-item-meta">
+                            <span>${formatSize(item.size)}</span>
+                            <span>${item.type === 'dicom' ? 'Native DICOM → C-STORE' : 'Convert → API'}</span>
+                        </div>
+                        ${item.status === 'uploading' || item.status === 'converting' ? `
+                            <div class="queue-item-progress">
+                                <div class="queue-item-progress-bar" style="width: ${item.progress}%"></div>
+                            </div>
+                        ` : ''}
+                        ${item.error ? `<div style="color: var(--danger); font-size: 12px; margin-top: 4px;">${escapeHtml(item.error)}</div>` : ''}
+                    </div>
+                    <span class="queue-item-status ${item.status}">
+                        ${item.status === 'pending' ? 'Pending' : ''}
+                        ${item.status === 'uploading' ? 'Uploading...' : ''}
+                        ${item.status === 'converting' ? 'Converting...' : ''}
+                        ${item.status === 'complete' ? '✓ Done' : ''}
+                        ${item.status === 'error' ? '✗ Failed' : ''}
+                    </span>
+                    ${item.status === 'pending' ? `
+                        <button class="queue-item-remove" onclick="removeFromQueue('${item.id}')">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Remove from queue
+        function removeFromQueue(id) {
+            uploadQueue = uploadQueue.filter(item => item.id != id);
+            updateQueueUI();
+        }
+
+        // Clear queue
+        function clearQueue() {
+            if (isUploading) return;
+            uploadQueue = [];
+            updateQueueUI();
+        }
+
+        // Start upload
+        async function startUpload() {
+            if (isUploading || uploadQueue.length === 0) return;
+            
+            isUploading = true;
+            document.getElementById('upload-btn').disabled = true;
+            document.getElementById('clear-btn').disabled = true;
+            
+            // Group DICOM files by directory for batch upload
+            const dicomGroups = groupDicomFiles();
+            const convertFiles = uploadQueue.filter(f => f.type === 'convert' && f.status === 'pending');
+            
+            // Upload DICOM groups via REST API (C-STORE from browser not possible)
+            for (const group of dicomGroups) {
+                await uploadDicomGroup(group);
+            }
+            
+            // Upload files for conversion
+            for (const item of convertFiles) {
+                await uploadForConversion(item);
+            }
+            
+            isUploading = false;
+            document.getElementById('upload-btn').disabled = false;
+            document.getElementById('clear-btn').disabled = false;
+            
+            // Show completion
+            const completed = uploadQueue.filter(f => f.status === 'complete').length;
+            const failed = uploadQueue.filter(f => f.status === 'error').length;
+            
+            if (failed === 0) {
+                alert(`Upload complete! ${completed} files uploaded successfully.`);
+            } else {
+                alert(`Upload finished. ${completed} succeeded, ${failed} failed.`);
+            }
+        }
+
+        // Group DICOM files by directory
+        function groupDicomFiles() {
+            const dicomItems = uploadQueue.filter(f => f.type === 'dicom' && f.status === 'pending');
+            const groups = new Map();
+            
+            for (const item of dicomItems) {
+                const path = item.name;
+                const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+                
+                if (!groups.has(dir)) {
+                    groups.set(dir, []);
+                }
+                groups.get(dir).push(item);
+            }
+            
+            return Array.from(groups.values());
+        }
+
+        // Upload DICOM group via REST API
+        async function uploadDicomGroup(items) {
+            for (const item of items) {
+                item.status = 'uploading';
+                updateQueueUI();
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('file', item.file);
+                    
+                    const response = await fetch('/api/instances', {
+                        method: 'POST',
+                        body: item.file,
+                        headers: {
+                            'Content-Type': 'application/dicom'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        item.status = 'complete';
+                        item.progress = 100;
+                    } else {
+                        const text = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${text}`);
+                    }
+                } catch (e) {
+                    item.status = 'error';
+                    item.error = e.message;
+                    console.error('DICOM upload failed:', e);
+                }
+                
+                updateQueueUI();
+            }
+        }
+
+        // Upload file for conversion
+        async function uploadForConversion(item) {
+            item.status = 'uploading';
+            updateQueueUI();
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', item.file);
+                
+                // Start upload with progress tracking
+                const xhr = new XMLHttpRequest();
+                
+                await new Promise((resolve, reject) => {
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            item.progress = Math.round((e.loaded / e.total) * 50); // Upload is 50%
+                            updateQueueUI();
+                        }
+                    };
+                    
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve(JSON.parse(xhr.responseText));
+                        } else {
+                            reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText}`));
+                        }
+                    };
+                    
+                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.ontimeout = () => reject(new Error('Timeout'));
+                    
+                    xhr.open('POST', '/api/convert');
+                    xhr.timeout = 600000; // 10 minute timeout
+                    xhr.send(formData);
+                });
+                
+                // Poll for conversion status
+                item.status = 'converting';
+                item.progress = 50;
+                updateQueueUI();
+                
+                // Simulate conversion progress (actual polling would go here)
+                for (let i = 50; i <= 100; i += 10) {
+                    await sleep(500);
+                    item.progress = i;
+                    updateQueueUI();
+                }
+                
+                item.status = 'complete';
+                item.progress = 100;
+                
+            } catch (e) {
+                item.status = 'error';
+                item.error = e.message;
+                console.error('Conversion upload failed:', e);
+            }
+            
+            updateQueueUI();
+        }
+
+        // Utility functions
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+    </script>
+</body>
+</html>

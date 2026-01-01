@@ -2,6 +2,7 @@ FROM nginx:alpine
 
 # Copy viewer files
 COPY index.html /usr/share/nginx/html/
+COPY upload.html /usr/share/nginx/html/
 COPY test.html /usr/share/nginx/html/
 COPY color-correction.js /usr/share/nginx/html/
 COPY dicomweb-tilesource.js /usr/share/nginx/html/
