@@ -533,9 +533,10 @@
             width: 280px;
             background: var(--bg-secondary);
             border-left: 1px solid var(--border);
-            z-index: 40;
+            z-index: 100;
             display: none;
             flex-direction: column;
+            pointer-events: auto;
         }
 
         .annotations-panel.active {
@@ -1988,11 +1989,14 @@
         }
         
         function selectAnnotation(annotationId) {
+            console.log('selectAnnotation called with:', annotationId);
+            
             // Navigate to annotation AND open edit dialog
             goToAnnotation(annotationId);
             
             // Small delay to let navigation complete, then open edit
             setTimeout(() => {
+                console.log('Opening edit dialog for:', annotationId);
                 editAnnotation(annotationId);
             }, 300);
         }
