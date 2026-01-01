@@ -173,7 +173,15 @@ class AnnotationManager {
             // Enable interaction
             this.canvas.style.pointerEvents = 'auto';
             this.canvas.style.cursor = 'crosshair';
-            this.viewer.setMouseNavEnabled(false);
+            
+            // Safely disable OSD mouse navigation
+            try {
+                if (this.viewer && this.viewer.innerTracker) {
+                    this.viewer.setMouseNavEnabled(false);
+                }
+            } catch (e) {
+                console.warn('Could not disable mouse nav:', e.message);
+            }
             
             // Add event listeners
             this.canvas.addEventListener('mousedown', this._onMouseDown);
@@ -181,12 +189,21 @@ class AnnotationManager {
             this.canvas.addEventListener('mouseup', this._onMouseUp);
             this.canvas.addEventListener('dblclick', this._onDblClick);
             
-            console.log('Tool enabled:', tool, 'canvas pointer-events:', this.canvas.style.pointerEvents);
+            console.log('Tool enabled:', tool);
         } else {
             // Disable interaction (pan mode)
             this.canvas.style.pointerEvents = 'none';
             this.canvas.style.cursor = 'default';
-            this.viewer.setMouseNavEnabled(true);
+            
+            // Safely enable OSD mouse navigation
+            try {
+                if (this.viewer && this.viewer.innerTracker) {
+                    this.viewer.setMouseNavEnabled(true);
+                }
+            } catch (e) {
+                console.warn('Could not enable mouse nav:', e.message);
+            }
+            
             console.log('Pan mode enabled');
         }
         

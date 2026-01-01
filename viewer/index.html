@@ -1324,14 +1324,14 @@
                     console.log('Viewer opened successfully');
                     showLoading(false);
                     
-                    // Reset and show annotation toolbar
-                    resetAnnotationToolbar();
-                    document.getElementById('annotation-toolbar').style.display = 'flex';
-                    
-                    // Initialize and load annotations (with delay to ensure viewer is ready)
-                    setTimeout(() => {
-                        loadStudyAnnotations(studyId);
-                    }, 200);
+                // Reset and show annotation toolbar
+                resetAnnotationToolbar();
+                document.getElementById('annotation-toolbar').style.display = 'flex';
+                
+                // Initialize and load annotations (with delay to ensure viewer is fully ready)
+                setTimeout(() => {
+                    loadStudyAnnotations(studyId);
+                }, 500);
                     
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
@@ -1930,8 +1930,8 @@
                 await annotationManager.loadAnnotations(studyId);
                 updateAnnotationsList();
                 
-                // Ensure pan mode is set
-                annotationManager.setTool(null);
+                // Don't set tool here - let user click buttons
+                // Pan mode is default (pointer-events: none on canvas)
                 
                 console.log('Annotations loaded successfully, manager ready:', annotationManager.isReady());
                 
