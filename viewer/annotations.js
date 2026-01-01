@@ -106,6 +106,7 @@ class AnnotationManager {
         document.querySelectorAll('#annotation-canvas').forEach(el => el.remove());
         
         // Create canvas element
+        // z-index must be below toolbar (50) but above OSD canvas
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'annotation-canvas';
         this.canvas.style.cssText = `
@@ -115,7 +116,7 @@ class AnnotationManager {
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 100;
+            z-index: 20;
         `;
         
         // Append directly to the viewer element (more reliable than finding .openseadragon-canvas)
