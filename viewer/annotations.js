@@ -102,11 +102,8 @@ class AnnotationManager {
     }
     
     createOverlay() {
-        // Remove existing canvas if any
-        const existingCanvas = document.getElementById('annotation-canvas');
-        if (existingCanvas) {
-            existingCanvas.parentNode.removeChild(existingCanvas);
-        }
+        // Remove ALL existing annotation canvases
+        document.querySelectorAll('#annotation-canvas').forEach(el => el.remove());
         
         // Create canvas element
         this.canvas = document.createElement('canvas');
@@ -118,19 +115,14 @@ class AnnotationManager {
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 10;
+            z-index: 100;
         `;
         
-        // Find the OSD canvas container and append our canvas
-        const osdCanvas = this.viewer.element.querySelector('.openseadragon-canvas');
-        if (osdCanvas) {
-            osdCanvas.appendChild(this.canvas);
-        } else {
-            this.viewer.element.appendChild(this.canvas);
-        }
+        // Append directly to the viewer element (more reliable than finding .openseadragon-canvas)
+        this.viewer.element.appendChild(this.canvas);
         
         this.ctx = this.canvas.getContext('2d');
-        console.log('Annotation canvas created');
+        console.log('Annotation canvas created and attached to viewer');
     }
     
     resizeCanvas() {
@@ -160,6 +152,11 @@ class AnnotationManager {
     
     // Set active tool
     setTool(tool) {
+        if (!this.canvas) {
+            console.error('setTool: canvas not ready');
+            return;
+        }
+        
         this.currentTool = tool;
         this.isDrawing = false;
         this.points = [];
@@ -184,7 +181,7 @@ class AnnotationManager {
             this.canvas.addEventListener('mouseup', this._onMouseUp);
             this.canvas.addEventListener('dblclick', this._onDblClick);
             
-            console.log('Tool enabled:', tool);
+            console.log('Tool enabled:', tool, 'canvas pointer-events:', this.canvas.style.pointerEvents);
         } else {
             // Disable interaction (pan mode)
             this.canvas.style.pointerEvents = 'none';
@@ -194,6 +191,11 @@ class AnnotationManager {
         }
         
         this.render();
+    }
+    
+    // Check if manager is ready for interaction
+    isReady() {
+        return this.initialized && this.canvas && this.ctx;
     }
     
     getCanvasPoint(e) {

@@ -1772,7 +1772,7 @@
         }
         
         function setAnnotationTool(tool) {
-            if (!annotationManager) {
+            if (!annotationManager || !annotationManager.isReady()) {
                 console.warn('Annotation manager not ready');
                 return;
             }
@@ -1789,6 +1789,8 @@
             if (activeBtn) {
                 activeBtn.classList.add('active');
             }
+            
+            console.log('Tool set to:', tool || 'pan');
         }
         
         function toggleAnnotationsPanel() {
