@@ -1951,15 +1951,12 @@
             }
             
             list.innerHTML = annotations.map(a => `
-                <div class="annotation-item" data-id="${a.id}">
+                <div class="annotation-item" data-id="${a.id}" onclick="selectAnnotation('${a.id}')">
                     <div class="annotation-item-header">
-                        <span class="annotation-item-type" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;" title="Click to navigate">${getToolIcon(a.tool)} ${a.label || a.tool}</span>
-                        <div style="display: flex; gap: 4px;">
-                            <button class="annotation-item-edit" onclick="event.stopPropagation(); editAnnotation('${a.id}')" title="Edit">✏️</button>
-                            <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
-                        </div>
+                        <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.label || a.tool}</span>
+                        <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
                     </div>
-                    ${a.measurement ? `<div class="annotation-item-measurement" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;">${a.measurement}</div>` : ''}
+                    ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
                     ${a.description ? `<div style="color: var(--text-secondary); font-size: 11px; margin-top: 4px; font-style: italic;">${a.description}</div>` : ''}
                 </div>
             `).join('');
@@ -1988,6 +1985,16 @@
         function goToAnnotation(annotationId) {
             if (!annotationManager) return;
             annotationManager.goToAnnotation(annotationId);
+        }
+        
+        function selectAnnotation(annotationId) {
+            // Navigate to annotation AND open edit dialog
+            goToAnnotation(annotationId);
+            
+            // Small delay to let navigation complete, then open edit
+            setTimeout(() => {
+                editAnnotation(annotationId);
+            }, 300);
         }
         
         function editAnnotation(annotationId) {
