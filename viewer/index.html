@@ -593,17 +593,93 @@
             text-transform: capitalize;
         }
 
-        .annotation-item-delete {
+        .annotation-item-delete,
+        .annotation-item-edit {
             background: none;
             border: none;
             color: var(--text-secondary);
             cursor: pointer;
-            font-size: 14px;
-            padding: 0;
+            font-size: 12px;
+            padding: 2px;
         }
 
         .annotation-item-delete:hover {
             color: var(--danger);
+        }
+
+        .annotation-item-edit:hover {
+            color: var(--accent);
+        }
+
+        /* Annotation Edit Modal */
+        .annotation-edit-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .annotation-edit-modal.active {
+            display: flex;
+        }
+
+        .annotation-edit-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            width: 350px;
+            max-width: 90%;
+        }
+
+        .annotation-edit-content h3 {
+            margin-bottom: 16px;
+            color: var(--accent);
+            font-size: 14px;
+        }
+
+        .annotation-edit-content label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .annotation-edit-content input,
+        .annotation-edit-content textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .annotation-edit-content textarea {
+            min-height: 80px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .annotation-edit-content input:focus,
+        .annotation-edit-content textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .annotation-edit-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
         }
 
         .annotation-item-measurement {
@@ -824,6 +900,22 @@
         <!-- Loading spinner -->
         <div class="loading" id="loading">
             <div class="spinner"></div>
+        </div>
+
+        <!-- Annotation Edit Modal -->
+        <div class="annotation-edit-modal" id="annotation-edit-modal" onclick="closeAnnotationEdit(event)">
+            <div class="annotation-edit-content" onclick="event.stopPropagation()">
+                <h3>✏️ Edit Annotation</h3>
+                <input type="hidden" id="edit-annotation-id">
+                <label for="edit-annotation-label">Label / Name</label>
+                <input type="text" id="edit-annotation-label" placeholder="e.g., Tumor region, Marker A">
+                <label for="edit-annotation-desc">Description (optional)</label>
+                <textarea id="edit-annotation-desc" placeholder="Add notes or description..."></textarea>
+                <div class="annotation-edit-buttons">
+                    <button class="btn" onclick="closeAnnotationEdit()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveAnnotationEdit()">Save</button>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -1859,13 +1951,16 @@
             }
             
             list.innerHTML = annotations.map(a => `
-                <div class="annotation-item" data-id="${a.id}" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;" title="Click to navigate">
+                <div class="annotation-item" data-id="${a.id}">
                     <div class="annotation-item-header">
-                        <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.tool}</span>
-                        <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
+                        <span class="annotation-item-type" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;" title="Click to navigate">${getToolIcon(a.tool)} ${a.label || a.tool}</span>
+                        <div style="display: flex; gap: 4px;">
+                            <button class="annotation-item-edit" onclick="event.stopPropagation(); editAnnotation('${a.id}')" title="Edit">✏️</button>
+                            <button class="annotation-item-delete" onclick="event.stopPropagation(); deleteAnnotation('${a.id}')" title="Delete">×</button>
+                        </div>
                     </div>
-                    ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
-                    ${a.label ? `<div style="color: var(--text-secondary); font-size: 11px;">${a.label}</div>` : ''}
+                    ${a.measurement ? `<div class="annotation-item-measurement" onclick="goToAnnotation('${a.id}')" style="cursor: pointer;">${a.measurement}</div>` : ''}
+                    ${a.description ? `<div style="color: var(--text-secondary); font-size: 11px; margin-top: 4px; font-style: italic;">${a.description}</div>` : ''}
                 </div>
             `).join('');
         }
@@ -1893,6 +1988,62 @@
         function goToAnnotation(annotationId) {
             if (!annotationManager) return;
             annotationManager.goToAnnotation(annotationId);
+        }
+        
+        function editAnnotation(annotationId) {
+            if (!annotationManager) return;
+            
+            const annotation = annotationManager.annotations.find(a => a.id === annotationId);
+            if (!annotation) return;
+            
+            // Populate modal
+            document.getElementById('edit-annotation-id').value = annotationId;
+            document.getElementById('edit-annotation-label').value = annotation.properties?.label || '';
+            document.getElementById('edit-annotation-desc').value = annotation.properties?.description || '';
+            
+            // Show modal
+            document.getElementById('annotation-edit-modal').classList.add('active');
+            document.getElementById('edit-annotation-label').focus();
+        }
+        
+        function closeAnnotationEdit(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('annotation-edit-modal').classList.remove('active');
+        }
+        
+        async function saveAnnotationEdit() {
+            const annotationId = document.getElementById('edit-annotation-id').value;
+            const label = document.getElementById('edit-annotation-label').value.trim();
+            const description = document.getElementById('edit-annotation-desc').value.trim();
+            
+            if (!annotationManager || !annotationId) return;
+            
+            // Update annotation locally
+            const annotation = annotationManager.annotations.find(a => a.id === annotationId);
+            if (annotation) {
+                if (!annotation.properties) annotation.properties = {};
+                annotation.properties.label = label || annotation.properties.label;
+                annotation.properties.description = description;
+                
+                // Try to save to server
+                try {
+                    await fetch(`/api/studies/${currentStudy}/annotations/${annotationId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            properties: annotation.properties
+                        })
+                    });
+                } catch (e) {
+                    console.warn('Could not save to server:', e);
+                }
+                
+                // Update UI
+                annotationManager.render();
+                updateAnnotationsList();
+            }
+            
+            closeAnnotationEdit();
         }
         
         async function clearAnnotations() {

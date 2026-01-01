@@ -801,11 +801,17 @@ class AnnotationManager {
         ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
         ctx.fill();
         
-        // Label
-        if (props.label) {
+        // Label (custom or default)
+        const label = props.label;
+        if (label) {
             ctx.font = '11px JetBrains Mono, monospace';
+            // Background for better readability
+            const metrics = ctx.measureText(label);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(point.x + 10, point.y - 6, metrics.width + 6, 14);
+            // Text
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(props.label, point.x + 12, point.y + 4);
+            ctx.fillText(label, point.x + 13, point.y + 4);
         }
     }
     
@@ -873,7 +879,8 @@ class AnnotationManager {
             tool: a.tool,
             type: a.type,
             measurement: a.properties?.measurement?.display || null,
-            label: a.properties?.label || null
+            label: a.properties?.label || null,
+            description: a.properties?.description || null
         }));
     }
 }
