@@ -1,7 +1,9 @@
 FROM nginx:alpine
 
 # Copy viewer files
-COPY index.html /usr/share/nginx/html/
+COPY landing.html /usr/share/nginx/html/
+COPY callback.html /usr/share/nginx/html/
+COPY index.html /usr/share/nginx/html/viewer.html
 COPY upload.html /usr/share/nginx/html/
 COPY test.html /usr/share/nginx/html/
 COPY color-correction.js /usr/share/nginx/html/
@@ -75,11 +77,28 @@ http {
         server_name _;
         client_max_body_size 5000M;
 
-        # Static files with long cache
+        # Landing page (default)
+        location = / {
+            root /usr/share/nginx/html;
+            try_files /landing.html =404;
+        }
+
+        # Auth callback
+        location = /callback {
+            root /usr/share/nginx/html;
+            try_files /callback.html =404;
+        }
+
+        # Protected viewer (auth required - checked client-side)
+        location = /viewer {
+            root /usr/share/nginx/html;
+            try_files /viewer.html =404;
+        }
+
+        # Static files
         location / {
             root /usr/share/nginx/html;
-            index index.html;
-            try_files $uri $uri/ /index.html;
+            try_files $uri $uri/ /landing.html;
             
             # Cache static assets
             location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {

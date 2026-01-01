@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signing in... - PathView Pro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+            background: #07070a;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .loader {
+            text-align: center;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid #1a1a24;
+            border-top-color: #00d4aa;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 24px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        h2 { font-size: 24px; margin-bottom: 8px; }
+        p { color: #8a8a9a; }
+    </style>
+</head>
+<body>
+    <div class="loader">
+        <div class="spinner"></div>
+        <h2>Signing you in...</h2>
+        <p>Please wait while we complete authentication.</p>
+    </div>
+
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+    <script>
+        const AUTH0_DOMAIN = 'YOUR_AUTH0_DOMAIN';
+        const AUTH0_CLIENT_ID = 'YOUR_CLIENT_ID';
+
+        async function handleCallback() {
+            try {
+                const auth0Client = await auth0.createAuth0Client({
+                    domain: AUTH0_DOMAIN,
+                    clientId: AUTH0_CLIENT_ID,
+                    authorizationParams: {
+                        redirect_uri: window.location.origin + '/callback'
+                    },
+                    cacheLocation: 'localstorage'
+                });
+
+                await auth0Client.handleRedirectCallback();
+                
+                // Redirect to main viewer
+                window.location.href = '/viewer';
+            } catch (e) {
+                console.error('Callback error:', e);
+                // Redirect to landing on error
+                window.location.href = '/';
+            }
+        }
+
+        handleCallback();
+    </script>
+</body>
+</html>

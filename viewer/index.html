@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Diagnexia WSI Viewer</title>
+    <title>PathView Pro - Viewer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/openseadragon.min.js"></script>
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -70,6 +71,80 @@
             align-items: center;
             gap: 12px;
             margin-left: auto;
+        }
+
+        /* User Menu */
+        .user-menu {
+            position: relative;
+            margin-left: 8px;
+        }
+
+        .user-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .user-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .user-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .user-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 200px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            display: none;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            z-index: 200;
+        }
+
+        .user-dropdown.active {
+            display: block;
+        }
+
+        .user-dropdown-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .logout-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: var(--danger);
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 68, 102, 0.1);
         }
 
         /* Sidebar */
@@ -731,11 +806,33 @@
                 <line x1="2" y1="12" x2="6" y2="12"/>
                 <line x1="18" y1="12" x2="22" y2="12"/>
             </svg>
-            Diagnexia WSI Viewer
+            PathView Pro
         </div>
         <div class="header-controls">
             <button class="btn" onclick="refreshStudies()">↻ Refresh</button>
             <button class="btn btn-primary" onclick="openUploader()">+ Upload</button>
+            <div class="user-menu" id="user-menu" style="display: none;">
+                <button class="user-btn" onclick="toggleUserDropdown()">
+                    <img id="user-avatar" src="" alt="" class="user-avatar">
+                    <span id="user-name">User</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+                <div class="user-dropdown" id="user-dropdown">
+                    <div class="user-dropdown-header">
+                        <strong id="user-email">user@example.com</strong>
+                    </div>
+                    <button onclick="logout()" class="logout-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                            <polyline points="16 17 21 12 16 7"/>
+                            <line x1="21" y1="12" x2="9" y2="12"/>
+                        </svg>
+                        Sign Out
+                    </button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -977,6 +1074,13 @@
     <script src="color-correction.js"></script>
     <script src="annotations.js"></script>
     <script>
+        // Auth0 Configuration - REPLACE THESE VALUES
+        const AUTH0_DOMAIN = 'YOUR_AUTH0_DOMAIN';  // e.g., 'myapp.auth0.com'
+        const AUTH0_CLIENT_ID = 'YOUR_CLIENT_ID';
+        
+        let auth0Client = null;
+        let currentUser = null;
+
         // Configuration
         const CONFIG = {
             orthancUrl: '/dicom-web',
@@ -985,6 +1089,81 @@
 
         let viewer = null;
         let currentStudy = null;
+
+        // Initialize Auth0 and check authentication
+        async function initAuth() {
+            try {
+                auth0Client = await auth0.createAuth0Client({
+                    domain: AUTH0_DOMAIN,
+                    clientId: AUTH0_CLIENT_ID,
+                    authorizationParams: {
+                        redirect_uri: window.location.origin + '/callback'
+                    },
+                    cacheLocation: 'localstorage'
+                });
+
+                const isAuthenticated = await auth0Client.isAuthenticated();
+                
+                if (!isAuthenticated) {
+                    // Not logged in - redirect to landing
+                    window.location.href = '/';
+                    return false;
+                }
+
+                // Get user info
+                currentUser = await auth0Client.getUser();
+                updateUserUI();
+                return true;
+            } catch (e) {
+                console.error('Auth init error:', e);
+                // If Auth0 not configured, allow access (dev mode)
+                if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN') {
+                    console.warn('Auth0 not configured - running in dev mode');
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        function updateUserUI() {
+            if (!currentUser) return;
+            
+            const userMenu = document.getElementById('user-menu');
+            const userAvatar = document.getElementById('user-avatar');
+            const userName = document.getElementById('user-name');
+            const userEmail = document.getElementById('user-email');
+            
+            if (userMenu) userMenu.style.display = 'block';
+            if (userAvatar) userAvatar.src = currentUser.picture || '';
+            if (userName) userName.textContent = currentUser.name || currentUser.email?.split('@')[0] || 'User';
+            if (userEmail) userEmail.textContent = currentUser.email || '';
+        }
+
+        function toggleUserDropdown() {
+            const dropdown = document.getElementById('user-dropdown');
+            if (dropdown) dropdown.classList.toggle('active');
+        }
+
+        async function logout() {
+            if (auth0Client) {
+                await auth0Client.logout({
+                    logoutParams: {
+                        returnTo: window.location.origin
+                    }
+                });
+            } else {
+                window.location.href = '/';
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const userMenu = document.getElementById('user-menu');
+            const dropdown = document.getElementById('user-dropdown');
+            if (userMenu && dropdown && !userMenu.contains(e.target)) {
+                dropdown.classList.remove('active');
+            }
+        });
 
         // Format DICOM patient name (Last^First^Middle -> First Last)
         function formatDicomName(name) {
@@ -1011,6 +1190,12 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
+            // Check authentication first
+            const isAuthed = await initAuth();
+            if (!isAuthed && AUTH0_DOMAIN !== 'YOUR_AUTH0_DOMAIN') {
+                return; // Redirect will happen
+            }
+            
             checkServerStatus();
             await refreshStudies();
             
