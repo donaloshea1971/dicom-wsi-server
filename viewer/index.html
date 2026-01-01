@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/openseadragon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -476,6 +477,147 @@
             color: var(--text-secondary);
             font-style: italic;
         }
+
+        /* Annotation Toolbar */
+        .annotation-toolbar {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 50;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .annotation-toolbar .tool-btn {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .annotation-toolbar .tool-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .annotation-toolbar .tool-btn.active {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .annotation-toolbar .tool-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+
+        /* Annotations Panel */
+        .annotations-panel {
+            position: absolute;
+            top: 56px;
+            right: 0;
+            bottom: 0;
+            width: 280px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            z-index: 40;
+            display: none;
+            flex-direction: column;
+        }
+
+        .annotations-panel.active {
+            display: flex;
+        }
+
+        .annotations-panel-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .annotations-panel-header h3 {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .annotations-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .annotation-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .annotation-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .annotation-item-type {
+            font-weight: 500;
+            color: var(--text-primary);
+            text-transform: capitalize;
+        }
+
+        .annotation-item-delete {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0;
+        }
+
+        .annotation-item-delete:hover {
+            color: var(--danger);
+        }
+
+        .annotation-item-measurement {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+            font-size: 13px;
+        }
+
+        .calibration-badge {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .calibration-badge strong {
+            color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -552,7 +694,80 @@
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
         </div>
 
-        <!-- Toolbar -->
+        <!-- Annotation Toolbar (left side) -->
+        <div class="annotation-toolbar" id="annotation-toolbar" style="display: none;">
+            <button class="tool-btn" id="tool-pan" title="Pan (P)" onclick="setAnnotationTool(null)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+                    <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+                </svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" id="tool-line" title="Measure Distance (L)" onclick="setAnnotationTool('line')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2 12h4M18 12h4M6 12l2-2M6 12l2 2M18 12l-2-2M18 12l-2 2"/>
+                    <line x1="8" y1="12" x2="16" y2="12"/>
+                </svg>
+            </button>
+            <button class="tool-btn" id="tool-rectangle" title="Measure Area (R)" onclick="setAnnotationTool('rectangle')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                </svg>
+            </button>
+            <button class="tool-btn" id="tool-polygon" title="Polygon Region (G)" onclick="setAnnotationTool('polygon')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2l9 7-3.5 10h-11L3 9z"/>
+                </svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" id="tool-point" title="Point Marker (M)" onclick="setAnnotationTool('point')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <circle cx="12" cy="12" r="8" stroke-dasharray="4 4"/>
+                </svg>
+            </button>
+            <button class="tool-btn" id="tool-arrow" title="Arrow (A)" onclick="setAnnotationTool('arrow')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="5" y1="19" x2="19" y2="5"/>
+                    <polyline points="12 5 19 5 19 12"/>
+                </svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" id="tool-list" title="Annotations List" onclick="toggleAnnotationsPanel()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <circle cx="4" cy="6" r="1" fill="currentColor"/>
+                    <circle cx="4" cy="12" r="1" fill="currentColor"/>
+                    <circle cx="4" cy="18" r="1" fill="currentColor"/>
+                </svg>
+            </button>
+            <button class="tool-btn" title="Clear All" onclick="clearAnnotations()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Annotations Panel (right side) -->
+        <div class="annotations-panel" id="annotations-panel">
+            <div class="annotations-panel-header">
+                <h3>📐 Annotations</h3>
+                <button class="modal-close" onclick="toggleAnnotationsPanel()" style="font-size: 18px;">&times;</button>
+            </div>
+            <div class="calibration-badge" id="calibration-info">
+                <strong>Calibration:</strong> <span id="calibration-value">Loading...</span>
+            </div>
+            <div class="annotations-list" id="annotations-list">
+                <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">
+                    No annotations yet.<br>Use the tools on the left to add measurements.
+                </div>
+            </div>
+        </div>
+
+        <!-- Toolbar (bottom) -->
         <div class="viewer-toolbar" id="viewer-toolbar" style="display: none;">
             <button class="toolbar-btn" title="Zoom In" onclick="viewer.viewport.zoomBy(1.5)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -658,6 +873,7 @@
 
     <script src="dicomweb-tilesource.js"></script>
     <script src="color-correction.js"></script>
+    <script src="annotations.js"></script>
     <script>
         // Configuration
         const CONFIG = {
@@ -1098,6 +1314,12 @@
                     console.log('Viewer opened successfully');
                     showLoading(false);
                     
+                    // Show annotation toolbar
+                    document.getElementById('annotation-toolbar').style.display = 'flex';
+                    
+                    // Initialize and load annotations
+                    loadStudyAnnotations(studyId);
+                    
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
                         initColorCorrection();
@@ -1514,6 +1736,161 @@
         function openUploader() {
             window.location.href = '/upload.html';
         }
+
+        // =========================================
+        // Annotation System
+        // =========================================
+        let annotationManager = null;
+        let currentAnnotationTool = null;
+        
+        function initAnnotations() {
+            if (!viewer || !window.AnnotationManager) {
+                console.warn('Cannot initialize annotations: viewer or AnnotationManager not ready');
+                return false;
+            }
+            
+            annotationManager = new AnnotationManager(viewer);
+            console.log('Annotation system initialized');
+            return true;
+        }
+        
+        function setAnnotationTool(tool) {
+            // Initialize annotations if not already done
+            if (!annotationManager && viewer) {
+                initAnnotations();
+            }
+            
+            if (!annotationManager) return;
+            
+            currentAnnotationTool = tool;
+            annotationManager.setTool(tool);
+            
+            // Update toolbar button states
+            document.querySelectorAll('.annotation-toolbar .tool-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            const activeBtn = document.getElementById(tool ? `tool-${tool}` : 'tool-pan');
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+        }
+        
+        function toggleAnnotationsPanel() {
+            const panel = document.getElementById('annotations-panel');
+            const listBtn = document.getElementById('tool-list');
+            
+            panel.classList.toggle('active');
+            listBtn.classList.toggle('active');
+            
+            if (panel.classList.contains('active')) {
+                updateAnnotationsList();
+            }
+        }
+        
+        function updateAnnotationsList() {
+            if (!annotationManager) return;
+            
+            const list = document.getElementById('annotations-list');
+            const annotations = annotationManager.getAnnotationList();
+            
+            if (annotations.length === 0) {
+                list.innerHTML = `
+                    <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">
+                        No annotations yet.<br>Use the tools on the left to add measurements.
+                    </div>
+                `;
+                return;
+            }
+            
+            list.innerHTML = annotations.map(a => `
+                <div class="annotation-item" data-id="${a.id}">
+                    <div class="annotation-item-header">
+                        <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.tool}</span>
+                        <button class="annotation-item-delete" onclick="deleteAnnotation('${a.id}')" title="Delete">×</button>
+                    </div>
+                    ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
+                    ${a.label ? `<div style="color: var(--text-secondary); font-size: 11px;">${a.label}</div>` : ''}
+                </div>
+            `).join('');
+        }
+        
+        function getToolIcon(tool) {
+            const icons = {
+                line: '📏',
+                rectangle: '⬜',
+                polygon: '🔷',
+                point: '📍',
+                arrow: '➡️'
+            };
+            return icons[tool] || '📌';
+        }
+        
+        async function deleteAnnotation(annotationId) {
+            if (!annotationManager) return;
+            
+            if (confirm('Delete this annotation?')) {
+                await annotationManager.deleteAnnotation(annotationId);
+                updateAnnotationsList();
+            }
+        }
+        
+        async function clearAnnotations() {
+            if (!annotationManager) return;
+            
+            if (confirm('Clear all annotations for this study?')) {
+                try {
+                    await fetch(`/api/studies/${currentStudy}/annotations`, { method: 'DELETE' });
+                    annotationManager.clearAll();
+                    updateAnnotationsList();
+                } catch (e) {
+                    console.error('Failed to clear annotations:', e);
+                }
+            }
+        }
+        
+        async function loadStudyAnnotations(studyId) {
+            if (!annotationManager) {
+                if (!initAnnotations()) return;
+            }
+            
+            // Load calibration
+            await annotationManager.loadCalibration(studyId);
+            
+            // Update calibration display
+            const calibrationValue = document.getElementById('calibration-value');
+            if (calibrationValue) {
+                const spacing = annotationManager.pixelSpacing[0];
+                const source = annotationManager.calibrationSource;
+                calibrationValue.innerHTML = `${spacing.toFixed(3)} µm/px <span style="opacity: 0.6">(${source})</span>`;
+            }
+            
+            // Load annotations
+            await annotationManager.loadAnnotations(studyId);
+            updateAnnotationsList();
+            
+            // Set default tool to pan
+            setAnnotationTool(null);
+        }
+        
+        // Keyboard shortcuts for annotation tools
+        document.addEventListener('keydown', (e) => {
+            // Don't trigger if typing in an input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            switch (e.key.toLowerCase()) {
+                case 'p': setAnnotationTool(null); break;  // Pan
+                case 'l': setAnnotationTool('line'); break;
+                case 'r': setAnnotationTool('rectangle'); break;
+                case 'g': setAnnotationTool('polygon'); break;
+                case 'm': setAnnotationTool('point'); break;
+                case 'a': setAnnotationTool('arrow'); break;
+                case 'escape': 
+                    setAnnotationTool(null);
+                    closeMetadataModal();
+                    break;
+            }
+        });
 
         // Metadata modal functions
         let currentMetadata = null;

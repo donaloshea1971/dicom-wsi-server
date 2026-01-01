@@ -62,6 +62,45 @@ class UploadResponse(BaseModel):
 
 
 # =============================================================================
+# Annotation Models
+# =============================================================================
+
+class AnnotationGeometry(BaseModel):
+    """GeoJSON-style geometry for annotations"""
+    type: str  # Point, LineString, Polygon, Rectangle
+    coordinates: list  # Coordinate array based on type
+
+class Annotation(BaseModel):
+    """Single annotation with metadata"""
+    id: str
+    study_id: str
+    type: str  # measurement, marker, region, text
+    tool: str  # line, polygon, rectangle, point, arrow, text
+    geometry: AnnotationGeometry
+    properties: dict = {}  # color, label, measurement value, etc.
+    created_by: str = "anonymous"
+    created_at: datetime = None
+    updated_at: datetime = None
+
+class AnnotationCreate(BaseModel):
+    """Request model for creating annotation"""
+    type: str
+    tool: str
+    geometry: AnnotationGeometry
+    properties: dict = {}
+    created_by: str = "anonymous"
+
+class AnnotationUpdate(BaseModel):
+    """Request model for updating annotation"""
+    geometry: Optional[AnnotationGeometry] = None
+    properties: Optional[dict] = None
+
+# In-memory annotation storage (would use PostgreSQL in production)
+# Structure: { study_id: { annotation_id: Annotation } }
+annotations_store: dict = {}
+
+
+# =============================================================================
 # LZW/Unsupported Compression Handling
 # =============================================================================
 
@@ -217,6 +256,219 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# =============================================================================
+# Annotation Endpoints
+# =============================================================================
+
+@app.get("/studies/{study_id}/annotations")
+async def get_annotations(study_id: str):
+    """Get all annotations for a study"""
+    if study_id not in annotations_store:
+        return {"annotations": [], "count": 0}
+    
+    annotations = list(annotations_store[study_id].values())
+    return {
+        "annotations": [a.model_dump() for a in annotations],
+        "count": len(annotations)
+    }
+
+
+@app.post("/studies/{study_id}/annotations")
+async def create_annotation(study_id: str, annotation: AnnotationCreate):
+    """Create a new annotation for a study"""
+    # Initialize study storage if needed
+    if study_id not in annotations_store:
+        annotations_store[study_id] = {}
+    
+    # Generate annotation ID
+    annotation_id = str(uuid.uuid4())[:8]
+    
+    # Create annotation object
+    now = datetime.utcnow()
+    new_annotation = Annotation(
+        id=annotation_id,
+        study_id=study_id,
+        type=annotation.type,
+        tool=annotation.tool,
+        geometry=annotation.geometry,
+        properties=annotation.properties,
+        created_by=annotation.created_by,
+        created_at=now,
+        updated_at=now
+    )
+    
+    # Store annotation
+    annotations_store[study_id][annotation_id] = new_annotation
+    
+    logger.info(f"Created annotation {annotation_id} for study {study_id}")
+    return new_annotation.model_dump()
+
+
+@app.get("/studies/{study_id}/annotations/{annotation_id}")
+async def get_annotation(study_id: str, annotation_id: str):
+    """Get a specific annotation"""
+    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    
+    return annotations_store[study_id][annotation_id].model_dump()
+
+
+@app.put("/studies/{study_id}/annotations/{annotation_id}")
+async def update_annotation(study_id: str, annotation_id: str, update: AnnotationUpdate):
+    """Update an existing annotation"""
+    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    
+    annotation = annotations_store[study_id][annotation_id]
+    
+    if update.geometry:
+        annotation.geometry = update.geometry
+    if update.properties:
+        annotation.properties.update(update.properties)
+    
+    annotation.updated_at = datetime.utcnow()
+    
+    logger.info(f"Updated annotation {annotation_id}")
+    return annotation.model_dump()
+
+
+@app.delete("/studies/{study_id}/annotations/{annotation_id}")
+async def delete_annotation(study_id: str, annotation_id: str):
+    """Delete an annotation"""
+    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    
+    del annotations_store[study_id][annotation_id]
+    logger.info(f"Deleted annotation {annotation_id}")
+    return {"message": "Annotation deleted"}
+
+
+@app.delete("/studies/{study_id}/annotations")
+async def clear_annotations(study_id: str):
+    """Delete all annotations for a study"""
+    if study_id in annotations_store:
+        count = len(annotations_store[study_id])
+        annotations_store[study_id] = {}
+        logger.info(f"Cleared {count} annotations for study {study_id}")
+        return {"message": f"Deleted {count} annotations"}
+    return {"message": "No annotations to delete"}
+
+
+@app.get("/studies/{study_id}/calibration")
+async def get_calibration(study_id: str):
+    """Get pixel spacing calibration for measurements"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get study info
+            response = await client.get(
+                f"{settings.orthanc_url}/studies/{study_id}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="Study not found")
+            
+            study_data = response.json()
+            series_ids = study_data.get("Series", [])
+            
+            if not series_ids:
+                raise HTTPException(status_code=404, detail="No series found")
+            
+            # Get first series
+            series_response = await client.get(
+                f"{settings.orthanc_url}/series/{series_ids[0]}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            
+            series_data = series_response.json()
+            instance_ids = series_data.get("Instances", [])
+            
+            if not instance_ids:
+                raise HTTPException(status_code=404, detail="No instances found")
+            
+            # Get instance metadata
+            meta_response = await client.get(
+                f"{settings.orthanc_url}/instances/{instance_ids[0]}/tags",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            
+            tags = meta_response.json()
+            
+            # Extract pixel spacing
+            # Try different DICOM tags that may contain spacing info
+            pixel_spacing = None
+            
+            # Standard PixelSpacing (0028,0030)
+            if "0028,0030" in tags:
+                ps = tags["0028,0030"].get("Value", [])
+                if ps:
+                    pixel_spacing = [float(ps[0]), float(ps[1]) if len(ps) > 1 else float(ps[0])]
+            
+            # SharedFunctionalGroupsSequence for WSI
+            if not pixel_spacing and "5200,9229" in tags:
+                sfgs = tags["5200,9229"].get("Value", [{}])
+                if sfgs and isinstance(sfgs[0], dict):
+                    # PixelMeasuresSequence
+                    pms = sfgs[0].get("0028,9110", {}).get("Value", [{}])
+                    if pms and "0028,0030" in pms[0]:
+                        ps = pms[0]["0028,0030"].get("Value", [])
+                        if ps:
+                            pixel_spacing = [float(ps[0]), float(ps[1]) if len(ps) > 1 else float(ps[0])]
+            
+            # ImagedVolumeWidth/Height for WSI (in mm)
+            imaged_volume_width = None
+            imaged_volume_height = None
+            total_pixel_cols = None
+            total_pixel_rows = None
+            
+            if "0048,0001" in tags:  # ImagedVolumeWidth
+                imaged_volume_width = float(tags["0048,0001"].get("Value", [0])[0])
+            if "0048,0002" in tags:  # ImagedVolumeHeight
+                imaged_volume_height = float(tags["0048,0002"].get("Value", [0])[0])
+            if "0048,0006" in tags:  # TotalPixelMatrixColumns
+                total_pixel_cols = int(tags["0048,0006"].get("Value", [0])[0])
+            if "0048,0007" in tags:  # TotalPixelMatrixRows
+                total_pixel_rows = int(tags["0048,0007"].get("Value", [0])[0])
+            
+            # Calculate pixel spacing from volume dimensions
+            if not pixel_spacing and imaged_volume_width and total_pixel_cols:
+                spacing_x = imaged_volume_width / total_pixel_cols * 1000  # Convert mm to µm
+                spacing_y = spacing_x
+                if imaged_volume_height and total_pixel_rows:
+                    spacing_y = imaged_volume_height / total_pixel_rows * 1000
+                pixel_spacing = [spacing_x, spacing_y]
+            
+            # Default fallback (common 40x objective ~0.25µm/pixel)
+            if not pixel_spacing:
+                pixel_spacing = [0.25, 0.25]
+                logger.warning(f"No pixel spacing found for {study_id}, using default 0.25 µm/pixel")
+            
+            return {
+                "study_id": study_id,
+                "pixel_spacing_um": pixel_spacing,  # µm per pixel [x, y]
+                "unit": "µm",
+                "source": "dicom" if pixel_spacing != [0.25, 0.25] else "default",
+                "total_pixel_matrix": [total_pixel_cols, total_pixel_rows] if total_pixel_cols else None,
+                "imaged_volume_mm": [imaged_volume_width, imaged_volume_height] if imaged_volume_width else None
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting calibration for {study_id}: {e}")
+        # Return default calibration
+        return {
+            "study_id": study_id,
+            "pixel_spacing_um": [0.25, 0.25],
+            "unit": "µm",
+            "source": "default",
+            "error": str(e)
+        }
 
 
 # =============================================================================
