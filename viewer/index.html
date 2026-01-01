@@ -1026,6 +1026,16 @@
             
             // Close metadata modal when switching images
             closeMetadataModal();
+            
+            // Clean up previous annotation manager
+            if (annotationManager) {
+                annotationManager.destroy();
+                annotationManager = null;
+            }
+            
+            // Close annotations panel
+            const annotationsPanel = document.getElementById('annotations-panel');
+            if (annotationsPanel) annotationsPanel.classList.remove('active');
 
             // Update sidebar selection
             document.querySelectorAll('.study-card').forEach(card => {
@@ -1749,18 +1759,23 @@
                 return false;
             }
             
+            // Destroy existing manager if switching images
+            if (annotationManager) {
+                annotationManager.destroy();
+                annotationManager = null;
+            }
+            
             annotationManager = new AnnotationManager(viewer);
+            annotationManager.init();
             console.log('Annotation system initialized');
             return true;
         }
         
         function setAnnotationTool(tool) {
-            // Initialize annotations if not already done
-            if (!annotationManager && viewer) {
-                initAnnotations();
+            if (!annotationManager) {
+                console.warn('Annotation manager not ready');
+                return;
             }
-            
-            if (!annotationManager) return;
             
             currentAnnotationTool = tool;
             annotationManager.setTool(tool);
@@ -1781,7 +1796,7 @@
             const listBtn = document.getElementById('tool-list');
             
             panel.classList.toggle('active');
-            listBtn.classList.toggle('active');
+            if (listBtn) listBtn.classList.toggle('active');
             
             if (panel.classList.contains('active')) {
                 updateAnnotationsList();
@@ -1789,9 +1804,17 @@
         }
         
         function updateAnnotationsList() {
-            if (!annotationManager) return;
-            
             const list = document.getElementById('annotations-list');
+            
+            if (!annotationManager) {
+                list.innerHTML = `
+                    <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">
+                        No annotations yet.<br>Use the tools on the left to add measurements.
+                    </div>
+                `;
+                return;
+            }
+            
             const annotations = annotationManager.getAnnotationList();
             
             if (annotations.length === 0) {
@@ -1836,7 +1859,7 @@
         }
         
         async function clearAnnotations() {
-            if (!annotationManager) return;
+            if (!annotationManager || !currentStudy) return;
             
             if (confirm('Clear all annotations for this study?')) {
                 try {
@@ -1850,33 +1873,42 @@
         }
         
         async function loadStudyAnnotations(studyId) {
-            if (!annotationManager) {
-                if (!initAnnotations()) return;
+            // Initialize fresh annotation manager for this study
+            if (!initAnnotations()) {
+                console.error('Failed to initialize annotations');
+                return;
             }
             
-            // Load calibration
-            await annotationManager.loadCalibration(studyId);
-            
-            // Update calibration display
-            const calibrationValue = document.getElementById('calibration-value');
-            if (calibrationValue) {
-                const spacing = annotationManager.pixelSpacing[0];
-                const source = annotationManager.calibrationSource;
-                calibrationValue.innerHTML = `${spacing.toFixed(3)} µm/px <span style="opacity: 0.6">(${source})</span>`;
+            try {
+                // Load calibration
+                await annotationManager.loadCalibration(studyId);
+                
+                // Update calibration display
+                const calibrationValue = document.getElementById('calibration-value');
+                if (calibrationValue) {
+                    const spacing = annotationManager.pixelSpacing[0];
+                    const source = annotationManager.calibrationSource;
+                    calibrationValue.innerHTML = `${spacing.toFixed(3)} µm/px <span style="opacity: 0.6">(${source})</span>`;
+                }
+                
+                // Load annotations
+                await annotationManager.loadAnnotations(studyId);
+                updateAnnotationsList();
+                
+                // Set default tool to pan and update UI
+                setAnnotationTool(null);
+                document.getElementById('tool-pan').classList.add('active');
+                
+            } catch (e) {
+                console.error('Failed to load study annotations:', e);
             }
-            
-            // Load annotations
-            await annotationManager.loadAnnotations(studyId);
-            updateAnnotationsList();
-            
-            // Set default tool to pan
-            setAnnotationTool(null);
         }
         
         // Keyboard shortcuts for annotation tools
         document.addEventListener('keydown', (e) => {
-            // Don't trigger if typing in an input
+            // Don't trigger if typing in an input or no viewer open
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (!annotationManager) return;
             
             switch (e.key.toLowerCase()) {
                 case 'p': setAnnotationTool(null); break;  // Pan

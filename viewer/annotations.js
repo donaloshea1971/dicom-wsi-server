@@ -12,6 +12,7 @@ class AnnotationManager {
         this.isDrawing = false;
         this.annotations = [];
         this.studyId = null;
+        this.initialized = false;
         
         // Calibration: µm per pixel (default 0.25 for ~40x objective)
         this.pixelSpacing = [0.25, 0.25];
@@ -27,6 +28,8 @@ class AnnotationManager {
         this._onMouseMove = this.onMouseMove.bind(this);
         this._onMouseUp = this.onMouseUp.bind(this);
         this._onDblClick = this.onDblClick.bind(this);
+        this._onAnimation = () => this.render();
+        this._onResize = () => this.resizeCanvas();
         
         // Styles
         this.styles = {
@@ -36,25 +39,75 @@ class AnnotationManager {
             point: { fill: '#00d4aa', radius: 6 },
             arrow: { stroke: '#00d4aa', strokeWidth: 2 }
         };
-        
-        this.init();
     }
     
     init() {
+        if (this.initialized) {
+            console.log('AnnotationManager already initialized, resetting...');
+            this.reset();
+        }
+        
         this.createOverlay();
         
         // Bind viewport events for redrawing
-        this.viewer.addHandler('animation', () => this.render());
-        this.viewer.addHandler('animation-finish', () => this.render());
-        this.viewer.addHandler('resize', () => this.resizeCanvas());
+        this.viewer.addHandler('animation', this._onAnimation);
+        this.viewer.addHandler('animation-finish', this._onAnimation);
+        this.viewer.addHandler('resize', this._onResize);
         
         // Initial resize
         setTimeout(() => this.resizeCanvas(), 100);
         
+        this.initialized = true;
         console.log('AnnotationManager initialized');
     }
     
+    reset() {
+        // Remove old canvas if exists
+        if (this.canvas && this.canvas.parentNode) {
+            this.canvas.parentNode.removeChild(this.canvas);
+        }
+        
+        // Clear state
+        this.annotations = [];
+        this.points = [];
+        this.startPoint = null;
+        this.currentEndPoint = null;
+        this.isDrawing = false;
+        this.currentTool = null;
+        this.studyId = null;
+        
+        // Remove event handlers from canvas
+        if (this.canvas) {
+            this.canvas.removeEventListener('mousedown', this._onMouseDown);
+            this.canvas.removeEventListener('mousemove', this._onMouseMove);
+            this.canvas.removeEventListener('mouseup', this._onMouseUp);
+            this.canvas.removeEventListener('dblclick', this._onDblClick);
+        }
+        
+        this.canvas = null;
+        this.ctx = null;
+    }
+    
+    destroy() {
+        // Remove viewer event handlers
+        if (this.viewer) {
+            this.viewer.removeHandler('animation', this._onAnimation);
+            this.viewer.removeHandler('animation-finish', this._onAnimation);
+            this.viewer.removeHandler('resize', this._onResize);
+        }
+        
+        this.reset();
+        this.initialized = false;
+        console.log('AnnotationManager destroyed');
+    }
+    
     createOverlay() {
+        // Remove existing canvas if any
+        const existingCanvas = document.getElementById('annotation-canvas');
+        if (existingCanvas) {
+            existingCanvas.parentNode.removeChild(existingCanvas);
+        }
+        
         // Create canvas element
         this.canvas = document.createElement('canvas');
         this.canvas.id = 'annotation-canvas';
