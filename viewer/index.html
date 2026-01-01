@@ -1324,11 +1324,14 @@
                     console.log('Viewer opened successfully');
                     showLoading(false);
                     
-                    // Show annotation toolbar
+                    // Reset and show annotation toolbar
+                    resetAnnotationToolbar();
                     document.getElementById('annotation-toolbar').style.display = 'flex';
                     
-                    // Initialize and load annotations
-                    loadStudyAnnotations(studyId);
+                    // Initialize and load annotations (with delay to ensure viewer is ready)
+                    setTimeout(() => {
+                        loadStudyAnnotations(studyId);
+                    }, 200);
                     
                     // Initialize color correction if not already done
                     if (!colorCorrection) {
@@ -1753,6 +1756,26 @@
         let annotationManager = null;
         let currentAnnotationTool = null;
         
+        function resetAnnotationToolbar() {
+            // Reset all toolbar buttons to inactive
+            document.querySelectorAll('.annotation-toolbar .tool-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Set pan as active by default
+            const panBtn = document.getElementById('tool-pan');
+            if (panBtn) panBtn.classList.add('active');
+            
+            // Close annotations panel
+            const panel = document.getElementById('annotations-panel');
+            if (panel) panel.classList.remove('active');
+            
+            // Reset tool state
+            currentAnnotationTool = null;
+            
+            console.log('Annotation toolbar reset');
+        }
+        
         function initAnnotations() {
             if (!viewer || !window.AnnotationManager) {
                 console.warn('Cannot initialize annotations: viewer or AnnotationManager not ready');
@@ -1875,9 +1898,19 @@
         }
         
         async function loadStudyAnnotations(studyId) {
+            console.log('Loading annotations for study:', studyId);
+            
             // Initialize fresh annotation manager for this study
             if (!initAnnotations()) {
                 console.error('Failed to initialize annotations');
+                return;
+            }
+            
+            // Wait a bit for canvas to be ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            if (!annotationManager || !annotationManager.isReady()) {
+                console.error('Annotation manager not ready after init');
                 return;
             }
             
@@ -1897,9 +1930,10 @@
                 await annotationManager.loadAnnotations(studyId);
                 updateAnnotationsList();
                 
-                // Set default tool to pan and update UI
-                setAnnotationTool(null);
-                document.getElementById('tool-pan').classList.add('active');
+                // Ensure pan mode is set
+                annotationManager.setTool(null);
+                
+                console.log('Annotations loaded successfully, manager ready:', annotationManager.isReady());
                 
             } catch (e) {
                 console.error('Failed to load study annotations:', e);
