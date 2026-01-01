@@ -114,27 +114,34 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
     output_path = output_dir / f"{source_path.stem}_jpeg.tiff"
     
     # Load image with pyvips (handles LZW natively)
-    image = pyvips.Image.new_from_file(str(source_path), access='sequential')
+    # Use 'random' access for better compatibility with pyramid generation
+    image = pyvips.Image.new_from_file(str(source_path), access='random')
     
     logger.info(f"Loaded image: {image.width}x{image.height}, {image.bands} bands")
     
+    # Ensure image is in a format compatible with JPEG (RGB, no alpha)
+    if image.bands == 4:
+        # Remove alpha channel
+        image = image.flatten(background=[255, 255, 255])
+    elif image.bands == 1:
+        # Convert grayscale to RGB
+        image = image.colourspace('srgb')
+    
     # Save as pyramid TIFF with JPEG compression
-    # tile=True creates tiled TIFF
-    # pyramid=True creates multi-resolution pyramid
-    # compression='jpeg' uses JPEG for tiles
-    # Q=90 sets JPEG quality
+    # depth='one' means only store the largest image, let OpenSlide generate pyramid
+    # This avoids the non-integer level issue
     image.tiffsave(
         str(output_path),
         tile=True,
         tile_width=256,
         tile_height=256,
-        pyramid=True,
+        pyramid=False,  # Don't create pyramid - let wsidicomizer do it with add_missing_levels
         compression='jpeg',
         Q=90,
         bigtiff=True  # Support files > 4GB
     )
     
-    logger.info(f"Created JPEG-compressed pyramid TIFF: {output_path}")
+    logger.info(f"Created JPEG-compressed TIFF: {output_path}")
     return output_path
 
 
@@ -856,9 +863,16 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
                     
             except Exception as e:
                 error_msg = str(e).lower()
-                # Check if this is a compression-related error
-                if 'compression' in error_msg or 'unsupported' in error_msg or 'decode' in error_msg:
-                    logger.warning(f"wsidicomizer failed with compression error: {e}")
+                # Check if this is an error we can recover from with pyvips
+                recoverable_errors = [
+                    'compression', 'unsupported', 'decode',  # Compression issues
+                    'levels needs to be integer', 'tolerance',  # Pyramid level issues
+                    'cannot read', 'failed to read', 'openslide'  # Read issues
+                ]
+                is_recoverable = any(err in error_msg for err in recoverable_errors)
+                
+                if is_recoverable:
+                    logger.warning(f"wsidicomizer failed with recoverable error: {e}")
                     logger.info("Attempting pyvips fallback conversion...")
                     
                     job.message = "Trying alternative conversion method..."
