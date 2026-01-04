@@ -256,15 +256,13 @@ class SpaceNavigatorController {
             viewport.zoomBy(zoomFactor, viewport.getCenter(), false);
         }
         
-        // Optional: Rotation (RX/RY - tilt forward/sideways)
-        // Uncomment if viewport rotation is desired:
-        // if (Math.abs(ry) > 0 && typeof viewport.setRotation === 'function') {
-        //     const currentRotation = viewport.getRotation();
-        //     viewport.setRotation(currentRotation + (ry * this.sensitivity.rotation), false);
-        // }
+        // RX/RY (tilt) - Intentionally NOT used for rotation
+        // Reason: Pure translation (TX/TY) is nearly impossible without some
+        // incidental tilt. Using RX/RY would cause unwanted rotation during panning.
+        // If rotation is ever needed, use a dedicated button + RZ twist instead.
         
         // TZ (push/pull) - Reserved for future MFP/Z-stack navigation
-        // Could trigger focal plane changes if viewer supports it
+        // Could trigger focal plane changes if viewer supports multi-focal imaging
         
         // Apply changes
         viewport.applyConstraints();
