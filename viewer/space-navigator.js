@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.3.1';
+const SPACEMOUSE_VERSION = '1.3.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -23,7 +23,7 @@ class SpaceNavigatorController {
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.5,         // Pan speed (divided by zoom for normalization) - halved for finer control
+            pan: 0.8,         // Pan speed (divided by zoom for normalization) - increased to compensate for steep curve
             zoom: 0.002,      // Zoom speed (unused - now using snap zoom)
             rotation: 0.008   // Rotation speed
         };
@@ -245,8 +245,8 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Apply deadzone and S-curve for fine control with smooth acceleration
-     * Small movements = very fine control, large movements = smooth acceleration to max
+     * Apply deadzone and steep exponential curve
+     * Subtle inputs = almost no movement, hard push = rapid acceleration to max
      */
     applyDeadzone(value) {
         const threshold = this.deadZone * 350; // Scale to raw value range (~28 with 0.08 deadzone)
@@ -263,13 +263,14 @@ class SpaceNavigatorController {
         // Map from deadzone-maxValue to 0-1
         const normalized = (absValue - threshold) / (maxValue - threshold);
         
-        // S-curve using smoothstep for natural acceleration feel
-        // Gives fine control at low speeds, smooth transition to max
-        // smoothstep(t) = 3t² - 2t³
-        const smoothstep = normalized * normalized * (3 - 2 * normalized);
-        
-        // Then apply mild exponential (power 1.5) for extra fine control at low end
-        const curved = Math.pow(smoothstep, 1.5);
+        // Steep exponential curve: power 3.0
+        // This makes subtle inputs nearly imperceptible, 
+        // while hard pushes accelerate dramatically
+        // Input 25% → Output ~1.5%
+        // Input 50% → Output ~12.5%
+        // Input 75% → Output ~42%
+        // Input 100% → Output 100%
+        const curved = Math.pow(normalized, 3.0);
         
         return sign * curved;  // Returns ~0 to ~1 (or ~-1)
     }
