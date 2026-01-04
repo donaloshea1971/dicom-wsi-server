@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.3.0';
+const SPACEMOUSE_VERSION = '1.3.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -392,24 +392,21 @@ class SpaceNavigatorController {
     
     /**
      * Map raw input to viewport actions
-     * Uses MAX of paired axes (whichever has stronger signal):
-     *   - max(|RY|, |TY|) → Pan X (left/right)  
-     *   - max(|RX|, |TX|) → Pan Y (forward/back)
+     * Uses ONLY translation axes for panning (RX/RY are tilt artifacts):
+     *   - TX → Pan X (left/right) - horizontal puck movement
+     *   - TY → Pan Y (forward/back) - vertical puck movement  
      *   - RZ → Zoom (twist ONLY)
-     *   - TZ → Ignored (reserved for MFP)
+     *   - TZ, RX, RY → Ignored (TZ reserved for MFP, RX/RY are tilt noise)
      * Returns: { panX, panY, zoom }
      */
     getMappedInput() {
         const raw = this.input;
         
-        // Use whichever paired axis has the stronger signal (max absolute value)
-        // This handles device variations where some report on T axes, others on R axes
-        const panXRaw = Math.abs(raw.ry) > Math.abs(raw.ty) ? raw.ry : raw.ty;
-        const panYRaw = Math.abs(raw.rx) > Math.abs(raw.tx) ? raw.rx : raw.tx;
-        const zoom = raw.rz;   // Twist ONLY - no other axis affects zoom
-        
-        let panX = panXRaw;
-        let panY = panYRaw;
+        // Use ONLY translation axes - RX/RY are tilt that accompanies translation
+        // and causes unwanted diagonal movement
+        let panX = raw.tx;   // Horizontal puck movement
+        let panY = raw.ty;   // Forward/back puck movement
+        const zoom = raw.rz; // Twist ONLY
         
         // Apply polarity from calibration if available
         if (this.calibration && this.calibration.mappings) {
