@@ -43,8 +43,8 @@
 
     <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
     <script>
-        const AUTH0_DOMAIN = 'dev-eecga3ljrft8jn70.us.auth0.com';
-        const AUTH0_CLIENT_ID = 'VlL6pIwnYA8Kkd1z5qmtwrRmhO0dVYR3';
+        const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
+        const AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
 
         async function handleCallback() {
             try {
@@ -52,7 +52,7 @@
                     domain: AUTH0_DOMAIN,
                     clientId: AUTH0_CLIENT_ID,
                     authorizationParams: {
-                        redirect_uri: window.location.origin + '/callback'
+                        redirect_uri: 'https://pathviewpro.com/callback'
                     },
                     cacheLocation: 'localstorage'
                 });
