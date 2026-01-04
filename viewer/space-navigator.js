@@ -202,7 +202,10 @@ class SpaceNavigatorController {
      */
     startAnimationLoop() {
         const update = () => {
-            if (!this.connected || !this.viewer) {
+            // STRICT CHECK: Must have device, be connected, and have viewer
+            if (!this.device || !this.connected || !this.viewer) {
+                console.log('SpaceMouse: Animation loop stopped (not connected)');
+                this.animationFrame = null;
                 return;
             }
             
@@ -231,6 +234,11 @@ class SpaceNavigatorController {
      *   RZ (twist left/right) → Zoom in/out
      */
     updateViewport() {
+        // GUARD: Only run if fully connected
+        if (!this.device || !this.connected || !this.viewer) {
+            return;
+        }
+        
         const viewport = this.viewer.viewport;
         
         // Get mapped values using calibration or defaults
