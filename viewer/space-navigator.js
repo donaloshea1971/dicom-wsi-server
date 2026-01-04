@@ -2,7 +2,11 @@
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
  * Uses WebHID API (Chromium browsers only, requires HTTPS)
+ * @version 1.1.0
  */
+
+const SPACEMOUSE_VERSION = '1.1.0';
+console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
     constructor(viewer) {
