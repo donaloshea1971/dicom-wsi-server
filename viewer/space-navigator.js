@@ -266,23 +266,24 @@ class SpaceNavigatorController {
     
     /**
      * Map raw input to viewport actions
-     * SIMPLE EXPLICIT MAPPING:
-     *   - RY → Pan X (left/right)  
-     *   - RX → Pan Y (forward/back)
+     * Uses MAX of paired axes (whichever has stronger signal):
+     *   - max(|RY|, |TY|) → Pan X (left/right)  
+     *   - max(|RX|, |TX|) → Pan Y (forward/back)
      *   - RZ → Zoom (twist ONLY)
-     *   - TX, TY, TZ → All ignored
+     *   - TZ → Ignored (reserved for MFP)
      * Returns: { panX, panY, zoom }
      */
     getMappedInput() {
         const raw = this.input;
         
-        // EXPLICIT: Only use RY for pan X, RX for pan Y, RZ for zoom
-        // This matches SpaceMouse Wireless calibration results
-        // TX, TY, TZ are completely ignored
+        // Use whichever paired axis has the stronger signal (max absolute value)
+        // This handles device variations where some report on T axes, others on R axes
+        const panXRaw = Math.abs(raw.ry) > Math.abs(raw.ty) ? raw.ry : raw.ty;
+        const panYRaw = Math.abs(raw.rx) > Math.abs(raw.tx) ? raw.rx : raw.tx;
+        const zoom = raw.rz;   // Twist ONLY - no other axis affects zoom
         
-        let panX = raw.ry;   // Left/right movement
-        let panY = raw.rx;   // Forward/back movement  
-        let zoom = raw.rz;   // Twist ONLY - no other axis affects zoom
+        let panX = panXRaw;
+        let panY = panYRaw;
         
         // Apply polarity from calibration if available
         if (this.calibration && this.calibration.mappings) {
@@ -293,21 +294,27 @@ class SpaceNavigatorController {
                 return m ? (m.value > 0 ? 1 : -1) : 0;
             };
             
-            const panLeftSign = getSign('PAN_LEFT');    // Should be +1 for RY
-            const pushAwaySign = getSign('PUSH_AWAY');  // Should be -1 for RX
-            const twistRightSign = getSign('TWIST_RIGHT'); // Should be +1 for RZ
+            const panLeftSign = getSign('PAN_LEFT');
+            const pushAwaySign = getSign('PUSH_AWAY');
+            const twistRightSign = getSign('TWIST_RIGHT');
             
             // Apply direction corrections
             panX = panX * (panLeftSign ? -panLeftSign : -1);
             panY = panY * (pushAwaySign ? -pushAwaySign : -1);
-            zoom = zoom * (twistRightSign ? twistRightSign : 1);
-        } else {
-            // Default polarities (no calibration)
-            panX = -panX;
-            panY = -panY;
+            
+            return {
+                panX,
+                panY,
+                zoom: zoom * (twistRightSign ? twistRightSign : 1)
+            };
         }
         
-        return { panX, panY, zoom };
+        // Default polarities (no calibration)
+        return {
+            panX: -panX,
+            panY: -panY,
+            zoom
+        };
     }
 
     /**
