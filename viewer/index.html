@@ -920,6 +920,7 @@
             <div class="status-badge" id="server-status">Checking...</div>
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
+            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" title="Connect Space Navigator (3D mouse)">🎮 3D Mouse</div>
             <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
             <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
@@ -1121,6 +1122,7 @@
     <script src="dicomweb-tilesource.js"></script>
     <script src="color-correction.js"></script>
     <script src="annotations.js"></script>
+    <script src="space-navigator.js"></script>
     <script>
         // Auth0 Configuration
         const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
@@ -1263,6 +1265,7 @@
             }
             
             checkServerStatus();
+            initSpaceNavigator();
             await refreshStudies();
             
             // Check URL parameters for direct loading
@@ -2178,6 +2181,62 @@
         // =========================================
         let annotationManager = null;
         let currentAnnotationTool = null;
+        let spaceNavController = null;
+        
+        // Space Navigator (3D Mouse) Support
+        function initSpaceNavigator() {
+            if (!SpaceNavigatorController.isSupported()) {
+                console.log('WebHID not supported - Space Navigator unavailable');
+                return;
+            }
+            
+            // Show the badge when WebHID is supported
+            const badge = document.getElementById('space-nav-badge');
+            if (badge) {
+                badge.style.display = 'block';
+            }
+        }
+        
+        async function toggleSpaceNavigator() {
+            if (!viewer) {
+                console.warn('Viewer not initialized');
+                return;
+            }
+            
+            const badge = document.getElementById('space-nav-badge');
+            
+            if (spaceNavController && spaceNavController.connected) {
+                // Disconnect
+                await spaceNavController.disconnect();
+                spaceNavController = null;
+                if (badge) {
+                    badge.classList.remove('connected');
+                    badge.textContent = '🎮 3D Mouse';
+                    badge.title = 'Connect Space Navigator (3D mouse)';
+                }
+            } else {
+                // Connect
+                spaceNavController = new SpaceNavigatorController(viewer);
+                spaceNavController.onStatusChange = (status) => {
+                    if (badge) {
+                        if (status === 'connected') {
+                            badge.classList.add('connected');
+                            badge.textContent = '🎮 Connected';
+                            badge.title = 'Space Navigator connected - click to disconnect';
+                        } else {
+                            badge.classList.remove('connected');
+                            badge.textContent = '🎮 3D Mouse';
+                            badge.title = 'Connect Space Navigator (3D mouse)';
+                        }
+                    }
+                };
+                
+                const connected = await spaceNavController.connect();
+                if (!connected) {
+                    spaceNavController = null;
+                }
+            }
+        }
         
         function resetAnnotationToolbar() {
             // Reset all toolbar buttons to inactive

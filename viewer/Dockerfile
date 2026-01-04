@@ -9,6 +9,7 @@ COPY test.html /usr/share/nginx/html/
 COPY color-correction.js /usr/share/nginx/html/
 COPY dicomweb-tilesource.js /usr/share/nginx/html/
 COPY annotations.js /usr/share/nginx/html/
+COPY space-navigator.js /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
 
 # Create cache directory for tile proxy cache
