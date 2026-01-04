@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -20,6 +20,13 @@ from pydantic_settings import BaseSettings
 
 import httpx
 import logging
+
+# Import authentication module
+from auth import (
+    User, get_current_user, require_user, require_admin,
+    set_study_owner, get_user_study_ids, can_access_study, share_study,
+    get_db_pool
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +58,8 @@ class ConversionJob(BaseModel):
     progress: int = 0
     message: str = ""
     study_uid: Optional[str] = None
+    study_id: Optional[str] = None  # Orthanc study ID
+    owner_id: Optional[int] = None  # User ID of uploader
     created_at: datetime
     completed_at: Optional[datetime] = None
 
@@ -1200,8 +1209,17 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         job.progress = 100
         job.status = "completed"
         job.study_uid = study_uid
+        job.study_id = study_uid  # Store Orthanc study ID
         job.message = f"Conversion complete. Study: {study_uid}"
         job.completed_at = datetime.utcnow()
+        
+        # Set study owner if user was authenticated during upload
+        if study_uid and job.owner_id:
+            try:
+                await set_study_owner(study_uid, job.owner_id)
+                logger.info(f"Set owner of study {study_uid} to user {job.owner_id}")
+            except Exception as e:
+                logger.warning(f"Failed to set study owner: {e}")
         
         # Move original to completed
         completed_path = Path(settings.watch_folder) / "completed" / file_path.name
@@ -1233,7 +1251,8 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
 @app.post("/upload", response_model=UploadResponse)
 async def upload_wsi(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Upload a WSI file for conversion to DICOM
@@ -1244,6 +1263,8 @@ async def upload_wsi(
     
     For multi-file formats like MIRAX, upload the entire folder as a ZIP archive.
     The ZIP should contain the index file (.mrxs) and all associated data files.
+    
+    If authenticated, the uploaded study will be owned by the current user.
     """
     # Validate format
     source_format = detect_format(file.filename)
@@ -1283,15 +1304,19 @@ async def upload_wsi(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     
-    # Create job record
+    # Create job record with owner info
+    owner_id = current_user.id if current_user and current_user.id else None
     job = ConversionJob(
         job_id=job_id,
         filename=file.filename,
         status="pending",
         message=f"Queued for conversion (format: {source_format})",
+        owner_id=owner_id,
         created_at=datetime.utcnow()
     )
     conversion_jobs[job_id] = job
+    
+    logger.info(f"Upload from user {current_user.email if current_user else 'anonymous'}, owner_id={owner_id}")
     
     # Start conversion in background
     background_tasks.add_task(convert_wsi_to_dicom, job_id, file_path)
@@ -1340,8 +1365,13 @@ async def delete_job(job_id: str):
 # =============================================================================
 
 @app.get("/studies")
-async def list_studies():
-    """List all studies in Orthanc - returns array of study IDs"""
+async def list_studies(current_user: Optional[User] = Depends(get_current_user)):
+    """
+    List studies visible to the current user.
+    - Authenticated users see their own studies + shared studies
+    - Admins see all studies
+    - Unauthenticated requests see nothing (empty list)
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -1350,11 +1380,77 @@ async def list_studies():
                 timeout=30.0
             )
             response.raise_for_status()
-            # Return the array of study IDs directly (same format as Orthanc)
-            return response.json()
+            all_studies = response.json()
+            
+            # If no user authenticated, return empty list
+            if current_user is None:
+                return []
+            
+            # Admin sees everything
+            if current_user.role == "admin":
+                return all_studies
+            
+            # Regular user sees only their studies
+            if current_user.id:
+                user_study_ids = await get_user_study_ids(current_user.id)
+                # If user has no studies in DB, show all (for backward compatibility)
+                if not user_study_ids:
+                    # First-time user or DB not set up - show all for now
+                    return all_studies
+                return [s for s in all_studies if s in user_study_ids]
+            
+            # Fallback - show all (DB not available)
+            return all_studies
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
+# =============================================================================
+# User Endpoints
+# =============================================================================
+
+@app.get("/me")
+async def get_current_user_info(user: User = Depends(require_user)):
+    """Get current authenticated user info"""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture,
+        "role": user.role
+    }
+
+
+@app.post("/studies/{study_id}/claim")
+async def claim_study(study_id: str, user: User = Depends(require_user)):
+    """Claim ownership of an unowned study"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    success = await set_study_owner(study_id, user.id)
+    if success:
+        return {"message": "Study claimed successfully", "study_id": study_id}
+    else:
+        raise HTTPException(status_code=400, detail="Could not claim study - may already be owned")
+
+
+class ShareRequest(BaseModel):
+    email: str
+    permission: str = "view"  # view, annotate, full
+
+
+@app.post("/studies/{study_id}/share")
+async def share_study_endpoint(study_id: str, request: ShareRequest, user: User = Depends(require_user)):
+    """Share a study with another user by email"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    success = await share_study(study_id, user.id, request.email, request.permission)
+    if success:
+        return {"message": f"Study shared with {request.email}", "permission": request.permission}
+    else:
+        raise HTTPException(status_code=400, detail="Could not share study - check ownership and email")
 
 
 @app.get("/studies/{study_id}")

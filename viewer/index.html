@@ -1165,6 +1165,24 @@
             }
         });
 
+        // Authenticated API fetch helper
+        async function authFetch(url, options = {}) {
+            // Get access token if authenticated
+            if (auth0Client) {
+                try {
+                    const token = await auth0Client.getTokenSilently();
+                    options.headers = {
+                        ...options.headers,
+                        'Authorization': `Bearer ${token}`
+                    };
+                } catch (e) {
+                    // Token not available - proceed without auth
+                    console.log('No auth token available');
+                }
+            }
+            return fetch(url, options);
+        }
+
         // Format DICOM patient name (Last^First^Middle -> First Last)
         function formatDicomName(name) {
             if (!name) return null;
@@ -1249,8 +1267,8 @@
             list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin: 0 auto 16px;"></div><p>Loading studies...</p></div>';
 
             try {
-                // Get list of study IDs
-                const response = await fetch('/api/studies');
+                // Get list of study IDs (uses auth token to filter by user)
+                const response = await authFetch('/api/studies');
                 const studyIds = await response.json();
                 
                 // Handle both array and {value:[]} formats
