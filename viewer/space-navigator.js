@@ -275,31 +275,48 @@ class SpaceNavigatorController {
         if (this.calibration && this.calibration.mappings) {
             const mappings = this.calibration.mappings;
             
-            // Find which axis was calibrated for each action
-            const getAxisForAction = (action) => {
-                const mapping = mappings.find(m => m.action === action);
-                return mapping ? mapping.axis : null;
+            // Helper to get axis and polarity for an action
+            const getMapping = (action) => {
+                const m = mappings.find(m => m.action === action);
+                return m ? { axis: m.axis, sign: m.value > 0 ? 1 : -1 } : null;
             };
             
-            // Get the axis values for pan and zoom based on calibration
-            const panLeftAxis = getAxisForAction('PAN_LEFT');
-            const panRightAxis = getAxisForAction('PAN_RIGHT');
-            const panUpAxis = getAxisForAction('PAN_UP');
-            const panDownAxis = getAxisForAction('PAN_DOWN');
-            const twistLeftAxis = getAxisForAction('TWIST_LEFT');
-            const twistRightAxis = getAxisForAction('TWIST_RIGHT');
+            // Get calibration for each action
+            const panLeft = getMapping('PAN_LEFT');
+            const panRight = getMapping('PAN_RIGHT');
+            const panUp = getMapping('PAN_UP');
+            const panDown = getMapping('PAN_DOWN');
+            const twistLeft = getMapping('TWIST_LEFT');
+            const twistRight = getMapping('TWIST_RIGHT');
             
-            // Determine pan X axis (left/right should use same axis)
-            const panXAxis = panLeftAxis || panRightAxis || 'tx';
-            // Determine pan Y axis (up/down should use same axis)  
-            const panYAxis = panUpAxis || panDownAxis || 'ty';
-            // Determine zoom axis (twist left/right should use same axis)
-            const zoomAxis = twistLeftAxis || twistRightAxis || 'rz';
+            // Determine axes
+            const panXAxis = (panLeft || panRight)?.axis || 'tx';
+            const panYAxis = (panUp || panDown)?.axis || 'ty';
+            const zoomAxis = (twistLeft || twistRight)?.axis || 'rz';
+            
+            // Get raw values
+            const rawPanX = raw[panXAxis] || 0;
+            const rawPanY = raw[panYAxis] || 0;
+            const rawZoom = raw[zoomAxis] || 0;
+            
+            // Apply polarity correction based on calibration
+            // PAN_LEFT should result in negative panX (move viewport left)
+            // PAN_RIGHT should result in positive panX
+            // If PAN_LEFT was positive during calibration, we need to invert
+            const panXSign = panLeft ? -panLeft.sign : (panRight ? panRight.sign : -1);
+            
+            // PAN_UP should result in negative panY (move viewport up)
+            // PAN_DOWN should result in positive panY
+            const panYSign = panUp ? -panUp.sign : (panDown ? panDown.sign : -1);
+            
+            // TWIST_RIGHT (clockwise) should zoom in (positive)
+            // TWIST_LEFT (counter-clockwise) should zoom out (negative)
+            const zoomSign = twistRight ? twistRight.sign : (twistLeft ? -twistLeft.sign : 1);
             
             return {
-                panX: -raw[panXAxis] || 0,
-                panY: -raw[panYAxis] || 0,
-                zoom: raw[zoomAxis] || 0
+                panX: rawPanX * panXSign,
+                panY: rawPanY * panYSign,
+                zoom: rawZoom * zoomSign
             };
         }
         
