@@ -27,6 +27,9 @@ class SpaceNavigatorController {
         // Smoothing factor (0-1, higher = more responsive)
         this.smoothing = 0.3;
         
+        // Debug mode for troubleshooting
+        this.debugMode = false;
+        
         // Known 3Dconnexion vendor IDs
         this.vendorIds = [
             0x046d,  // Logitech (3Dconnexion)
@@ -107,39 +110,63 @@ class SpaceNavigatorController {
 
     /**
      * Handle raw input from device
+     * Parsing logic based on tested implementation from Deciphex SpaceMouse demo
      */
     handleInput(event) {
-        const data = new DataView(event.data.buffer);
         const bytes = new Uint8Array(event.data.buffer);
         const reportId = event.reportId;
         const length = bytes.length;
         
-        // SpaceMouse Wireless format (0x256f): Report ID 1, 12 bytes, all axes at offset 0
-        if (reportId === 1 && length >= 12) {
-            this.input.tx = this.readInt16LE(bytes, 0);
-            this.input.ty = this.readInt16LE(bytes, 2);
-            this.input.tz = this.readInt16LE(bytes, 4);
-            this.input.rx = this.readInt16LE(bytes, 6);
-            this.input.ry = this.readInt16LE(bytes, 8);
-            this.input.rz = this.readInt16LE(bytes, 10);
+        // Debug logging if enabled
+        if (this.debugMode) {
+            console.log(`SpaceMouse Report ${reportId} (${length} bytes):`, 
+                Array.from(bytes).map((b, i) => `[${i}]:${b.toString(16).padStart(2, '0')}`).join(' '));
         }
-        // Older SpaceNavigator format: Report ID 1/2, 7 bytes, data at offset 1
-        else if (reportId === 1 && length >= 7) {
-            // Translation data (X, Y, Z) - starts at byte 1
-            this.input.tx = this.readInt16LE(bytes, 1);
-            this.input.ty = this.readInt16LE(bytes, 3);
-            this.input.tz = this.readInt16LE(bytes, 5);
-        } 
-        else if (reportId === 2 && length >= 7) {
-            // Rotation data (Rx, Ry, Rz) - starts at byte 1
-            this.input.rx = this.readInt16LE(bytes, 1);
-            this.input.ry = this.readInt16LE(bytes, 3);
-            this.input.rz = this.readInt16LE(bytes, 5);
+        
+        if (length >= 12) {
+            // SpaceMouse Wireless format: 6 int16 values starting at byte 0
+            if (reportId === 1) {
+                this.input.tx = this.readInt16LE(bytes, 0);
+                this.input.ty = this.readInt16LE(bytes, 2);
+                this.input.tz = this.readInt16LE(bytes, 4);
+                this.input.rx = this.readInt16LE(bytes, 6);
+                this.input.ry = this.readInt16LE(bytes, 8);
+                this.input.rz = this.readInt16LE(bytes, 10);
+            }
+            
+            // Some models send rotation separately even with 12+ byte reports
+            if (reportId === 2) {
+                this.input.rx = this.readInt16LE(bytes, 0);
+                this.input.ry = this.readInt16LE(bytes, 2);
+                this.input.rz = this.readInt16LE(bytes, 4);
+            }
+
+            // Some wireless models use report ID 3
+            if (reportId === 3) {
+                this.input.tx = this.readInt16LE(bytes, 0);
+                this.input.ty = this.readInt16LE(bytes, 2);
+                this.input.tz = this.readInt16LE(bytes, 4);
+                this.input.rx = this.readInt16LE(bytes, 6);
+                this.input.ry = this.readInt16LE(bytes, 8);
+                this.input.rz = this.readInt16LE(bytes, 10);
+            }
+        } else if (length >= 7) {
+            // Older SpaceNavigator format: data starts at byte 1
+            if (reportId === 1) {
+                this.input.tx = this.readInt16LE(bytes, 1);
+                this.input.ty = this.readInt16LE(bytes, 3);
+                this.input.tz = this.readInt16LE(bytes, 5);
+            }
+            
+            if (reportId === 2) {
+                this.input.rx = this.readInt16LE(bytes, 1);
+                this.input.ry = this.readInt16LE(bytes, 3);
+                this.input.rz = this.readInt16LE(bytes, 5);
+            }
         }
-        else if (reportId === 3) {
-            // Button data - could add button support here
-            // const buttons = bytes[0];
-        }
+        
+        // Report ID 3 with < 12 bytes is typically button data
+        // Could add button support here if needed
     }
     
     /**
@@ -277,6 +304,28 @@ class SpaceNavigatorController {
         if (settings.smoothing !== undefined) {
             this.smoothing = settings.smoothing;
         }
+    }
+    
+    /**
+     * Toggle debug mode for troubleshooting
+     */
+    toggleDebug() {
+        this.debugMode = !this.debugMode;
+        console.log(`SpaceMouse debug mode: ${this.debugMode ? 'ON' : 'OFF'}`);
+        return this.debugMode;
+    }
+    
+    /**
+     * Get device info for debugging
+     */
+    getDeviceInfo() {
+        if (!this.device) return null;
+        return {
+            productName: this.device.productName,
+            vendorId: '0x' + this.device.vendorId.toString(16),
+            productId: '0x' + this.device.productId.toString(16),
+            connected: this.connected
+        };
     }
 }
 
