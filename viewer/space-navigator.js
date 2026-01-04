@@ -266,65 +266,79 @@ class SpaceNavigatorController {
     
     /**
      * Map raw input to viewport actions using calibration data
+     * Combines paired axes (TX+RX, TY+RY) for more robust input
      * Returns: { panX, panY, zoom }
      */
     getMappedInput() {
         const raw = this.input;
         
-        // If we have calibration, use it to determine which raw axis maps to which action
+        // Combine paired translation/rotation axes and average them
+        // This provides more robust input as SpaceMouse often triggers both
+        const combinedTXRX = (raw.tx + raw.rx) / 2;  // Forward/back
+        const combinedTYRY = (raw.ty + raw.ry) / 2;  // Left/right
+        const combinedTZ = raw.tz;                    // Up/down (no pair)
+        const combinedRZ = raw.rz;                    // Twist (no pair)
+        
+        // If we have calibration, use it to determine direction/polarity
         if (this.calibration && this.calibration.mappings) {
             const mappings = this.calibration.mappings;
             
-            // Helper to get axis and polarity for an action
-            const getMapping = (action) => {
+            // Helper to get polarity for an action
+            const getSign = (action) => {
                 const m = mappings.find(m => m.action === action);
-                return m ? { axis: m.axis, sign: m.value > 0 ? 1 : -1 } : null;
+                return m ? (m.value > 0 ? 1 : -1) : 0;
             };
             
-            // Get calibration for each action
-            const panLeft = getMapping('PAN_LEFT');
-            const panRight = getMapping('PAN_RIGHT');
-            const panUp = getMapping('PAN_UP');
-            const panDown = getMapping('PAN_DOWN');
-            const twistLeft = getMapping('TWIST_LEFT');
-            const twistRight = getMapping('TWIST_RIGHT');
+            // Determine which combined axis maps to which viewport action
+            // Based on calibration: PAN_LEFT/RIGHT → RY, PAN_UP/DOWN → TZ, TWIST → RZ
+            const panLeftMapping = mappings.find(m => m.action === 'PAN_LEFT');
+            const panUpMapping = mappings.find(m => m.action === 'PAN_UP');
+            const twistRightMapping = mappings.find(m => m.action === 'TWIST_RIGHT');
             
-            // Determine axes
-            const panXAxis = (panLeft || panRight)?.axis || 'tx';
-            const panYAxis = (panUp || panDown)?.axis || 'ty';
-            const zoomAxis = (twistLeft || twistRight)?.axis || 'rz';
+            let panX = 0, panY = 0, zoom = 0;
             
-            // Get raw values
-            const rawPanX = raw[panXAxis] || 0;
-            const rawPanY = raw[panYAxis] || 0;
-            const rawZoom = raw[zoomAxis] || 0;
+            // Pan X (left/right) - use combined TY+RY if calibration used ty or ry
+            if (panLeftMapping) {
+                const axis = panLeftMapping.axis;
+                if (axis === 'ty' || axis === 'ry') {
+                    panX = combinedTYRY * -getSign('PAN_LEFT');
+                } else if (axis === 'tx' || axis === 'rx') {
+                    panX = combinedTXRX * -getSign('PAN_LEFT');
+                } else {
+                    panX = raw[axis] * -getSign('PAN_LEFT');
+                }
+            }
             
-            // Apply polarity correction based on calibration
-            // PAN_LEFT should result in negative panX (move viewport left)
-            // PAN_RIGHT should result in positive panX
-            // If PAN_LEFT was positive during calibration, we need to invert
-            const panXSign = panLeft ? -panLeft.sign : (panRight ? panRight.sign : -1);
+            // Pan Y (up/down) - typically TZ
+            if (panUpMapping) {
+                const axis = panUpMapping.axis;
+                if (axis === 'tz') {
+                    panY = combinedTZ * -getSign('PAN_UP');
+                } else if (axis === 'ty' || axis === 'ry') {
+                    panY = combinedTYRY * -getSign('PAN_UP');
+                } else if (axis === 'tx' || axis === 'rx') {
+                    panY = combinedTXRX * -getSign('PAN_UP');
+                } else {
+                    panY = raw[axis] * -getSign('PAN_UP');
+                }
+            }
             
-            // PAN_UP should result in negative panY (move viewport up)
-            // PAN_DOWN should result in positive panY
-            const panYSign = panUp ? -panUp.sign : (panDown ? panDown.sign : -1);
+            // Zoom (twist) - typically RZ
+            if (twistRightMapping) {
+                const axis = twistRightMapping.axis;
+                zoom = raw[axis] * getSign('TWIST_RIGHT');
+            } else {
+                zoom = combinedRZ;
+            }
             
-            // TWIST_RIGHT (clockwise) should zoom in (positive)
-            // TWIST_LEFT (counter-clockwise) should zoom out (negative)
-            const zoomSign = twistRight ? twistRight.sign : (twistLeft ? -twistLeft.sign : 1);
-            
-            return {
-                panX: rawPanX * panXSign,
-                panY: rawPanY * panYSign,
-                zoom: rawZoom * zoomSign
-            };
+            return { panX, panY, zoom };
         }
         
-        // Default mapping (no calibration)
+        // Default mapping (no calibration) - use combined axes
         return {
-            panX: -raw.tx,
-            panY: -raw.ty,
-            zoom: raw.rz
+            panX: -combinedTYRY,
+            panY: -combinedTZ,
+            zoom: combinedRZ
         };
     }
 
