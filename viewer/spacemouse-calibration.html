@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceMouse Calibration - PathView Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #07070a;
+            --bg-secondary: #0f0f14;
+            --bg-tertiary: #1a1a24;
+            --text-primary: #ffffff;
+            --text-secondary: #8a8a9a;
+            --accent: #00d4aa;
+            --accent-hover: #00e4bb;
+            --border: #2a2a3a;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            font-weight: 700;
+        }
+
+        .header h1 span {
+            color: var(--accent);
+        }
+
+        .back-btn {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent);
+        }
+
+        .connect-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 15px;
+        }
+
+        .status.disconnected {
+            background: rgba(248, 113, 113, 0.2);
+            color: var(--error);
+        }
+
+        .status.connected {
+            background: rgba(74, 222, 128, 0.2);
+            color: var(--success);
+        }
+
+        .demo-area {
+            display: none;
+        }
+
+        .demo-area.active {
+            display: block;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--accent);
+        }
+
+        .canvas-container {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cube {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, var(--accent) 0%, #764ba2 100%);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 212, 170, 0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            transition: transform 0.05s ease-out;
+        }
+
+        .values-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .value-card {
+            background: var(--bg-tertiary);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+        }
+
+        .value-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .value-display {
+            font-size: 1.4em;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .bar-container {
+            width: 100%;
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            transition: width 0.05s ease-out;
+        }
+
+        /* Calibration */
+        .calibration-panel {
+            background: var(--bg-secondary);
+            border: 2px solid var(--warning);
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 20px;
+        }
+
+        .calibration-panel h3 {
+            color: var(--warning);
+        }
+
+        .calibration-step {
+            background: var(--bg-tertiary);
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid var(--border);
+            opacity: 0.5;
+        }
+
+        .calibration-step.active {
+            border-left-color: var(--warning);
+            opacity: 1;
+            background: rgba(251, 191, 36, 0.1);
+        }
+
+        .calibration-step.completed {
+            border-left-color: var(--success);
+            opacity: 0.7;
+        }
+
+        .step-number {
+            display: inline-flex;
+            width: 28px;
+            height: 28px;
+            background: var(--warning);
+            color: #000;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 13px;
+            margin-right: 12px;
+        }
+
+        .calibration-step.completed .step-number {
+            background: var(--success);
+        }
+
+        .step-instruction {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .step-result {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            padding: 8px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+        }
+
+        .calibration-controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Debug Panel */
+        .debug-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .debug-panel h3 {
+            color: var(--success);
+        }
+
+        .live-bytes {
+            background: #0d0d0d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            color: var(--success);
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .debug-output {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .raw-data {
+            background: #0d0d0d;
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 4px;
+            border-left: 2px solid var(--success);
+            color: #aaa;
+        }
+
+        /* Log Output */
+        .log-output {
+            background: #0d0d0d;
+            color: var(--success);
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 15px;
+        }
+
+        /* Saved Config */
+        .saved-config {
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid var(--success);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .saved-config h4 {
+            color: var(--success);
+            margin-bottom: 10px;
+        }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+        }
+
+        .config-item:last-child {
+            border-bottom: none;
+        }
+
+        @media (max-width: 600px) {
+            .values-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 <span>SpaceMouse</span> Calibration</h1>
+            <a href="/viewer" class="back-btn">← Back to Viewer</a>
+        </div>
+
+        <div class="connect-section">
+            <h2>Connect Your SpaceMouse</h2>
+            <p style="color: var(--text-secondary); margin: 10px 0 20px;">WebHID requires Chrome, Edge, or Opera on HTTPS</p>
+            
+            <button id="connectBtn" class="btn">Connect SpaceMouse</button>
+            <button id="debugBtn" class="btn btn-secondary">Show All HID Devices</button>
+            <button id="toggleDebug" class="btn btn-secondary">Toggle Debug</button>
+            
+            <div id="status" class="status disconnected">Not Connected</div>
+        </div>
+
+        <!-- Saved Configuration Display -->
+        <div id="savedConfigPanel" class="panel" style="display: none;">
+            <h3>💾 Saved Calibration</h3>
+            <div id="savedConfigDisplay" class="saved-config"></div>
+            <button id="clearConfigBtn" class="btn btn-secondary" style="margin-top: 10px;">Clear Saved Config</button>
+        </div>
+
+        <div id="demoArea" class="demo-area">
+            <!-- Live Preview -->
+            <div class="panel">
+                <h3>Live Preview</h3>
+                <div class="canvas-container">
+                    <div class="cube" id="cube">6DOF</div>
+                </div>
+
+                <div class="values-grid">
+                    <div class="value-card">
+                        <div class="value-label">↔ TX (Left/Right)</div>
+                        <div class="value-display" id="tx">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="txBar" style="width: 50%"></div></div>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-label">↕ TY (Up/Down)</div>
+                        <div class="value-display" id="ty">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="tyBar" style="width: 50%"></div></div>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-label">⟷ TZ (Push/Pull)</div>
+                        <div class="value-display" id="tz">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="tzBar" style="width: 50%"></div></div>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-label">🔄 RX (Pitch)</div>
+                        <div class="value-display" id="rx">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="rxBar" style="width: 50%"></div></div>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-label">🔄 RY (Roll)</div>
+                        <div class="value-display" id="ry">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="ryBar" style="width: 50%"></div></div>
+                    </div>
+                    <div class="value-card">
+                        <div class="value-label">🔄 RZ (Yaw/Twist)</div>
+                        <div class="value-display" id="rz">0</div>
+                        <div class="bar-container"><div class="bar-fill" id="rzBar" style="width: 50%"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calibration -->
+            <div class="panel">
+                <h3>🎯 Calibration Wizard</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                    Run calibration to detect your device's axis mappings. Results are saved to localStorage.
+                </p>
+                <button id="startCalibration" class="btn btn-warning">Start Calibration</button>
+            </div>
+
+            <div id="calibrationPanel" class="calibration-panel" style="display: none;">
+                <h3>🎯 Follow Each Step</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                    Hold each movement for 2 seconds while the system detects the dominant axis.
+                </p>
+                
+                <div id="calibrationSteps"></div>
+                
+                <div class="calibration-controls">
+                    <button id="captureBtn" class="btn" style="display: none;">Start Capturing</button>
+                    <button id="nextStepBtn" class="btn btn-secondary" style="display: none;">Next Step</button>
+                    <button id="finishCalibrationBtn" class="btn" style="display: none;">Finish & Save</button>
+                </div>
+
+                <div id="calibrationLog" class="log-output" style="display: none;"></div>
+                <button id="copyLogBtn" class="btn btn-secondary" style="display: none; margin-top: 10px;">Copy Log</button>
+            </div>
+
+            <!-- Debug Panel -->
+            <div id="debugPanel" class="debug-panel" style="display: none;">
+                <h3>🔍 Debug Mode - Raw HID Data</h3>
+                <p style="color: #888;">Move your SpaceMouse to see which bytes change</p>
+                <div class="live-bytes" id="liveBytes">Waiting for input...</div>
+                <div class="debug-output" id="debugOutput"></div>
+            </div>
+        </div>
+
+        <!-- WebHID Not Supported -->
+        <div id="notSupported" style="display: none;">
+            <div class="panel" style="text-align: center; border-color: var(--error);">
+                <h3 style="color: var(--error);">❌ WebHID Not Supported</h3>
+                <p style="margin-top: 10px; color: var(--text-secondary);">
+                    Your browser doesn't support WebHID. Please use Chrome, Edge, or Opera.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Storage key for calibration data
+        const CALIBRATION_KEY = 'spacemouse_calibration';
+        
+        let device = null;
+        let debugMode = false;
+        let debugBuffer = [];
+        const MAX_DEBUG_LINES = 15;
+        
+        let currentValues = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+
+        // Calibration state
+        let calibrationMode = false;
+        let calibrationStep = 0;
+        let calibrationData = [];
+        let captureBuffer = [];
+        const CAPTURE_DURATION = 2000;
+        let isCapturing = false;
+
+        const calibrationSteps = [
+            { action: "PUSH_AWAY", description: "Push the knob away from you (forward)" },
+            { action: "PULL_TOWARD", description: "Pull the knob toward you (backward)" },
+            { action: "PAN_LEFT", description: "Move the knob left" },
+            { action: "PAN_RIGHT", description: "Move the knob right" },
+            { action: "PAN_UP", description: "Move the knob up" },
+            { action: "PAN_DOWN", description: "Move the knob down" },
+            { action: "TWIST_LEFT", description: "Rotate/twist the knob counterclockwise" },
+            { action: "TWIST_RIGHT", description: "Rotate/twist the knob clockwise" }
+        ];
+
+        // DOM elements
+        const connectBtn = document.getElementById('connectBtn');
+        const debugBtn = document.getElementById('debugBtn');
+        const toggleDebugBtn = document.getElementById('toggleDebug');
+        const startCalibrationBtn = document.getElementById('startCalibration');
+        const statusDiv = document.getElementById('status');
+        const demoArea = document.getElementById('demoArea');
+        const cube = document.getElementById('cube');
+        const debugPanel = document.getElementById('debugPanel');
+        const debugOutput = document.getElementById('debugOutput');
+        const calibrationPanel = document.getElementById('calibrationPanel');
+        const calibrationStepsContainer = document.getElementById('calibrationSteps');
+        const captureBtn = document.getElementById('captureBtn');
+        const nextStepBtn = document.getElementById('nextStepBtn');
+        const finishCalibrationBtn = document.getElementById('finishCalibrationBtn');
+        const calibrationLog = document.getElementById('calibrationLog');
+        const copyLogBtn = document.getElementById('copyLogBtn');
+        const savedConfigPanel = document.getElementById('savedConfigPanel');
+        const savedConfigDisplay = document.getElementById('savedConfigDisplay');
+        const clearConfigBtn = document.getElementById('clearConfigBtn');
+
+        // Check WebHID support
+        if (!navigator.hid) {
+            document.getElementById('notSupported').style.display = 'block';
+            document.querySelector('.connect-section').style.display = 'none';
+        }
+
+        // Load saved config on startup
+        loadSavedConfig();
+
+        function loadSavedConfig() {
+            const saved = localStorage.getItem(CALIBRATION_KEY);
+            if (saved) {
+                try {
+                    const config = JSON.parse(saved);
+                    displaySavedConfig(config);
+                } catch (e) {
+                    console.error('Failed to parse saved config:', e);
+                }
+            }
+        }
+
+        function displaySavedConfig(config) {
+            savedConfigPanel.style.display = 'block';
+            let html = `
+                <div class="config-item"><span>Device:</span><span>${config.deviceName || 'Unknown'}</span></div>
+                <div class="config-item"><span>Calibrated:</span><span>${new Date(config.timestamp).toLocaleString()}</span></div>
+                <hr style="border-color: var(--border); margin: 10px 0;">
+            `;
+            
+            if (config.mappings) {
+                config.mappings.forEach(m => {
+                    html += `<div class="config-item"><span>${m.action}:</span><span>${m.axis.toUpperCase()} (${m.value > 0 ? '+' : ''}${m.value})</span></div>`;
+                });
+            }
+            
+            savedConfigDisplay.innerHTML = html;
+        }
+
+        function saveCalibration(config) {
+            localStorage.setItem(CALIBRATION_KEY, JSON.stringify(config));
+            displaySavedConfig(config);
+        }
+
+        clearConfigBtn.addEventListener('click', () => {
+            localStorage.removeItem(CALIBRATION_KEY);
+            savedConfigPanel.style.display = 'none';
+        });
+
+        toggleDebugBtn.addEventListener('click', () => {
+            debugMode = !debugMode;
+            debugPanel.style.display = debugMode ? 'block' : 'none';
+            toggleDebugBtn.textContent = debugMode ? 'Hide Debug' : 'Toggle Debug';
+        });
+
+        startCalibrationBtn.addEventListener('click', startCalibration);
+        captureBtn.addEventListener('click', startCapture);
+        nextStepBtn.addEventListener('click', nextCalibrationStep);
+        finishCalibrationBtn.addEventListener('click', finishCalibration);
+        
+        copyLogBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(calibrationLog.textContent);
+            copyLogBtn.textContent = '✓ Copied!';
+            setTimeout(() => copyLogBtn.textContent = 'Copy Log', 2000);
+        });
+
+        debugBtn.addEventListener('click', async () => {
+            try {
+                const devices = await navigator.hid.requestDevice({ filters: [] });
+                if (devices.length > 0) {
+                    let msg = 'Found HID devices:\n\n';
+                    devices.forEach((d, i) => {
+                        msg += `${i + 1}. ${d.productName}\n`;
+                        msg += `   Vendor: 0x${d.vendorId.toString(16)}\n`;
+                        msg += `   Product: 0x${d.productId.toString(16)}\n\n`;
+                    });
+                    msg += 'Look for vendor 0x046d or 0x256f (3Dconnexion)';
+                    alert(msg);
+                } else {
+                    alert('No HID devices found or none selected');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        });
+
+        connectBtn.addEventListener('click', async () => {
+            if (device && device.opened) {
+                await device.close();
+                device = null;
+                statusDiv.textContent = '❌ Disconnected';
+                statusDiv.className = 'status disconnected';
+                connectBtn.textContent = 'Connect SpaceMouse';
+                demoArea.classList.remove('active');
+                return;
+            }
+
+            try {
+                const devices = await navigator.hid.requestDevice({
+                    filters: [
+                        { vendorId: 0x046d },
+                        { vendorId: 0x256f }
+                    ]
+                });
+
+                if (devices.length === 0) {
+                    statusDiv.textContent = '❌ No device selected';
+                    return;
+                }
+
+                device = devices[0];
+                await device.open();
+
+                statusDiv.textContent = `✅ ${device.productName}`;
+                statusDiv.className = 'status connected';
+                connectBtn.textContent = 'Disconnect';
+                demoArea.classList.add('active');
+
+                console.log('Connected:', {
+                    productName: device.productName,
+                    vendorId: '0x' + device.vendorId.toString(16),
+                    productId: '0x' + device.productId.toString(16)
+                });
+
+                device.addEventListener('inputreport', handleInputReport);
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                statusDiv.textContent = `❌ ${error.message}`;
+                statusDiv.className = 'status disconnected';
+            }
+        });
+
+        function startCalibration() {
+            calibrationMode = true;
+            calibrationStep = 0;
+            calibrationData = [];
+            calibrationPanel.style.display = 'block';
+            renderCalibrationSteps();
+            showCurrentStep();
+        }
+
+        function renderCalibrationSteps() {
+            calibrationStepsContainer.innerHTML = calibrationSteps.map((step, index) => `
+                <div class="calibration-step" id="step-${index}">
+                    <span class="step-number">${index + 1}</span>
+                    <span class="step-instruction">${step.description}</span>
+                    <div class="step-result" id="result-${index}" style="display: none;"></div>
+                </div>
+            `).join('');
+        }
+
+        function showCurrentStep() {
+            document.querySelectorAll('.calibration-step').forEach((el, i) => {
+                el.classList.remove('active');
+                if (i < calibrationStep) el.classList.add('completed');
+            });
+
+            if (calibrationStep < calibrationSteps.length) {
+                document.getElementById(`step-${calibrationStep}`).classList.add('active');
+                captureBtn.style.display = 'inline-block';
+                captureBtn.textContent = 'Start Capturing';
+                captureBtn.disabled = false;
+                nextStepBtn.style.display = 'none';
+                finishCalibrationBtn.style.display = 'none';
+            } else {
+                captureBtn.style.display = 'none';
+                nextStepBtn.style.display = 'none';
+                finishCalibrationBtn.style.display = 'inline-block';
+            }
+        }
+
+        function startCapture() {
+            isCapturing = true;
+            captureBuffer = [];
+            captureBtn.textContent = 'Capturing... (hold position)';
+            captureBtn.disabled = true;
+
+            setTimeout(endCapture, CAPTURE_DURATION);
+        }
+
+        function endCapture() {
+            isCapturing = false;
+            
+            const result = analyzeCapture();
+            
+            calibrationData.push({
+                step: calibrationStep,
+                action: calibrationSteps[calibrationStep].action,
+                result: result
+            });
+
+            const resultDiv = document.getElementById(`result-${calibrationStep}`);
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = `Detected: ${result.dominantAxis.toUpperCase()} = ${result.dominantValue > 0 ? '+' : ''}${result.dominantValue}`;
+
+            captureBtn.style.display = 'none';
+            nextStepBtn.style.display = 'inline-block';
+        }
+
+        function analyzeCapture() {
+            const maxValues = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+
+            captureBuffer.forEach(sample => {
+                Object.keys(maxValues).forEach(axis => {
+                    if (Math.abs(sample[axis]) > Math.abs(maxValues[axis])) {
+                        maxValues[axis] = sample[axis];
+                    }
+                });
+            });
+
+            let dominantAxis = 'tx';
+            let dominantValue = maxValues.tx;
+
+            Object.keys(maxValues).forEach(axis => {
+                if (Math.abs(maxValues[axis]) > Math.abs(dominantValue)) {
+                    dominantAxis = axis;
+                    dominantValue = maxValues[axis];
+                }
+            });
+
+            return { dominantAxis, dominantValue: Math.round(dominantValue), allValues: maxValues };
+        }
+
+        function nextCalibrationStep() {
+            calibrationStep++;
+            showCurrentStep();
+        }
+
+        function finishCalibration() {
+            // Build config object
+            const config = {
+                deviceName: device ? device.productName : 'Unknown',
+                vendorId: device ? '0x' + device.vendorId.toString(16) : null,
+                productId: device ? '0x' + device.productId.toString(16) : null,
+                timestamp: new Date().toISOString(),
+                mappings: calibrationData.map(item => ({
+                    action: item.action,
+                    axis: item.result.dominantAxis,
+                    value: item.result.dominantValue
+                }))
+            };
+
+            // Save to localStorage
+            saveCalibration(config);
+
+            // Generate report
+            let report = '=== SPACEMOUSE CALIBRATION REPORT ===\n\n';
+            report += `Device: ${config.deviceName}\n`;
+            report += `Vendor ID: ${config.vendorId}\n`;
+            report += `Product ID: ${config.productId}\n`;
+            report += `Date: ${config.timestamp}\n\n`;
+            report += '=== DETECTED MAPPINGS ===\n';
+            report += '-'.repeat(50) + '\n\n';
+
+            calibrationData.forEach(item => {
+                report += `${item.action.padEnd(15)} → ${item.result.dominantAxis.toUpperCase().padEnd(4)} `;
+                report += `(${item.result.dominantValue > 0 ? '+' : ''}${item.result.dominantValue})\n`;
+            });
+
+            report += '\n' + '='.repeat(50) + '\n\n';
+            report += checkMappingQuality();
+            report += '\n\n✅ Calibration saved to localStorage!\n';
+            report += 'The viewer will use this calibration data.\n';
+
+            calibrationLog.textContent = report;
+            calibrationLog.style.display = 'block';
+            copyLogBtn.style.display = 'inline-block';
+        }
+
+        function checkMappingQuality() {
+            const axisUsage = {};
+            calibrationData.forEach(item => {
+                const axis = item.result.dominantAxis;
+                if (!axisUsage[axis]) axisUsage[axis] = [];
+                axisUsage[axis].push(item.action);
+            });
+
+            let warning = '';
+            Object.keys(axisUsage).forEach(axis => {
+                if (axisUsage[axis].length > 2) {
+                    warning += `⚠️ ${axis.toUpperCase()} responds to ${axisUsage[axis].length} movements:\n`;
+                    warning += `   ${axisUsage[axis].join(', ')}\n`;
+                    warning += `   This may indicate incorrect byte parsing.\n\n`;
+                }
+            });
+
+            if (!warning) {
+                warning = '✅ Calibration looks good! Each axis maps distinctly.\n';
+            }
+
+            return warning;
+        }
+
+        function handleInputReport(event) {
+            const { data, reportId } = event;
+            const bytes = new Uint8Array(data.buffer);
+            const length = bytes.length;
+
+            // Debug output
+            if (debugMode) {
+                const hexBytes = Array.from(bytes).map((b, i) => 
+                    `[${i}]:${b.toString(16).padStart(2, '0')}`
+                ).join(' ');
+                addDebugLine(`Report ${reportId} (${length}b): ${hexBytes}`);
+                
+                document.getElementById('liveBytes').innerHTML = 
+                    `Report ID: ${reportId} | Length: ${length}<br>` +
+                    Array.from(bytes).map((b, i) => 
+                        `<span style="color: ${Math.abs(b) > 10 ? '#4ade80' : '#666'};">[${i}]=${b.toString().padStart(4)}</span>`
+                    ).join(' ');
+            }
+
+            // Parse based on format (matching the viewer implementation)
+            if (length >= 12) {
+                if (reportId === 1 || reportId === 3) {
+                    currentValues.tx = readInt16LE(bytes, 0);
+                    currentValues.ty = readInt16LE(bytes, 2);
+                    currentValues.tz = readInt16LE(bytes, 4);
+                    currentValues.rx = readInt16LE(bytes, 6);
+                    currentValues.ry = readInt16LE(bytes, 8);
+                    currentValues.rz = readInt16LE(bytes, 10);
+                }
+                if (reportId === 2) {
+                    currentValues.rx = readInt16LE(bytes, 0);
+                    currentValues.ry = readInt16LE(bytes, 2);
+                    currentValues.rz = readInt16LE(bytes, 4);
+                }
+            } else if (length >= 7) {
+                if (reportId === 1) {
+                    currentValues.tx = readInt16LE(bytes, 1);
+                    currentValues.ty = readInt16LE(bytes, 3);
+                    currentValues.tz = readInt16LE(bytes, 5);
+                }
+                if (reportId === 2) {
+                    currentValues.rx = readInt16LE(bytes, 1);
+                    currentValues.ry = readInt16LE(bytes, 3);
+                    currentValues.rz = readInt16LE(bytes, 5);
+                }
+            }
+
+            if (isCapturing) {
+                captureBuffer.push({ ...currentValues });
+            }
+
+            updateDisplay();
+        }
+
+        function readInt16LE(bytes, offset) {
+            if (offset + 1 >= bytes.length) return 0;
+            let value = bytes[offset] | (bytes[offset + 1] << 8);
+            if (value > 32767) value = value - 65536;
+            return value;
+        }
+
+        function addDebugLine(text) {
+            debugBuffer.push(text);
+            if (debugBuffer.length > MAX_DEBUG_LINES) debugBuffer.shift();
+            debugOutput.innerHTML = debugBuffer.map(line => 
+                `<div class="raw-data">${line}</div>`
+            ).join('');
+        }
+
+        function updateDisplay() {
+            const normalize = (val, max = 350) => Math.max(-max, Math.min(max, val));
+
+            // Update values
+            ['tx', 'ty', 'tz', 'rx', 'ry', 'rz'].forEach(axis => {
+                document.getElementById(axis).textContent = Math.round(currentValues[axis]);
+                const barValue = 50 + (currentValues[axis] / 350 * 50);
+                document.getElementById(axis + 'Bar').style.width = Math.max(0, Math.min(100, barValue)) + '%';
+            });
+
+            // Update cube visualization
+            const sensitivity = 0.3;
+            const translateX = normalize(currentValues.tx) * sensitivity;
+            const translateY = normalize(-currentValues.ty) * sensitivity;
+            
+            const pushPull = normalize(currentValues.tz, 350);
+            const colorMix = (pushPull / 350 + 1) / 2;
+            const red = Math.round(colorMix * 255);
+            const green = Math.round((1 - colorMix) * 200);
+            
+            const zoomFactor = 1 + (normalize(currentValues.rz, 350) / 350) * 0.5;
+            const rotateX = normalize(currentValues.rx, 350) * 0.15;
+            const rotateY = normalize(currentValues.ry, 350) * 0.15;
+
+            cube.style.transform = `
+                translate(${translateX}px, ${translateY}px)
+                scale(${zoomFactor})
+                rotateX(${rotateX}deg)
+                rotateY(${rotateY}deg)
+            `;
+            
+            cube.style.background = `linear-gradient(135deg, 
+                rgb(${red}, ${green}, 150) 0%, 
+                rgb(${Math.round(red*0.7)}, ${Math.round(green*0.7)}, 100) 100%)`;
+        }
+
+        // Cleanup
+        window.addEventListener('beforeunload', async () => {
+            if (device && device.opened) await device.close();
+        });
+    </script>
+</body>
+</html>

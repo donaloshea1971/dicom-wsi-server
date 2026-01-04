@@ -30,6 +30,9 @@ class SpaceNavigatorController {
         // Debug mode for troubleshooting
         this.debugMode = false;
         
+        // Calibration data from localStorage
+        this.calibration = this.loadCalibration();
+        
         // Known 3Dconnexion vendor IDs
         this.vendorIds = [
             0x046d,  // Logitech (3Dconnexion)
@@ -330,8 +333,52 @@ class SpaceNavigatorController {
             productName: this.device.productName,
             vendorId: '0x' + this.device.vendorId.toString(16),
             productId: '0x' + this.device.productId.toString(16),
-            connected: this.connected
+            connected: this.connected,
+            hasCalibration: !!this.calibration
         };
+    }
+    
+    /**
+     * Load calibration data from localStorage
+     */
+    loadCalibration() {
+        try {
+            const saved = localStorage.getItem('spacemouse_calibration');
+            if (saved) {
+                const config = JSON.parse(saved);
+                console.log('SpaceMouse calibration loaded:', config.deviceName, new Date(config.timestamp).toLocaleDateString());
+                return config;
+            }
+        } catch (e) {
+            console.warn('Failed to load SpaceMouse calibration:', e);
+        }
+        return null;
+    }
+    
+    /**
+     * Check if device is calibrated
+     */
+    isCalibrated() {
+        return !!this.calibration;
+    }
+    
+    /**
+     * Get calibration info
+     */
+    getCalibrationInfo() {
+        if (!this.calibration) return null;
+        return {
+            deviceName: this.calibration.deviceName,
+            timestamp: this.calibration.timestamp,
+            mappings: this.calibration.mappings
+        };
+    }
+    
+    /**
+     * Open calibration page
+     */
+    static openCalibrationPage() {
+        window.open('/spacemouse-calibration.html', '_blank');
     }
 }
 

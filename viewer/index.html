@@ -920,7 +920,7 @@
             <div class="status-badge" id="server-status">Checking...</div>
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
-            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" title="Connect Space Navigator (3D mouse)">🎮 3D Mouse</div>
+            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseCalibration(event)" title="Click to connect | Right-click to calibrate">🎮 3D Mouse</div>
             <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
             <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
@@ -2195,7 +2195,18 @@
             const badge = document.getElementById('space-nav-badge');
             if (badge) {
                 badge.style.display = 'block';
+                
+                // Check if calibrated
+                const saved = localStorage.getItem('spacemouse_calibration');
+                if (saved) {
+                    badge.title = 'Click to connect | Right-click to calibrate (✓ calibrated)';
+                }
             }
+        }
+        
+        function openSpaceMouseCalibration(event) {
+            event.preventDefault();
+            window.open('/spacemouse-calibration.html', '_blank');
         }
         
         async function toggleSpaceNavigator() {
