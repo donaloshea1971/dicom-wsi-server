@@ -225,50 +225,90 @@ class SpaceNavigatorController {
 
     /**
      * Apply input to OpenSeadragon viewport
-     * Mapping matches Deciphex SpaceMouse demo:
+     * Uses calibration data if available, otherwise uses defaults:
      *   TX/TY (pan left/right/up/down) → Viewport pan
      *   TZ (push/pull) → Reserved for MFP/Z-stack (not used in 2D)
      *   RZ (twist left/right) → Zoom in/out
-     *   RX/RY (tilt) → Optional viewport rotation
      */
     updateViewport() {
-        const { tx, ty, tz, rx, ry, rz } = this.input;
         const viewport = this.viewer.viewport;
         
+        // Get mapped values using calibration or defaults
+        const mapped = this.getMappedInput();
+        
         // Check if any input is active
-        const hasInput = Math.abs(tx) > 0 || Math.abs(ty) > 0 || 
-                         Math.abs(rz) > 0 || Math.abs(rx) > 0 || Math.abs(ry) > 0;
+        const hasInput = Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0 || 
+                         Math.abs(mapped.zoom) > 0;
         
         if (!hasInput) return;
         
-        // Pan (TX/TY - move knob left/right/up/down)
-        if (Math.abs(tx) > 0 || Math.abs(ty) > 0) {
+        // Pan
+        if (Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0) {
             const currentZoom = viewport.getZoom();
             const panFactor = this.sensitivity.pan / Math.sqrt(currentZoom);
             
             const delta = new OpenSeadragon.Point(
-                -tx * panFactor,
-                -ty * panFactor
+                mapped.panX * panFactor,
+                mapped.panY * panFactor
             );
             viewport.panBy(delta, false);
         }
         
-        // Zoom (RZ - twist left/right like a camera lens)
-        if (Math.abs(rz) > 0) {
-            const zoomFactor = 1 + (rz * this.sensitivity.zoom);
+        // Zoom (from twist)
+        if (Math.abs(mapped.zoom) > 0) {
+            const zoomFactor = 1 + (mapped.zoom * this.sensitivity.zoom);
             viewport.zoomBy(zoomFactor, viewport.getCenter(), false);
         }
         
-        // RX/RY (tilt) - Intentionally NOT used for rotation
-        // Reason: Pure translation (TX/TY) is nearly impossible without some
-        // incidental tilt. Using RX/RY would cause unwanted rotation during panning.
-        // If rotation is ever needed, use a dedicated button + RZ twist instead.
-        
-        // TZ (push/pull) - Reserved for future MFP/Z-stack navigation
-        // Could trigger focal plane changes if viewer supports multi-focal imaging
-        
         // Apply changes
         viewport.applyConstraints();
+    }
+    
+    /**
+     * Map raw input to viewport actions using calibration data
+     * Returns: { panX, panY, zoom }
+     */
+    getMappedInput() {
+        const raw = this.input;
+        
+        // If we have calibration, use it to determine which raw axis maps to which action
+        if (this.calibration && this.calibration.mappings) {
+            const mappings = this.calibration.mappings;
+            
+            // Find which axis was calibrated for each action
+            const getAxisForAction = (action) => {
+                const mapping = mappings.find(m => m.action === action);
+                return mapping ? mapping.axis : null;
+            };
+            
+            // Get the axis values for pan and zoom based on calibration
+            const panLeftAxis = getAxisForAction('PAN_LEFT');
+            const panRightAxis = getAxisForAction('PAN_RIGHT');
+            const panUpAxis = getAxisForAction('PAN_UP');
+            const panDownAxis = getAxisForAction('PAN_DOWN');
+            const twistLeftAxis = getAxisForAction('TWIST_LEFT');
+            const twistRightAxis = getAxisForAction('TWIST_RIGHT');
+            
+            // Determine pan X axis (left/right should use same axis)
+            const panXAxis = panLeftAxis || panRightAxis || 'tx';
+            // Determine pan Y axis (up/down should use same axis)  
+            const panYAxis = panUpAxis || panDownAxis || 'ty';
+            // Determine zoom axis (twist left/right should use same axis)
+            const zoomAxis = twistLeftAxis || twistRightAxis || 'rz';
+            
+            return {
+                panX: -raw[panXAxis] || 0,
+                panY: -raw[panYAxis] || 0,
+                zoom: raw[zoomAxis] || 0
+            };
+        }
+        
+        // Default mapping (no calibration)
+        return {
+            panX: -raw.tx,
+            panY: -raw.ty,
+            zoom: raw.rz
+        };
     }
 
     /**
