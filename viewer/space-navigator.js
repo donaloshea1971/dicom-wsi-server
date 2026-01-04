@@ -17,10 +17,14 @@ class SpaceNavigatorController {
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.5,         // Pan speed (divided by zoom for normalization)
-            zoom: 0.002,      // Zoom speed
+            pan: 1.0,         // Pan speed (divided by zoom for normalization)
+            zoom: 0.002,      // Zoom speed (unused - now using snap zoom)
             rotation: 0.008   // Rotation speed
         };
+        
+        // Snap zoom state - prevents repeated triggers
+        this._lastZoomDirection = 0;  // -1 = left, 0 = neutral, 1 = right
+        this._zoomCooldown = false;
         
         // Dead zone to prevent drift
         this.deadZone = 0.08;
@@ -277,11 +281,28 @@ class SpaceNavigatorController {
             viewport.panBy(delta, false);
         }
         
-        // Zoom (from twist)
-        if (Math.abs(mapped.zoom) > 0) {
-            const zoomFactor = 1 + (mapped.zoom * this.sensitivity.zoom);
-            console.log('SpaceMouse ZOOM:', mapped.zoom.toFixed(3), 'factor:', zoomFactor.toFixed(4));
-            viewport.zoomBy(zoomFactor, viewport.getCenter(), false);
+        // Zoom - SNAP mode: twist left = 0.5x, twist right = 2x
+        const zoomThreshold = 0.3;  // Minimum twist to trigger
+        
+        if (mapped.zoom > zoomThreshold && this._lastZoomDirection !== 1 && !this._zoomCooldown) {
+            // Twist RIGHT - zoom IN (2x)
+            console.log('SpaceMouse SNAP ZOOM: 2x (in)');
+            viewport.zoomBy(2, viewport.getCenter(), false);
+            this._lastZoomDirection = 1;
+            this._zoomCooldown = true;
+            setTimeout(() => { this._zoomCooldown = false; }, 300);
+        } 
+        else if (mapped.zoom < -zoomThreshold && this._lastZoomDirection !== -1 && !this._zoomCooldown) {
+            // Twist LEFT - zoom OUT (0.5x)
+            console.log('SpaceMouse SNAP ZOOM: 0.5x (out)');
+            viewport.zoomBy(0.5, viewport.getCenter(), false);
+            this._lastZoomDirection = -1;
+            this._zoomCooldown = true;
+            setTimeout(() => { this._zoomCooldown = false; }, 300);
+        }
+        else if (Math.abs(mapped.zoom) < 0.1) {
+            // Return to neutral - allow next snap
+            this._lastZoomDirection = 0;
         }
         
         // Apply changes
