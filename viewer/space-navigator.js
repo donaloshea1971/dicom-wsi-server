@@ -17,8 +17,8 @@ class SpaceNavigatorController {
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.0015,      // Pan speed
-            zoom: 0.0008,     // Zoom speed
+            pan: 0.5,         // Pan speed (divided by zoom for normalization)
+            zoom: 0.002,      // Zoom speed
             rotation: 0.008   // Rotation speed
         };
         
@@ -264,10 +264,11 @@ class SpaceNavigatorController {
         
         if (!hasInput) return;
         
-        // Pan
+        // Pan - scale by zoom level for consistent apparent speed
         if (Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0) {
             const currentZoom = viewport.getZoom();
-            const panFactor = this.sensitivity.pan / Math.sqrt(currentZoom);
+            // Divide by zoom so panning feels the same at all magnifications
+            const panFactor = this.sensitivity.pan / currentZoom;
             
             const delta = new OpenSeadragon.Point(
                 mapped.panX * panFactor,
