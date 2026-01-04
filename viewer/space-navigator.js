@@ -222,19 +222,23 @@ class SpaceNavigatorController {
 
     /**
      * Apply input to OpenSeadragon viewport
+     * Mapping matches Deciphex SpaceMouse demo:
+     *   TX/TY (pan left/right/up/down) → Viewport pan
+     *   TZ (push/pull) → Reserved for MFP/Z-stack (not used in 2D)
+     *   RZ (twist left/right) → Zoom in/out
+     *   RX/RY (tilt) → Optional viewport rotation
      */
     updateViewport() {
-        const { tx, ty, tz, rz } = this.input;
+        const { tx, ty, tz, rx, ry, rz } = this.input;
         const viewport = this.viewer.viewport;
         
         // Check if any input is active
         const hasInput = Math.abs(tx) > 0 || Math.abs(ty) > 0 || 
-                         Math.abs(tz) > 0 || Math.abs(rz) > 0;
+                         Math.abs(rz) > 0 || Math.abs(rx) > 0 || Math.abs(ry) > 0;
         
         if (!hasInput) return;
         
-        // Pan (X/Y translation)
-        // Note: ty is inverted for natural feel (push forward = move up)
+        // Pan (TX/TY - move knob left/right/up/down)
         if (Math.abs(tx) > 0 || Math.abs(ty) > 0) {
             const currentZoom = viewport.getZoom();
             const panFactor = this.sensitivity.pan / Math.sqrt(currentZoom);
@@ -246,17 +250,21 @@ class SpaceNavigatorController {
             viewport.panBy(delta, false);
         }
         
-        // Zoom (Z translation - push/pull)
-        if (Math.abs(tz) > 0) {
-            const zoomFactor = 1 + (tz * this.sensitivity.zoom);
+        // Zoom (RZ - twist left/right like a camera lens)
+        if (Math.abs(rz) > 0) {
+            const zoomFactor = 1 + (rz * this.sensitivity.zoom);
             viewport.zoomBy(zoomFactor, viewport.getCenter(), false);
         }
         
-        // Rotation (Z rotation - twist)
-        if (Math.abs(rz) > 0 && typeof viewport.setRotation === 'function') {
-            const currentRotation = viewport.getRotation();
-            viewport.setRotation(currentRotation + (rz * this.sensitivity.rotation), false);
-        }
+        // Optional: Rotation (RX/RY - tilt forward/sideways)
+        // Uncomment if viewport rotation is desired:
+        // if (Math.abs(ry) > 0 && typeof viewport.setRotation === 'function') {
+        //     const currentRotation = viewport.getRotation();
+        //     viewport.setRotation(currentRotation + (ry * this.sensitivity.rotation), false);
+        // }
+        
+        // TZ (push/pull) - Reserved for future MFP/Z-stack navigation
+        // Could trigger focal plane changes if viewer supports it
         
         // Apply changes
         viewport.applyConstraints();
