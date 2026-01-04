@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.2.0';
+const SPACEMOUSE_VERSION = '1.2.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -448,6 +448,19 @@ class SpaceNavigatorController {
         }
     }
 
+    /**
+     * Update the viewer reference (for when viewer is recreated on study switch)
+     */
+    setViewer(newViewer) {
+        this.viewer = newViewer;
+        console.log('SpaceMouse: Viewer reference updated');
+        
+        // Re-disable scroll-to-zoom on new viewer
+        if (this.connected && this.viewer && this.viewer.innerTracker) {
+            this.viewer.innerTracker.scrollHandler = false;
+        }
+    }
+    
     /**
      * Adjust sensitivity
      */
