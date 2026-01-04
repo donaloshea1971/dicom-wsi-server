@@ -213,11 +213,29 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Apply deadzone to filter noise
+     * Apply deadzone and exponential curve for fine control
+     * Small movements = negligible input, large movements = accelerated
      */
     applyDeadzone(value) {
-        const threshold = this.deadZone * 350; // Scale to raw value range
-        return Math.abs(value) < threshold ? 0 : value / 350.0; // Normalize to ~-1 to 1
+        const threshold = this.deadZone * 350; // Scale to raw value range (~28 with 0.08 deadzone)
+        
+        if (Math.abs(value) < threshold) {
+            return 0;  // Dead zone - no movement
+        }
+        
+        // Normalize to 0-1 range (after removing deadzone)
+        const maxValue = 350;
+        const sign = value > 0 ? 1 : -1;
+        const absValue = Math.abs(value);
+        
+        // Map from deadzone-maxValue to 0-1
+        const normalized = (absValue - threshold) / (maxValue - threshold);
+        
+        // Apply exponential curve: small movements are tiny, large are accelerated
+        // Using power of 2.5 for good feel
+        const curved = Math.pow(normalized, 2.5);
+        
+        return sign * curved;  // Returns ~0 to ~1 (or ~-1)
     }
 
     /**
@@ -266,24 +284,31 @@ class SpaceNavigatorController {
         
         // Get mapped values using calibration or defaults
         const mapped = this.getMappedInput();
+        const raw = this.input;
         
-        // Check if any input is active
-        const hasInput = Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0 || 
-                         Math.abs(mapped.zoom) > 0;
+        // Check if any input is active (using raw values to catch any signal)
+        const hasRawInput = Math.abs(raw.tx) > 0.01 || Math.abs(raw.ty) > 0.01 || 
+                            Math.abs(raw.tz) > 0.01 || Math.abs(raw.rx) > 0.01 || 
+                            Math.abs(raw.ry) > 0.01 || Math.abs(raw.rz) > 0.01;
         
-        // Debug logging (throttled to every 200ms when active)
-        if (this.debugMode && hasInput) {
+        // Debug logging (throttled to every 200ms) - shows even when in deadzone
+        if (this.debugMode) {
             const now = Date.now();
             if (now - this._lastDebugLog > 200) {
-                const raw = this.input;
-                const rawRZ = raw.rz * 350;
+                // Convert back to raw scale for display
+                const rawScale = 350;
+                const rawRZ = raw.rz * rawScale;
                 console.log(`%c🎮 SpaceMouse Debug`, 'color: #10b981; font-weight: bold');
-                console.log(`  RAW INPUT:    TX=${(raw.tx*350).toFixed(0).padStart(5)} TY=${(raw.ty*350).toFixed(0).padStart(5)} TZ=${(raw.tz*350).toFixed(0).padStart(5)} | RX=${(raw.rx*350).toFixed(0).padStart(5)} RY=${(raw.ry*350).toFixed(0).padStart(5)} RZ=${rawRZ.toFixed(0).padStart(5)}`);
-                console.log(`  MAPPED:       panX=${mapped.panX.toFixed(3).padStart(7)} panY=${mapped.panY.toFixed(3).padStart(7)} zoom=${mapped.zoom.toFixed(3).padStart(7)}`);
-                console.log(`  ZOOM THRESH:  rawRZ ${rawRZ > 300 ? '> 300 ✓ ZOOM IN' : rawRZ < -300 ? '< -300 ✓ ZOOM OUT' : 'in dead zone'}`);
+                console.log(`  RAW (0-350):  TX=${(raw.tx*rawScale).toFixed(0).padStart(5)} TY=${(raw.ty*rawScale).toFixed(0).padStart(5)} TZ=${(raw.tz*rawScale).toFixed(0).padStart(5)} | RX=${(raw.rx*rawScale).toFixed(0).padStart(5)} RY=${(raw.ry*rawScale).toFixed(0).padStart(5)} RZ=${rawRZ.toFixed(0).padStart(5)}`);
+                console.log(`  CURVED OUT:   panX=${mapped.panX.toFixed(4).padStart(8)} panY=${mapped.panY.toFixed(4).padStart(8)} zoom=${mapped.zoom.toFixed(4).padStart(8)}`);
+                console.log(`  STATUS:       ${hasRawInput ? '📡 SIGNAL' : '⏸️ IDLE'} | Zoom: ${rawRZ > 300 ? '🔍 IN' : rawRZ < -300 ? '🔎 OUT' : '—'}`);
                 this._lastDebugLog = now;
             }
         }
+        
+        // Check if any MAPPED input is active (after exponential curve)
+        const hasInput = Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0 || 
+                         Math.abs(mapped.zoom) > 0;
         
         if (!hasInput) return;
         
@@ -303,7 +328,7 @@ class SpaceNavigatorController {
         // Zoom - SNAP mode using RAW RZ value
         // RZ > 300 = zoom in 2x, RZ < -300 = zoom out 0.5x
         // Allows repeated snaps while held (with small delay)
-        const rawRZ = this.input.rz * 350;  // Convert back to raw scale (~-350 to +350)
+        const rawRZ = raw.rz * 350;  // Convert back to raw scale (~-350 to +350)
         const now = Date.now();
         
         if (rawRZ > 300 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
