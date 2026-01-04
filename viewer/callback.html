@@ -52,7 +52,8 @@
                     domain: AUTH0_DOMAIN,
                     clientId: AUTH0_CLIENT_ID,
                     authorizationParams: {
-                        redirect_uri: 'https://pathviewpro.com/callback'
+                        redirect_uri: 'https://pathviewpro.com/callback',
+                        audience: 'https://pathviewpro.com/api'
                     },
                     cacheLocation: 'localstorage'
                 });

@@ -1373,7 +1373,7 @@ async def list_studies(
     List studies visible to the current user.
     - Authenticated users see their own studies + shared studies + samples (unowned)
     - Admins see all studies
-    - Unauthenticated requests see nothing (empty list)
+    - Unauthenticated requests see ALL studies (treated as samples for demo/public access)
     
     Query params:
     - include_samples: Include unowned "sample" studies (default: true)
@@ -1388,9 +1388,10 @@ async def list_studies(
             response.raise_for_status()
             all_studies = response.json()
             
-            # If no user authenticated, return empty list
+            # If no user authenticated, return all studies (public demo mode)
             if current_user is None:
-                return []
+                logger.info("No authenticated user - returning all studies as samples")
+                return all_studies
             
             # Admin sees everything
             if current_user.role == "admin":
@@ -1440,7 +1441,7 @@ async def get_all_owned_study_ids() -> list[str]:
 
 
 @app.get("/studies/ownership")
-async def get_studies_ownership(current_user: User = Depends(require_user)):
+async def get_studies_ownership(current_user: Optional[User] = Depends(get_current_user)):
     """Get ownership info for all studies visible to user"""
     try:
         async with httpx.AsyncClient() as client:
@@ -1451,6 +1452,10 @@ async def get_studies_ownership(current_user: User = Depends(require_user)):
             )
             response.raise_for_status()
             all_studies = response.json()
+        
+        # If no user authenticated, mark all as samples
+        if current_user is None:
+            return {study_id: "sample" for study_id in all_studies}
         
         # Get user's studies
         user_study_ids = await get_user_study_ids(current_user.id) if current_user.id else []
