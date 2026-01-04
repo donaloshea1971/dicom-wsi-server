@@ -110,51 +110,61 @@ class SpaceNavigatorController {
      */
     handleInput(event) {
         const data = new DataView(event.data.buffer);
-        
-        // Report type determines data format
+        const bytes = new Uint8Array(event.data.buffer);
         const reportId = event.reportId;
+        const length = bytes.length;
         
-        if (reportId === 1) {
-            // Translation data (X, Y, Z)
-            this.input.tx = this.parseAxis(data, 0);
-            this.input.ty = this.parseAxis(data, 2);
-            this.input.tz = this.parseAxis(data, 4);
-        } else if (reportId === 2) {
-            // Rotation data (Rx, Ry, Rz)
-            this.input.rx = this.parseAxis(data, 0);
-            this.input.ry = this.parseAxis(data, 2);
-            this.input.rz = this.parseAxis(data, 4);
-        } else if (reportId === 3) {
+        // SpaceMouse Wireless format (0x256f): Report ID 1, 12 bytes, all axes at offset 0
+        if (reportId === 1 && length >= 12) {
+            this.input.tx = this.readInt16LE(bytes, 0);
+            this.input.ty = this.readInt16LE(bytes, 2);
+            this.input.tz = this.readInt16LE(bytes, 4);
+            this.input.rx = this.readInt16LE(bytes, 6);
+            this.input.ry = this.readInt16LE(bytes, 8);
+            this.input.rz = this.readInt16LE(bytes, 10);
+        }
+        // Older SpaceNavigator format: Report ID 1/2, 7 bytes, data at offset 1
+        else if (reportId === 1 && length >= 7) {
+            // Translation data (X, Y, Z) - starts at byte 1
+            this.input.tx = this.readInt16LE(bytes, 1);
+            this.input.ty = this.readInt16LE(bytes, 3);
+            this.input.tz = this.readInt16LE(bytes, 5);
+        } 
+        else if (reportId === 2 && length >= 7) {
+            // Rotation data (Rx, Ry, Rz) - starts at byte 1
+            this.input.rx = this.readInt16LE(bytes, 1);
+            this.input.ry = this.readInt16LE(bytes, 3);
+            this.input.rz = this.readInt16LE(bytes, 5);
+        }
+        else if (reportId === 3) {
             // Button data - could add button support here
-            // const buttons = data.getUint8(0);
-        } else {
-            // Some devices send all data in one report
-            if (data.byteLength >= 12) {
-                this.input.tx = this.parseAxis(data, 0);
-                this.input.ty = this.parseAxis(data, 2);
-                this.input.tz = this.parseAxis(data, 4);
-                this.input.rx = this.parseAxis(data, 6);
-                this.input.ry = this.parseAxis(data, 8);
-                this.input.rz = this.parseAxis(data, 10);
-            }
+            // const buttons = bytes[0];
         }
     }
-
+    
     /**
-     * Parse 16-bit signed axis value and normalize
+     * Read little-endian signed 16-bit integer from byte array
      */
-    parseAxis(dataView, offset) {
-        if (offset + 2 > dataView.byteLength) return 0;
+    readInt16LE(bytes, offset) {
+        if (offset + 1 >= bytes.length) return 0;
         
-        const raw = dataView.getInt16(offset, true); // Little-endian
-        const normalized = raw / 350.0; // Normalize to ~-1 to 1
+        // Read little-endian 16-bit integer
+        let value = bytes[offset] | (bytes[offset + 1] << 8);
         
-        // Apply dead zone
-        if (Math.abs(normalized) < this.deadZone) {
-            return 0;
+        // Convert to signed integer
+        if (value > 32767) {
+            value = value - 65536;
         }
         
-        return normalized;
+        return this.applyDeadzone(value);
+    }
+    
+    /**
+     * Apply deadzone to filter noise
+     */
+    applyDeadzone(value) {
+        const threshold = this.deadZone * 350; // Scale to raw value range
+        return Math.abs(value) < threshold ? 0 : value / 350.0; // Normalize to ~-1 to 1
     }
 
     /**
