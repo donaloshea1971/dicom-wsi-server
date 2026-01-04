@@ -6,6 +6,7 @@
 
 class SpaceNavigatorController {
     constructor(viewer) {
+        console.log('SpaceNavigatorController: CONSTRUCTOR CALLED');
         this.viewer = viewer;
         this.device = null;
         this.connected = false;
@@ -265,6 +266,7 @@ class SpaceNavigatorController {
         // Zoom (from twist)
         if (Math.abs(mapped.zoom) > 0) {
             const zoomFactor = 1 + (mapped.zoom * this.sensitivity.zoom);
+            console.log('SpaceMouse ZOOM:', mapped.zoom.toFixed(3), 'factor:', zoomFactor.toFixed(4));
             viewport.zoomBy(zoomFactor, viewport.getCenter(), false);
         }
         
