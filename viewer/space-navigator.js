@@ -22,9 +22,9 @@ class SpaceNavigatorController {
             rotation: 0.008   // Rotation speed
         };
         
-        // Snap zoom state - prevents repeated triggers
-        this._lastZoomDirection = 0;  // -1 = left, 0 = neutral, 1 = right
-        this._zoomCooldown = false;
+        // Snap zoom cooldown - allows repeated snaps while held, but with delay
+        this._lastZoomTime = 0;
+        this._zoomRepeatDelay = 200;  // ms between repeated zoom snaps
         
         // Dead zone to prevent drift
         this.deadZone = 0.08;
@@ -281,28 +281,23 @@ class SpaceNavigatorController {
             viewport.panBy(delta, false);
         }
         
-        // Zoom - SNAP mode: twist left = 0.5x, twist right = 2x
-        const zoomThreshold = 0.3;  // Minimum twist to trigger
+        // Zoom - SNAP mode using RAW RZ value
+        // RZ > 300 = zoom in 2x, RZ < -300 = zoom out 0.5x
+        // Allows repeated snaps while held (with small delay)
+        const rawRZ = this.input.rz * 350;  // Convert back to raw scale (~-350 to +350)
+        const now = Date.now();
         
-        if (mapped.zoom > zoomThreshold && this._lastZoomDirection !== 1 && !this._zoomCooldown) {
+        if (rawRZ > 300 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
             // Twist RIGHT - zoom IN (2x)
-            console.log('SpaceMouse SNAP ZOOM: 2x (in)');
+            console.log('SpaceMouse SNAP ZOOM: 2x (in), rawRZ:', rawRZ.toFixed(0));
             viewport.zoomBy(2, viewport.getCenter(), false);
-            this._lastZoomDirection = 1;
-            this._zoomCooldown = true;
-            setTimeout(() => { this._zoomCooldown = false; }, 300);
+            this._lastZoomTime = now;
         } 
-        else if (mapped.zoom < -zoomThreshold && this._lastZoomDirection !== -1 && !this._zoomCooldown) {
+        else if (rawRZ < -300 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
             // Twist LEFT - zoom OUT (0.5x)
-            console.log('SpaceMouse SNAP ZOOM: 0.5x (out)');
+            console.log('SpaceMouse SNAP ZOOM: 0.5x (out), rawRZ:', rawRZ.toFixed(0));
             viewport.zoomBy(0.5, viewport.getCenter(), false);
-            this._lastZoomDirection = -1;
-            this._zoomCooldown = true;
-            setTimeout(() => { this._zoomCooldown = false; }, 300);
-        }
-        else if (Math.abs(mapped.zoom) < 0.1) {
-            // Return to neutral - allow next snap
-            this._lastZoomDirection = 0;
+            this._lastZoomTime = now;
         }
         
         // Apply changes
