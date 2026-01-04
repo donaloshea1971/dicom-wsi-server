@@ -34,6 +34,8 @@ class SpaceNavigatorController {
         
         // Debug mode for troubleshooting
         this.debugMode = false;
+        this._debugLogInterval = null;
+        this._lastDebugLog = 0;
         
         // Calibration data from localStorage
         this.calibration = this.loadCalibration();
@@ -87,7 +89,10 @@ class SpaceNavigatorController {
             
             this.connected = true;
             this.updateStatus('connected');
-            console.log('Space Navigator connected:', this.device.productName);
+            console.log('%c🎮 Space Navigator connected', 'color: #10b981; font-weight: bold');
+            console.log(`   Device: ${this.device.productName}`);
+            console.log(`   Vendor: 0x${this.device.vendorId.toString(16)} Product: 0x${this.device.productId.toString(16)}`);
+            console.log('%c   💡 Type: spaceNavController.toggleDebug() to see live input values', 'color: #888');
             
             // DISABLE OpenSeadragon scroll-to-zoom to prevent 3Dconnexion driver conflict
             if (this.viewer && this.viewer.gestureSettingsMouse) {
@@ -266,6 +271,20 @@ class SpaceNavigatorController {
         const hasInput = Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0 || 
                          Math.abs(mapped.zoom) > 0;
         
+        // Debug logging (throttled to every 200ms when active)
+        if (this.debugMode && hasInput) {
+            const now = Date.now();
+            if (now - this._lastDebugLog > 200) {
+                const raw = this.input;
+                const rawRZ = raw.rz * 350;
+                console.log(`%c🎮 SpaceMouse Debug`, 'color: #10b981; font-weight: bold');
+                console.log(`  RAW INPUT:    TX=${(raw.tx*350).toFixed(0).padStart(5)} TY=${(raw.ty*350).toFixed(0).padStart(5)} TZ=${(raw.tz*350).toFixed(0).padStart(5)} | RX=${(raw.rx*350).toFixed(0).padStart(5)} RY=${(raw.ry*350).toFixed(0).padStart(5)} RZ=${rawRZ.toFixed(0).padStart(5)}`);
+                console.log(`  MAPPED:       panX=${mapped.panX.toFixed(3).padStart(7)} panY=${mapped.panY.toFixed(3).padStart(7)} zoom=${mapped.zoom.toFixed(3).padStart(7)}`);
+                console.log(`  ZOOM THRESH:  rawRZ ${rawRZ > 300 ? '> 300 ✓ ZOOM IN' : rawRZ < -300 ? '< -300 ✓ ZOOM OUT' : 'in dead zone'}`);
+                this._lastDebugLog = now;
+            }
+        }
+        
         if (!hasInput) return;
         
         // Pan - scale by zoom level for consistent apparent speed
@@ -403,10 +422,17 @@ class SpaceNavigatorController {
     
     /**
      * Toggle debug mode for troubleshooting
+     * When ON: Shows raw inputs, mapped values, and zoom threshold status
      */
     toggleDebug() {
         this.debugMode = !this.debugMode;
-        console.log(`SpaceMouse debug mode: ${this.debugMode ? 'ON' : 'OFF'}`);
+        if (this.debugMode) {
+            console.log('%c🎮 SpaceMouse DEBUG MODE: ON', 'color: #10b981; font-weight: bold; font-size: 14px');
+            console.log('%cMove the SpaceMouse to see live values. Zoom triggers when |rawRZ| > 300', 'color: #888');
+            console.log('%cType: spaceNavController.toggleDebug() to turn OFF', 'color: #888');
+        } else {
+            console.log('%c🎮 SpaceMouse DEBUG MODE: OFF', 'color: #ef4444; font-weight: bold');
+        }
         return this.debugMode;
     }
     
