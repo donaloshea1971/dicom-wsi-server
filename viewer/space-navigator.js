@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.3.2';
+const SPACEMOUSE_VERSION = '1.3.3';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -23,7 +23,7 @@ class SpaceNavigatorController {
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.8,         // Pan speed (divided by zoom for normalization) - increased to compensate for steep curve
+            pan: 0.4,         // Pan speed (divided by zoom for normalization) - halved for comfortable max
             zoom: 0.002,      // Zoom speed (unused - now using snap zoom)
             rotation: 0.008   // Rotation speed
         };
