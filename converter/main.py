@@ -1365,12 +1365,18 @@ async def delete_job(job_id: str):
 # =============================================================================
 
 @app.get("/studies")
-async def list_studies(current_user: Optional[User] = Depends(get_current_user)):
+async def list_studies(
+    current_user: Optional[User] = Depends(get_current_user),
+    include_samples: bool = True
+):
     """
     List studies visible to the current user.
-    - Authenticated users see their own studies + shared studies
+    - Authenticated users see their own studies + shared studies + samples (unowned)
     - Admins see all studies
     - Unauthenticated requests see nothing (empty list)
+    
+    Query params:
+    - include_samples: Include unowned "sample" studies (default: true)
     """
     try:
         async with httpx.AsyncClient() as client:
@@ -1390,18 +1396,78 @@ async def list_studies(current_user: Optional[User] = Depends(get_current_user))
             if current_user.role == "admin":
                 return all_studies
             
-            # Regular user sees only their studies
+            # Regular user
             if current_user.id:
                 user_study_ids = await get_user_study_ids(current_user.id)
-                # If user has no studies in DB, show all (for backward compatibility)
-                if not user_study_ids:
-                    # First-time user or DB not set up - show all for now
-                    return all_studies
-                return [s for s in all_studies if s in user_study_ids]
+                
+                # Check if user has hidden samples
+                hide_samples = not include_samples or localStorage_hidden_samples(current_user.id)
+                
+                # Get owned/shared studies
+                owned_studies = [s for s in all_studies if s in user_study_ids]
+                
+                if hide_samples:
+                    return owned_studies
+                
+                # Include unowned studies as "samples"
+                # Get all owned study IDs from DB
+                all_owned_ids = await get_all_owned_study_ids()
+                sample_studies = [s for s in all_studies if s not in all_owned_ids]
+                
+                return owned_studies + sample_studies
             
             # Fallback - show all (DB not available)
             return all_studies
             
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
+def localStorage_hidden_samples(user_id: int) -> bool:
+    """Check if user has hidden samples (placeholder - actual check is client-side)"""
+    return False
+
+
+async def get_all_owned_study_ids() -> list[str]:
+    """Get all study IDs that have owners"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT study_id FROM study_owners")
+        return [row["study_id"] for row in rows]
+
+
+@app.get("/studies/ownership")
+async def get_studies_ownership(current_user: User = Depends(require_user)):
+    """Get ownership info for all studies visible to user"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/studies",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            response.raise_for_status()
+            all_studies = response.json()
+        
+        # Get user's studies
+        user_study_ids = await get_user_study_ids(current_user.id) if current_user.id else []
+        
+        # Get all owned studies
+        all_owned_ids = await get_all_owned_study_ids()
+        
+        ownership = {}
+        for study_id in all_studies:
+            if study_id in user_study_ids:
+                ownership[study_id] = "owned"
+            elif study_id not in all_owned_ids:
+                ownership[study_id] = "sample"
+            # shared studies would be in user_study_ids already
+        
+        return ownership
+        
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
