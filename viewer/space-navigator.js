@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.1.0';
+const SPACEMOUSE_VERSION = '1.2.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -16,8 +16,10 @@ class SpaceNavigatorController {
         this.connected = false;
         this.animationFrame = null;
         
-        // Accumulated input values (smoothed)
+        // Accumulated input values (after deadzone/curve)
         this.input = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+        // Raw input values (before processing) for debug
+        this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
@@ -99,10 +101,10 @@ class SpaceNavigatorController {
             console.log('%c   💡 Type: spaceNavController.toggleDebug() to see live input values', 'color: #888');
             
             // DISABLE OpenSeadragon scroll-to-zoom to prevent 3Dconnexion driver conflict
-            if (this.viewer && this.viewer.gestureSettingsMouse) {
-                this._savedScrollZoom = this.viewer.gestureSettingsMouse().scrollToZoom;
-                this.viewer.gestureSettingsMouse().scrollToZoom = false;
-                console.log('SpaceMouse: Disabled OSD scroll-to-zoom (was:', this._savedScrollZoom, ')');
+            if (this.viewer && this.viewer.innerTracker) {
+                this._savedScrollHandler = this.viewer.innerTracker.scrollHandler;
+                this.viewer.innerTracker.scrollHandler = false;
+                console.log('SpaceMouse: Disabled OSD scroll-to-zoom');
             }
             
             return true;
@@ -120,9 +122,9 @@ class SpaceNavigatorController {
         this.stopAnimationLoop();
         
         // RE-ENABLE OpenSeadragon scroll-to-zoom
-        if (this.viewer && this.viewer.gestureSettingsMouse && this._savedScrollZoom !== undefined) {
-            this.viewer.gestureSettingsMouse().scrollToZoom = this._savedScrollZoom;
-            console.log('SpaceMouse: Restored OSD scroll-to-zoom to:', this._savedScrollZoom);
+        if (this.viewer && this.viewer.innerTracker && this._savedScrollHandler !== undefined) {
+            this.viewer.innerTracker.scrollHandler = this._savedScrollHandler;
+            console.log('SpaceMouse: Restored OSD scroll-to-zoom');
         }
         
         if (this.device) {
@@ -156,42 +158,68 @@ class SpaceNavigatorController {
         if (length >= 12) {
             // SpaceMouse Wireless format: 6 int16 values starting at byte 0
             if (reportId === 1) {
-                this.input.tx = this.readInt16LE(bytes, 0);
-                this.input.ty = this.readInt16LE(bytes, 2);
-                this.input.tz = this.readInt16LE(bytes, 4);
-                this.input.rx = this.readInt16LE(bytes, 6);
-                this.input.ry = this.readInt16LE(bytes, 8);
-                this.input.rz = this.readInt16LE(bytes, 10);
+                this._rawInput.tx = this.readInt16LEraw(bytes, 0);
+                this._rawInput.ty = this.readInt16LEraw(bytes, 2);
+                this._rawInput.tz = this.readInt16LEraw(bytes, 4);
+                this._rawInput.rx = this.readInt16LEraw(bytes, 6);
+                this._rawInput.ry = this.readInt16LEraw(bytes, 8);
+                this._rawInput.rz = this.readInt16LEraw(bytes, 10);
+                
+                this.input.tx = this.applyDeadzone(this._rawInput.tx);
+                this.input.ty = this.applyDeadzone(this._rawInput.ty);
+                this.input.tz = this.applyDeadzone(this._rawInput.tz);
+                this.input.rx = this.applyDeadzone(this._rawInput.rx);
+                this.input.ry = this.applyDeadzone(this._rawInput.ry);
+                this.input.rz = this.applyDeadzone(this._rawInput.rz);
             }
             
             // Some models send rotation separately even with 12+ byte reports
             if (reportId === 2) {
-                this.input.rx = this.readInt16LE(bytes, 0);
-                this.input.ry = this.readInt16LE(bytes, 2);
-                this.input.rz = this.readInt16LE(bytes, 4);
+                this._rawInput.rx = this.readInt16LEraw(bytes, 0);
+                this._rawInput.ry = this.readInt16LEraw(bytes, 2);
+                this._rawInput.rz = this.readInt16LEraw(bytes, 4);
+                
+                this.input.rx = this.applyDeadzone(this._rawInput.rx);
+                this.input.ry = this.applyDeadzone(this._rawInput.ry);
+                this.input.rz = this.applyDeadzone(this._rawInput.rz);
             }
 
             // Some wireless models use report ID 3
             if (reportId === 3) {
-                this.input.tx = this.readInt16LE(bytes, 0);
-                this.input.ty = this.readInt16LE(bytes, 2);
-                this.input.tz = this.readInt16LE(bytes, 4);
-                this.input.rx = this.readInt16LE(bytes, 6);
-                this.input.ry = this.readInt16LE(bytes, 8);
-                this.input.rz = this.readInt16LE(bytes, 10);
+                this._rawInput.tx = this.readInt16LEraw(bytes, 0);
+                this._rawInput.ty = this.readInt16LEraw(bytes, 2);
+                this._rawInput.tz = this.readInt16LEraw(bytes, 4);
+                this._rawInput.rx = this.readInt16LEraw(bytes, 6);
+                this._rawInput.ry = this.readInt16LEraw(bytes, 8);
+                this._rawInput.rz = this.readInt16LEraw(bytes, 10);
+                
+                this.input.tx = this.applyDeadzone(this._rawInput.tx);
+                this.input.ty = this.applyDeadzone(this._rawInput.ty);
+                this.input.tz = this.applyDeadzone(this._rawInput.tz);
+                this.input.rx = this.applyDeadzone(this._rawInput.rx);
+                this.input.ry = this.applyDeadzone(this._rawInput.ry);
+                this.input.rz = this.applyDeadzone(this._rawInput.rz);
             }
         } else if (length >= 7) {
             // Older SpaceNavigator format: data starts at byte 1
             if (reportId === 1) {
-                this.input.tx = this.readInt16LE(bytes, 1);
-                this.input.ty = this.readInt16LE(bytes, 3);
-                this.input.tz = this.readInt16LE(bytes, 5);
+                this._rawInput.tx = this.readInt16LEraw(bytes, 1);
+                this._rawInput.ty = this.readInt16LEraw(bytes, 3);
+                this._rawInput.tz = this.readInt16LEraw(bytes, 5);
+                
+                this.input.tx = this.applyDeadzone(this._rawInput.tx);
+                this.input.ty = this.applyDeadzone(this._rawInput.ty);
+                this.input.tz = this.applyDeadzone(this._rawInput.tz);
             }
             
             if (reportId === 2) {
-                this.input.rx = this.readInt16LE(bytes, 1);
-                this.input.ry = this.readInt16LE(bytes, 3);
-                this.input.rz = this.readInt16LE(bytes, 5);
+                this._rawInput.rx = this.readInt16LEraw(bytes, 1);
+                this._rawInput.ry = this.readInt16LEraw(bytes, 3);
+                this._rawInput.rz = this.readInt16LEraw(bytes, 5);
+                
+                this.input.rx = this.applyDeadzone(this._rawInput.rx);
+                this.input.ry = this.applyDeadzone(this._rawInput.ry);
+                this.input.rz = this.applyDeadzone(this._rawInput.rz);
             }
         }
         
@@ -200,9 +228,9 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Read little-endian signed 16-bit integer from byte array
+     * Read little-endian signed 16-bit integer from byte array (RAW - no processing)
      */
-    readInt16LE(bytes, offset) {
+    readInt16LEraw(bytes, offset) {
         if (offset + 1 >= bytes.length) return 0;
         
         // Read little-endian 16-bit integer
@@ -213,7 +241,7 @@ class SpaceNavigatorController {
             value = value - 65536;
         }
         
-        return this.applyDeadzone(value);
+        return value;
     }
     
     /**
@@ -295,17 +323,23 @@ class SpaceNavigatorController {
                             Math.abs(raw.tz) > 0.01 || Math.abs(raw.rx) > 0.01 || 
                             Math.abs(raw.ry) > 0.01 || Math.abs(raw.rz) > 0.01;
         
-        // Debug logging (throttled to every 200ms) - shows even when in deadzone
+        // Debug logging (throttled to every 300ms) - ALWAYS logs when debug on
         if (this.debugMode) {
             const now = Date.now();
-            if (now - this._lastDebugLog > 200) {
-                // Convert back to raw scale for display
-                const rawScale = 350;
-                const rawRZ = raw.rz * rawScale;
-                console.log(`%c🎮 SpaceMouse Debug`, 'color: #10b981; font-weight: bold');
-                console.log(`  RAW (0-350):  TX=${(raw.tx*rawScale).toFixed(0).padStart(5)} TY=${(raw.ty*rawScale).toFixed(0).padStart(5)} TZ=${(raw.tz*rawScale).toFixed(0).padStart(5)} | RX=${(raw.rx*rawScale).toFixed(0).padStart(5)} RY=${(raw.ry*rawScale).toFixed(0).padStart(5)} RZ=${rawRZ.toFixed(0).padStart(5)}`);
-                console.log(`  CURVED OUT:   panX=${mapped.panX.toFixed(4).padStart(8)} panY=${mapped.panY.toFixed(4).padStart(8)} zoom=${mapped.zoom.toFixed(4).padStart(8)}`);
-                console.log(`  STATUS:       ${hasRawInput ? '📡 SIGNAL' : '⏸️ IDLE'} | Zoom: ${rawRZ > 300 ? '🔍 IN' : rawRZ < -300 ? '🔎 OUT' : '—'}`);
+            if (now - this._lastDebugLog > 300) {
+                // Show raw values before any processing
+                const rawTX = this._rawInput?.tx || 0;
+                const rawTY = this._rawInput?.ty || 0;
+                const rawTZ = this._rawInput?.tz || 0;
+                const rawRX = this._rawInput?.rx || 0;
+                const rawRY = this._rawInput?.ry || 0;
+                const rawRZ = this._rawInput?.rz || 0;
+                
+                console.log(`%c🎮 SpaceMouse`, 'color: #10b981; font-weight: bold',
+                    `TX:${rawTX.toString().padStart(4)} TY:${rawTY.toString().padStart(4)} TZ:${rawTZ.toString().padStart(4)} | ` +
+                    `RX:${rawRX.toString().padStart(4)} RY:${rawRY.toString().padStart(4)} RZ:${rawRZ.toString().padStart(4)} | ` +
+                    `pan:(${mapped.panX.toFixed(2)},${mapped.panY.toFixed(2)}) zoom:${mapped.zoom.toFixed(2)}`
+                );
                 this._lastDebugLog = now;
             }
         }
