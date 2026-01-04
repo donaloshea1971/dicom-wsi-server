@@ -85,6 +85,13 @@ class SpaceNavigatorController {
             this.updateStatus('connected');
             console.log('Space Navigator connected:', this.device.productName);
             
+            // DISABLE OpenSeadragon scroll-to-zoom to prevent 3Dconnexion driver conflict
+            if (this.viewer && this.viewer.gestureSettingsMouse) {
+                this._savedScrollZoom = this.viewer.gestureSettingsMouse().scrollToZoom;
+                this.viewer.gestureSettingsMouse().scrollToZoom = false;
+                console.log('SpaceMouse: Disabled OSD scroll-to-zoom (was:', this._savedScrollZoom, ')');
+            }
+            
             return true;
         } catch (error) {
             console.error('Space Navigator connection failed:', error);
@@ -98,6 +105,12 @@ class SpaceNavigatorController {
      */
     async disconnect() {
         this.stopAnimationLoop();
+        
+        // RE-ENABLE OpenSeadragon scroll-to-zoom
+        if (this.viewer && this.viewer.gestureSettingsMouse && this._savedScrollZoom !== undefined) {
+            this.viewer.gestureSettingsMouse().scrollToZoom = this._savedScrollZoom;
+            console.log('SpaceMouse: Restored OSD scroll-to-zoom to:', this._savedScrollZoom);
+        }
         
         if (this.device) {
             try {
