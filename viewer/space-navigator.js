@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.3.3';
+const SPACEMOUSE_VERSION = '1.4.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -20,6 +20,8 @@ class SpaceNavigatorController {
         this.input = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         // Raw input values (before processing) for debug
         this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+        // Smoothed output values for smooth diagonal motion
+        this._smoothedPan = { x: 0, y: 0 };
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
@@ -35,8 +37,8 @@ class SpaceNavigatorController {
         // Dead zone to prevent drift
         this.deadZone = 0.08;
         
-        // Smoothing factor (0-1, higher = more responsive)
-        this.smoothing = 0.3;
+        // Smoothing factor (0-1, higher = more responsive, lower = smoother)
+        this.smoothing = 0.4;
         
         // Debug mode for troubleshooting
         this.debugMode = false;
@@ -361,11 +363,24 @@ class SpaceNavigatorController {
             // Divide by zoom so panning feels the same at all magnifications
             const panFactor = this.sensitivity.pan / currentZoom;
             
+            // Calculate target pan values
+            const targetX = mapped.panX * panFactor;
+            const targetY = mapped.panY * panFactor;
+            
+            // Apply smoothing (exponential moving average) for fluid diagonal motion
+            // smoothing = 0.3 means 30% new value, 70% old value per frame
+            this._smoothedPan.x = this._smoothedPan.x * (1 - this.smoothing) + targetX * this.smoothing;
+            this._smoothedPan.y = this._smoothedPan.y * (1 - this.smoothing) + targetY * this.smoothing;
+            
             const delta = new OpenSeadragon.Point(
-                mapped.panX * panFactor,
-                mapped.panY * panFactor
+                this._smoothedPan.x,
+                this._smoothedPan.y
             );
             viewport.panBy(delta, false);
+        } else {
+            // Decay smoothed values when no input (prevents drift)
+            this._smoothedPan.x *= 0.8;
+            this._smoothedPan.y *= 0.8;
         }
         
         // Zoom - SNAP mode using RAW RZ value
