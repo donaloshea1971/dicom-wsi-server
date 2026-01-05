@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.5.0';
+const SPACEMOUSE_VERSION = '1.6.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -20,13 +20,16 @@ class SpaceNavigatorController {
         this.input = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         // Raw input values (before processing) for debug
         this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
-        // Smoothed RAW input (before curve) for stable direction
-        this._smoothedRaw = { tx: 0, ty: 0 };
-        // Smoothed output values for smooth diagonal motion
+        // Simple moving average buffer for raw input
+        this._inputHistory = [];
+        this._historySize = 10;  // Configurable: average last N samples
+        // Smoothed output values
         this._smoothedPan = { x: 0, y: 0 };
-        // Ring buffer for direction averaging (last 8 samples)
-        this._directionHistory = [];
-        this._historySize = 8;
+        
+        // Configurable parameters (can be adjusted via config panel)
+        this._curvePower = 3.0;   // Exponential curve power
+        this._invertX = true;     // Invert X axis (push left = pan left)
+        this._invertY = true;     // Invert Y axis (push forward = pan up)
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
@@ -270,14 +273,11 @@ class SpaceNavigatorController {
         // Map from deadzone-maxValue to 0-1
         const normalized = (absValue - threshold) / (maxValue - threshold);
         
-        // Steep exponential curve: power 3.0
+        // Steep exponential curve (configurable power)
         // This makes subtle inputs nearly imperceptible, 
         // while hard pushes accelerate dramatically
-        // Input 25% → Output ~1.5%
-        // Input 50% → Output ~12.5%
-        // Input 75% → Output ~42%
-        // Input 100% → Output 100%
-        const curved = Math.pow(normalized, 3.0);
+        const power = this._curvePower || 3.0;
+        const curved = Math.pow(normalized, power);
         
         return sign * curved;  // Returns ~0 to ~1 (or ~-1)
     }
@@ -412,7 +412,7 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Map raw input to viewport actions with direction smoothing
+     * Map raw input to viewport actions with simple moving average
      * Uses ONLY translation axes for panning (RX/RY are tilt artifacts):
      *   - TX → Pan X (left/right) - horizontal puck movement
      *   - TY → Pan Y (forward/back) - vertical puck movement  
@@ -423,42 +423,26 @@ class SpaceNavigatorController {
     getMappedInput() {
         const raw = this.input;
         
-        // Smooth the RAW input before applying exponential curve
-        // This stabilizes the direction of travel
-        const rawSmoothing = 0.25;  // Lower = more smoothing
-        this._smoothedRaw.tx = this._smoothedRaw.tx * (1 - rawSmoothing) + raw.tx * rawSmoothing;
-        this._smoothedRaw.ty = this._smoothedRaw.ty * (1 - rawSmoothing) + raw.ty * rawSmoothing;
-        
-        // Calculate magnitude and direction separately
-        const magnitude = Math.sqrt(this._smoothedRaw.tx * this._smoothedRaw.tx + 
-                                    this._smoothedRaw.ty * this._smoothedRaw.ty);
-        
-        // Track direction history for averaging (only when moving)
-        if (magnitude > 0.05) {
-            const angle = Math.atan2(this._smoothedRaw.ty, this._smoothedRaw.tx);
-            this._directionHistory.push(angle);
-            if (this._directionHistory.length > this._historySize) {
-                this._directionHistory.shift();
-            }
+        // Add current sample to history
+        this._inputHistory.push({ tx: raw.tx, ty: raw.ty });
+        if (this._inputHistory.length > this._historySize) {
+            this._inputHistory.shift();
         }
         
-        // Average direction from history for stable diagonals
-        let avgAngle = Math.atan2(this._smoothedRaw.ty, this._smoothedRaw.tx);
-        if (this._directionHistory.length > 0) {
-            // Circular mean for angles
-            let sinSum = 0, cosSum = 0;
-            for (const a of this._directionHistory) {
-                sinSum += Math.sin(a);
-                cosSum += Math.cos(a);
-            }
-            avgAngle = Math.atan2(sinSum / this._directionHistory.length, 
-                                  cosSum / this._directionHistory.length);
+        // Simple moving average of last N samples
+        let avgTx = 0, avgTy = 0;
+        for (const sample of this._inputHistory) {
+            avgTx += sample.tx;
+            avgTy += sample.ty;
         }
+        avgTx /= this._inputHistory.length;
+        avgTy /= this._inputHistory.length;
         
-        // Reconstruct X/Y from averaged direction and current magnitude
-        // Inverted so push = move in that direction (natural mapping)
-        let panX = -Math.cos(avgAngle) * magnitude;
-        let panY = -Math.sin(avgAngle) * magnitude;
+        // Apply inversion settings (configurable)
+        const invertX = this._invertX !== undefined ? this._invertX : true;
+        const invertY = this._invertY !== undefined ? this._invertY : true;
+        let panX = invertX ? -avgTx : avgTx;
+        let panY = invertY ? -avgTy : avgTy;
         const zoom = raw.rz;  // Twist ONLY
         
         // Apply polarity from calibration if available
@@ -621,6 +605,233 @@ class SpaceNavigatorController {
      */
     static openCalibrationPage() {
         window.open('/spacemouse-calibration.html', '_blank');
+    }
+    
+    /**
+     * Create real-time configuration panel
+     */
+    createConfigPanel() {
+        // Remove existing panel if any
+        const existing = document.getElementById('spacemouse-config-panel');
+        if (existing) existing.remove();
+        
+        const panel = document.createElement('div');
+        panel.id = 'spacemouse-config-panel';
+        panel.innerHTML = `
+            <style>
+                #spacemouse-config-panel {
+                    position: fixed;
+                    top: 80px;
+                    right: 20px;
+                    background: rgba(15, 23, 42, 0.95);
+                    border: 1px solid #334155;
+                    border-radius: 12px;
+                    padding: 16px;
+                    width: 320px;
+                    font-family: system-ui, sans-serif;
+                    font-size: 13px;
+                    color: #e2e8f0;
+                    z-index: 10000;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+                }
+                #spacemouse-config-panel h3 {
+                    margin: 0 0 16px 0;
+                    color: #10b981;
+                    font-size: 14px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                #spacemouse-config-panel .close-btn {
+                    background: none;
+                    border: none;
+                    color: #94a3b8;
+                    font-size: 20px;
+                    cursor: pointer;
+                    padding: 0;
+                    line-height: 1;
+                }
+                #spacemouse-config-panel .close-btn:hover { color: #fff; }
+                #spacemouse-config-panel .param {
+                    margin-bottom: 14px;
+                }
+                #spacemouse-config-panel label {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 4px;
+                    color: #94a3b8;
+                }
+                #spacemouse-config-panel label span {
+                    color: #10b981;
+                    font-family: monospace;
+                }
+                #spacemouse-config-panel input[type="range"] {
+                    width: 100%;
+                    height: 6px;
+                    -webkit-appearance: none;
+                    background: #1e293b;
+                    border-radius: 3px;
+                    outline: none;
+                }
+                #spacemouse-config-panel input[type="range"]::-webkit-slider-thumb {
+                    -webkit-appearance: none;
+                    width: 16px;
+                    height: 16px;
+                    background: #10b981;
+                    border-radius: 50%;
+                    cursor: pointer;
+                }
+                #spacemouse-config-panel .live-values {
+                    background: #1e293b;
+                    border-radius: 8px;
+                    padding: 10px;
+                    font-family: monospace;
+                    font-size: 11px;
+                    margin-top: 16px;
+                }
+                #spacemouse-config-panel .export-btn {
+                    width: 100%;
+                    margin-top: 12px;
+                    padding: 8px;
+                    background: #10b981;
+                    border: none;
+                    border-radius: 6px;
+                    color: #fff;
+                    cursor: pointer;
+                    font-weight: 500;
+                }
+                #spacemouse-config-panel .export-btn:hover { background: #059669; }
+            </style>
+            <h3>🎮 SpaceMouse Config <button class="close-btn" onclick="this.closest('#spacemouse-config-panel').remove()">×</button></h3>
+            
+            <div class="param">
+                <label>Pan Sensitivity <span id="cfg-pan-val">${this.sensitivity.pan}</span></label>
+                <input type="range" id="cfg-pan" min="0.1" max="2.0" step="0.1" value="${this.sensitivity.pan}">
+            </div>
+            
+            <div class="param">
+                <label>Deadzone <span id="cfg-dead-val">${this.deadZone}</span></label>
+                <input type="range" id="cfg-dead" min="0.02" max="0.2" step="0.01" value="${this.deadZone}">
+            </div>
+            
+            <div class="param">
+                <label>Curve Power <span id="cfg-curve-val">${this._curvePower || 3.0}</span></label>
+                <input type="range" id="cfg-curve" min="1.0" max="5.0" step="0.5" value="${this._curvePower || 3.0}">
+            </div>
+            
+            <div class="param">
+                <label>History Size (smoothing) <span id="cfg-history-val">${this._historySize}</span></label>
+                <input type="range" id="cfg-history" min="1" max="20" step="1" value="${this._historySize}">
+            </div>
+            
+            <div class="param">
+                <label>Output Smoothing <span id="cfg-smooth-val">${this.smoothing}</span></label>
+                <input type="range" id="cfg-smooth" min="0.1" max="1.0" step="0.1" value="${this.smoothing}">
+            </div>
+            
+            <div class="param">
+                <label>Invert X <input type="checkbox" id="cfg-invert-x" ${this._invertX ? 'checked' : ''}></label>
+            </div>
+            
+            <div class="param">
+                <label>Invert Y <input type="checkbox" id="cfg-invert-y" ${this._invertY ? 'checked' : ''}></label>
+            </div>
+            
+            <div class="live-values" id="cfg-live">
+                TX: 0 | TY: 0 | panX: 0 | panY: 0
+            </div>
+            
+            <button class="export-btn" id="cfg-export">📋 Copy Settings to Console</button>
+        `;
+        
+        document.body.appendChild(panel);
+        
+        // Initialize curve power if not set
+        if (!this._curvePower) this._curvePower = 3.0;
+        if (this._invertX === undefined) this._invertX = true;
+        if (this._invertY === undefined) this._invertY = true;
+        
+        // Wire up controls
+        const self = this;
+        
+        document.getElementById('cfg-pan').oninput = function() {
+            self.sensitivity.pan = parseFloat(this.value);
+            document.getElementById('cfg-pan-val').textContent = this.value;
+        };
+        
+        document.getElementById('cfg-dead').oninput = function() {
+            self.deadZone = parseFloat(this.value);
+            document.getElementById('cfg-dead-val').textContent = this.value;
+        };
+        
+        document.getElementById('cfg-curve').oninput = function() {
+            self._curvePower = parseFloat(this.value);
+            document.getElementById('cfg-curve-val').textContent = this.value;
+        };
+        
+        document.getElementById('cfg-history').oninput = function() {
+            self._historySize = parseInt(this.value);
+            self._inputHistory = [];  // Clear history on resize
+            document.getElementById('cfg-history-val').textContent = this.value;
+        };
+        
+        document.getElementById('cfg-smooth').oninput = function() {
+            self.smoothing = parseFloat(this.value);
+            document.getElementById('cfg-smooth-val').textContent = this.value;
+        };
+        
+        document.getElementById('cfg-invert-x').onchange = function() {
+            self._invertX = this.checked;
+        };
+        
+        document.getElementById('cfg-invert-y').onchange = function() {
+            self._invertY = this.checked;
+        };
+        
+        document.getElementById('cfg-export').onclick = function() {
+            const settings = {
+                pan: self.sensitivity.pan,
+                deadZone: self.deadZone,
+                curvePower: self._curvePower,
+                historySize: self._historySize,
+                smoothing: self.smoothing,
+                invertX: self._invertX,
+                invertY: self._invertY
+            };
+            console.log('SpaceMouse Settings:', JSON.stringify(settings, null, 2));
+            alert('Settings copied to console!');
+        };
+        
+        // Update live values
+        this._configPanelInterval = setInterval(() => {
+            const live = document.getElementById('cfg-live');
+            if (live && this._rawInput) {
+                const r = this._rawInput;
+                const rawTX = Math.round(r.tx * 350);
+                const rawTY = Math.round(r.ty * 350);
+                const rawRZ = Math.round(r.rz * 350);
+                const panX = this._smoothedPan?.x?.toFixed(3) || '0.000';
+                const panY = this._smoothedPan?.y?.toFixed(3) || '0.000';
+                live.innerHTML = 
+                    `<div>RAW: TX:${rawTX.toString().padStart(4)} TY:${rawTY.toString().padStart(4)} RZ:${rawRZ.toString().padStart(4)}</div>` +
+                    `<div>OUT: panX:${panX} panY:${panY}</div>` +
+                    `<div>Avg buffer: ${this._inputHistory.length}/${this._historySize}</div>`;
+            }
+        }, 100);
+        
+        console.log('SpaceMouse config panel opened. Adjust settings in real-time!');
+    }
+    
+    /**
+     * Close config panel
+     */
+    closeConfigPanel() {
+        const panel = document.getElementById('spacemouse-config-panel');
+        if (panel) panel.remove();
+        if (this._configPanelInterval) {
+            clearInterval(this._configPanelInterval);
+            this._configPanelInterval = null;
+        }
     }
 }
 
