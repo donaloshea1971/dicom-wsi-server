@@ -96,6 +96,16 @@ class SpaceNavigatorController {
             rotation: 0.008   // Rotation speed
         };
         
+        // Fullscreen tap gesture detection (push straight down and release)
+        this._tapDownState = {
+            isDown: false,          // Currently pressed down
+            startTime: 0,           // When the press started
+            maxTapDuration: 400,    // Max ms for a tap (longer = hold, not tap)
+            threshold: 150,         // Raw TZ value threshold to detect push down
+            lastTapTime: 0,         // Debounce - prevent double triggers
+            tapCooldown: 500        // Min ms between taps
+        };
+        
         // Snap zoom cooldown - allows repeated snaps while held, but with delay
         this._lastZoomTime = 0;
         this._zoomRepeatDelay = 200;  // ms between repeated zoom snaps
@@ -1082,6 +1092,9 @@ class SpaceNavigatorController {
             return;
         }
         
+        // Detect "tap down" gesture for fullscreen toggle
+        this._detectFullscreenTap();
+        
         const viewport = this.viewer.viewport;
         
         // Get mapped values using calibration or defaults
@@ -1462,6 +1475,69 @@ class SpaceNavigatorController {
             console.log('%c🎮 SpaceMouse DEBUG MODE: OFF', 'color: #ef4444; font-weight: bold');
         }
         return this.debugMode;
+    }
+    
+    /**
+     * Detect "tap down" gesture - push straight down and release quickly
+     * Triggers fullscreen toggle
+     */
+    _detectFullscreenTap() {
+        const rawTZ = this._rawInput?.tz || 0;
+        const now = Date.now();
+        const tap = this._tapDownState;
+        
+        // Check if pushing down (negative TZ = push down on most devices)
+        const isPushingDown = rawTZ < -tap.threshold;
+        
+        // Also check for positive TZ (some devices/modes might invert)
+        const isPushingDownAlt = rawTZ > tap.threshold;
+        const isDown = isPushingDown || isPushingDownAlt;
+        
+        // Check that other axes are relatively quiet (it's a pure down push)
+        const rawTX = Math.abs(this._rawInput?.tx || 0);
+        const rawTY = Math.abs(this._rawInput?.ty || 0);
+        const rawRZ = Math.abs(this._rawInput?.rz || 0);
+        const isPureDown = rawTX < 80 && rawTY < 80 && rawRZ < 80;
+        
+        if (isDown && isPureDown && !tap.isDown) {
+            // Started pressing down
+            tap.isDown = true;
+            tap.startTime = now;
+        } else if (!isDown && tap.isDown) {
+            // Released - check if it was a tap
+            tap.isDown = false;
+            const duration = now - tap.startTime;
+            
+            if (duration < tap.maxTapDuration && now - tap.lastTapTime > tap.tapCooldown) {
+                // It's a tap! Toggle fullscreen
+                tap.lastTapTime = now;
+                this._toggleFullscreen();
+            }
+        }
+    }
+    
+    /**
+     * Toggle fullscreen mode for the viewer
+     */
+    _toggleFullscreen() {
+        const viewerElement = this.viewer?.element || document.getElementById('osd-viewer');
+        if (!viewerElement) return;
+        
+        if (document.fullscreenElement) {
+            // Exit fullscreen
+            document.exitFullscreen().then(() => {
+                console.log('%c🎮 SpaceMouse: Exited fullscreen', 'color: #f59e0b');
+            }).catch(err => {
+                console.warn('Failed to exit fullscreen:', err);
+            });
+        } else {
+            // Enter fullscreen
+            viewerElement.requestFullscreen().then(() => {
+                console.log('%c🎮 SpaceMouse: Entered fullscreen', 'color: #10b981');
+            }).catch(err => {
+                console.warn('Failed to enter fullscreen:', err);
+            });
+        }
     }
     
     /**
