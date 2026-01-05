@@ -201,21 +201,38 @@ http {
             }
         }
 
-        # File upload endpoint (stricter rate limiting)
-        location = /api/upload {
-            limit_req zone=upload_limit burst=2 nodelay;
+        # File upload endpoints (chunked uploads with longer timeouts)
+        location ~ ^/api/upload(/.*)?$ {
+            # Lighter rate limiting for chunked uploads (many small requests)
+            limit_req zone=api_limit burst=100 nodelay;
             
-            proxy_pass http://converter/upload;
+            proxy_pass http://converter/upload\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_redirect off;
-            proxy_read_timeout 3600s;
+            
+            # Long timeouts for large file uploads and conversion
+            proxy_read_timeout 7200s;
+            proxy_send_timeout 7200s;
+            proxy_connect_timeout 60s;
+            send_timeout 7200s;
             
             client_max_body_size 20G;
             proxy_request_buffering off;
+            
+            # CORS for upload
+            add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
+            add_header Access-Control-Allow-Credentials "true" always;
+
+            if (\$request_method = OPTIONS) {
+                return 204;
+            }
         }
 
         # WSI tiles - CACHED for performance

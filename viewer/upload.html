@@ -1249,13 +1249,16 @@
         // Poll for chunked upload status
         async function pollChunkedUploadStatus(item, uploadId, token) {
             item.status = 'converting';
+            let consecutiveErrors = 0;
+            const maxConsecutiveErrors = 30; // Allow up to 30 consecutive errors (1.5 min of failures)
             
             while (true) {
                 try {
                     const status = await fetchWithRetry(`/api/upload/${uploadId}/status`, {
                         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-                    });
+                    }, 2); // Only 2 retries per poll
                     
+                    consecutiveErrors = 0; // Reset on success
                     item.progress = status.progress;
                     item.message = status.message;
                     item.jobId = status.job_id;
@@ -1271,11 +1274,24 @@
                         throw new Error(status.message || 'Conversion failed');
                     }
                     
-                    await sleep(2000); // Poll every 2 seconds
+                    // Poll slower for large files being converted
+                    const pollInterval = item.progress > 60 ? 3000 : 2000;
+                    await sleep(pollInterval);
                     
                 } catch (e) {
-                    // Continue polling on transient errors
-                    console.warn('Status poll error:', e.message);
+                    consecutiveErrors++;
+                    console.warn(`Status poll error ${consecutiveErrors}/${maxConsecutiveErrors}:`, e.message);
+                    
+                    // Only fail if too many consecutive errors
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        item.status = 'error';
+                        item.message = 'Lost connection to server during conversion';
+                        updateQueueUI();
+                        throw new Error('Lost connection to server during conversion');
+                    }
+                    
+                    item.message = `Checking status... (retry ${consecutiveErrors})`;
+                    updateQueueUI();
                     await sleep(3000);
                 }
             }
@@ -1359,7 +1375,17 @@
             
             for (let attempt = 1; attempt <= retries; attempt++) {
                 try {
-                    const response = await fetch(url, options);
+                    // Add a timeout to fetch (5 minutes for status checks, longer for uploads)
+                    const controller = new AbortController();
+                    const timeoutMs = url.includes('/status') ? 60000 : 300000; // 1min or 5min
+                    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                    
+                    const response = await fetch(url, {
+                        ...options,
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
                     
                     if (!response.ok) {
                         const text = await response.text();
@@ -1371,12 +1397,18 @@
                 } catch (e) {
                     lastError = e;
                     
+                    // Handle abort as timeout
+                    if (e.name === 'AbortError') {
+                        lastError = new Error('Request timed out');
+                    }
+                    
                     // Don't retry on client errors (4xx)
                     if (e.message.includes('HTTP 4')) {
                         throw e;
                     }
                     
                     if (attempt < retries) {
+                        console.log(`Retry ${attempt}/${retries} for ${url} after error: ${e.message}`);
                         await sleep(RETRY_DELAY_MS * attempt);
                     }
                 }
