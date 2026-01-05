@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.9';
+const SPACEMOUSE_VERSION = '1.9.10';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -22,7 +22,7 @@ class SpaceNavigatorController {
         this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         // Simple moving average buffer for raw input
         this._inputHistory = [];
-        this._historySize = 15;  // Configurable: average last N samples
+        this._historySize = 25;  // Configurable: average last N samples for smoother diagonals
         // Smoothed output values
         this._smoothedPan = { x: 0, y: 0 };
         
@@ -1002,7 +1002,7 @@ class SpaceNavigatorController {
             
             <div class="param">
                 <label>History Size (smoothing) <span id="cfg-history-val">${this._historySize}</span></label>
-                <input type="range" id="cfg-history" min="1" max="20" step="1" value="${this._historySize}">
+                <input type="range" id="cfg-history" min="5" max="40" step="1" value="${this._historySize}">
             </div>
             
             <div class="param">
