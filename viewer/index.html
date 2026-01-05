@@ -1114,16 +1114,17 @@
             </div>
         </div>
 
-        <!-- Status bar -->
+        <!-- Status bar - minimal essential info only -->
         <div class="status-bar">
-            <div class="status-badge" id="viewer-version" title="Viewer version">v1.0.10</div>
-            <div class="status-badge" id="server-status">Checking...</div>
             <div class="status-badge" id="zoom-level">1.0x</div>
-            <div class="status-badge" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
-            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click: connect | 1-click: toggle mode | 2-click: reselect | 3-click: disconnect | Right-click: menu">🎮 3D Mouse</div>
-            <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
-            <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
-            <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
+            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click: connect | Right-click: menu">🎮</div>
+            <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
+            <!-- Hidden badges - shown only on hover or in debug mode -->
+            <div class="status-badge debug-only" id="viewer-version" style="display: none;" title="Viewer version">v1.0.10</div>
+            <div class="status-badge debug-only" id="server-status" style="display: none;">Orthanc</div>
+            <div class="status-badge debug-only" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
+            <div class="status-badge debug-only" id="gamma-badge" style="display: none;" title="Gamma correction">γ</div>
+            <div class="status-badge debug-only" id="icc-badge" style="display: none;" title="ICC Profile">ICC</div>
         </div>
 
         <!-- Annotation Toolbar (left side) -->
@@ -2126,9 +2127,6 @@
                         // Fallback to SVG filter if color correction not available
                         viewerEl.classList.add('gamma-correct');
                         gammaBadge.textContent = 'γ 2.2';
-                        gammaBadge.style.display = 'block';
-                        gammaBadge.style.background = 'var(--accent)';
-                        gammaBadge.style.color = 'var(--bg-primary)';
                         console.log('SVG gamma correction applied (2.2 fallback)');
                     } else {
                         // No automatic correction needed
@@ -2179,11 +2177,9 @@
                     const badge = document.getElementById('cache-badge');
                     if (badge && tileStats.loaded > 0) {
                         const cacheRate = Math.round((tileStats.cached / tileStats.loaded) * 100);
-                        badge.style.display = 'block';
+                        // Debug-only badge - update content but don't show
                         badge.textContent = `⚡ ${cacheRate}% cached`;
                         badge.title = `${tileStats.cached}/${tileStats.loaded} tiles from cache`;
-                        badge.style.background = cacheRate > 50 ? 'var(--accent)' : 'var(--bg-tertiary)';
-                        badge.style.color = cacheRate > 50 ? 'var(--bg-primary)' : 'var(--text-secondary)';
                     }
                 }
 
@@ -2292,19 +2288,13 @@
             
             const gamma = colorCorrection.params.gamma;
             
+            // Update gamma badge content (debug-only, hidden by default)
             if (colorCorrection.enabled && gamma !== 1.0) {
                 gammaBadge.textContent = `γ ${gamma.toFixed(1)}`;
-                gammaBadge.style.display = 'block';
-                gammaBadge.style.background = 'var(--accent)';
-                gammaBadge.style.color = 'var(--bg-primary)';
             } else if (colorCorrection.enabled) {
-                // Color correction enabled but gamma is 1.0
                 gammaBadge.textContent = 'CC';
-                gammaBadge.style.display = 'block';
-                gammaBadge.style.background = 'var(--accent-dim)';
-                gammaBadge.style.color = 'var(--text-primary)';
             } else {
-                gammaBadge.style.display = 'none';
+                gammaBadge.textContent = 'γ';
             }
         }
         
@@ -2347,10 +2337,7 @@
                         else if (info.preferred_cmm === 'SICC') typeLabel = 'Scanner';
                         
                         iccBadge.textContent = `ICC: ${typeLabel}`;
-                        iccBadge.style.display = 'block';
-                        iccBadge.style.background = 'var(--bg-tertiary)';
-                        iccBadge.style.color = 'var(--text-secondary)';
-                        iccBadge.style.opacity = '1';
+                        // Debug-only badge - update content but don't show
                         iccBadge.title = `ICC Profile: ${sizeKB}KB ${info.color_space || 'RGB'} (Click to apply/info)`;
                         
                         // Load ICC into color correction filter if available
@@ -2363,16 +2350,11 @@
                         console.log(`ICC Profile detected: ${typeLabel} (${sizeKB}KB)`);
                     } else {
                         iccBadge.textContent = 'No ICC';
-                        iccBadge.style.display = 'block';
-                        iccBadge.style.background = 'var(--bg-tertiary)';
-                        iccBadge.style.color = 'var(--text-secondary)';
-                        iccBadge.style.opacity = '0.5';
                         iccBadge.title = 'No ICC profile embedded';
                     }
                 }
             } catch (e) {
                 console.log('Could not check ICC profile:', e);
-                iccBadge.style.display = 'none';
             }
         }
         
@@ -2970,33 +2952,30 @@
             
             if (connected) {
                 badge.classList.add('connected');
-                // Show connection mode (WebHID, 3DxWare, or Gamepad API)
-                let modeLabel = 'Connected';
-                let bgColor = 'var(--accent)';
+                badge.style.display = 'block';
                 
+                // Simple icon with color for mode
+                let bgColor = 'var(--accent)';  // Default green
                 switch (connectionMode) {
-                    case 'webhid':
-                        modeLabel = 'WebHID';
-                        bgColor = 'var(--accent)';  // Green for WebHID
-                        break;
                     case '3dxware':
-                        modeLabel = '3DxWare';
-                        bgColor = '#8b5cf6';  // Purple for 3DxWare
+                        bgColor = '#8b5cf6';  // Purple
                         break;
                     case 'gamepad':
-                        modeLabel = 'Gamepad';
-                        bgColor = '#f59e0b';  // Orange for gamepad
+                        bgColor = '#f59e0b';  // Orange
                         break;
                 }
                 
-                badge.textContent = `🎮 ${modeLabel}`;
-                badge.title = `Space Navigator connected via ${modeLabel} - click to disconnect`;
+                badge.textContent = '🎮';
+                badge.title = `SpaceMouse (${connectionMode}) - click to toggle`;
                 badge.style.background = bgColor;
+                badge.style.color = '#000';
             } else {
                 badge.classList.remove('connected');
-                badge.textContent = '🎮 3D Mouse';
-                badge.title = 'Connect Space Navigator (3D mouse)';
-                badge.style.background = '';  // Reset to default
+                badge.style.display = 'none';  // Hide when disconnected
+                badge.textContent = '🎮';
+                badge.title = 'Connect SpaceMouse';
+                badge.style.background = '';
+                badge.style.color = '';
             }
         }
         
