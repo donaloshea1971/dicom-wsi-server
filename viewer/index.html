@@ -579,9 +579,16 @@
             color: var(--accent);
         }
 
-        .study-desc {
+        .study-uid {
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+        
+        .study-slide-info {
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--text-primary);
             margin-bottom: 4px;
         }
@@ -589,22 +596,6 @@
         .study-meta {
             font-size: 12px;
             color: var(--text-secondary);
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-        
-        .meta-patient {
-            color: var(--accent);
-            font-weight: 500;
-        }
-        
-        .meta-case {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--accent);
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-size: 11px;
         }
 
         .empty-state {
@@ -1960,6 +1951,7 @@
                                     study.stain = meta.stain;
                                     study.patient_name = meta.patient_name;
                                     study.patient_mrn = meta.patient_mrn;
+                                    study.patient_dob = meta.patient_dob;
                                     study.case_accession = meta.case_accession;
                                     study.block_name = meta.block_name;
                                 }
@@ -1974,6 +1966,7 @@
                                     study.display_name = meta.display_name;
                                     study.stain = meta.stain;
                                     study.patient_name = meta.patient_name;
+                                    study.patient_dob = meta.patient_dob;
                                     study.case_accession = meta.case_accession;
                                     study.block_name = meta.block_name;
                                 }
@@ -2086,27 +2079,25 @@
         }
         
         function renderStudyCard(study, ownershipType) {
-            const dicomPatientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
-            const dicomAccession = study.MainDicomTags?.AccessionNumber;
-            const studyDesc = study.MainDicomTags?.StudyDescription;
-            const studyDate = formatDicomDate(study.MainDicomTags?.StudyDate);
+            // UID - shortened for display
+            const uid = study.ID?.substring(0, 8) + '...' || 'Unknown';
             
-            // Use custom display_name from slide record if available, otherwise DICOM data
-            const displayName = study.display_name || dicomAccession || studyDesc || dicomPatientName || 'Unnamed Slide';
+            // Slide name and stain
+            const slideName = study.display_name || 'Unnamed';
+            const stain = study.stain || '';
+            const slideInfo = stain ? `${slideName} ${stain}` : slideName;
             
-            // Build subtitle from our database fields first, fall back to DICOM
-            const patientInfo = study.patient_name || study.patient_mrn;
-            const caseInfo = study.case_accession;
-            const blockInfo = study.block_name;
+            // Bottom row: Case ID | Patient Name | DOB
+            const caseId = study.case_accession || '';
+            const patientName = study.patient_name || '';
+            const patientDob = study.patient_dob ? formatDate(study.patient_dob) : '';
             
-            // Build a rich subtitle: Patient • Case • Block or fallback
-            let subtitleParts = [];
-            if (patientInfo) subtitleParts.push(patientInfo);
-            if (caseInfo) subtitleParts.push(caseInfo);
-            if (blockInfo) subtitleParts.push(`Block ${blockInfo}`);
-            const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' • ') : (dicomPatientName || 'Unknown Patient');
-            
-            const stain = study.stain;
+            // Build bottom info parts
+            let bottomParts = [];
+            if (caseId) bottomParts.push(caseId);
+            if (patientName) bottomParts.push(patientName);
+            if (patientDob) bottomParts.push(patientDob);
+            const bottomInfo = bottomParts.join(' | ') || 'No patient info';
                         
             let badge = '';
             if (ownershipType === 'sample') {
@@ -2148,12 +2139,9 @@
                             ${shareBtn}
                         </div>
                     </div>
-                    <div class="study-desc">${displayName}</div>
-                    <div class="study-meta">
-                        ${patientInfo ? `<span class="meta-patient">${patientInfo}</span>` : ''}
-                        ${caseInfo ? `<span class="meta-case">${caseInfo}</span>` : ''}
-                        ${!patientInfo && !caseInfo ? (dicomPatientName || 'Unknown Patient') : ''}
-                    </div>
+                    <div class="study-uid">${uid}</div>
+                    <div class="study-slide-info">${slideInfo}</div>
+                    <div class="study-meta">${bottomInfo}</div>
                 </div>
             `;
         }

@@ -748,7 +748,7 @@ async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
                        s.case_id, s.block_id, s.patient_id,
                        c.accession_number as case_accession,
                        b.block_id as block_name,
-                       p.name as patient_name, p.mrn as patient_mrn
+                       p.name as patient_name, p.mrn as patient_mrn, p.dob as patient_dob
                 FROM slides s
                 LEFT JOIN cases c ON s.case_id = c.id
                 LEFT JOIN blocks b ON s.block_id = b.id
@@ -768,7 +768,8 @@ async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
                     "case_accession": row["case_accession"],
                     "block_name": row["block_name"],
                     "patient_name": row["patient_name"],
-                    "patient_mrn": row["patient_mrn"]
+                    "patient_mrn": row["patient_mrn"],
+                    "patient_dob": row["patient_dob"].isoformat() if row["patient_dob"] else None
                 }
                 for row in rows
             }
