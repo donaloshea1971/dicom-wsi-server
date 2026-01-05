@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.2';
+const SPACEMOUSE_VERSION = '1.9.3';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -631,61 +631,64 @@ class SpaceNavigatorController {
         avgRx /= n;
         avgRy /= n;
         
+        // Apply inversion settings FIRST so tilt and translation are in same coordinate space
+        const invertX = this._invertX !== undefined ? this._invertX : true;
+        const invertY = this._invertY !== undefined ? this._invertY : true;
+        
+        // Invert all axes consistently so they align physically
+        const tx = invertX ? -avgTx : avgTx;
+        const ty = invertY ? -avgTy : avgTy;
+        const ry = invertX ? -avgRy : avgRy;  // RY affects X axis, so use invertX
+        const rx = invertY ? -avgRx : avgRx;  // RX affects Y axis, so use invertY
+        
         // Smart tilt handling - combine translation and tilt intelligently
-        let effectiveX, effectiveY;
+        let panX, panY;
         
         const tiltMode = this._tiltMode || 'tilt_assist';
         
         if (tiltMode === 'translation_only') {
             // Original behavior: ignore tilt completely
-            effectiveX = avgTx;
-            effectiveY = avgTy;
+            panX = tx;
+            panY = ty;
             
         } else if (tiltMode === 'max_signal') {
             // Use whichever signal is stronger (translation or tilt)
-            // RX maps to Y movement (tilt forward/back), RY maps to X movement (tilt left/right)
-            effectiveX = Math.abs(avgTx) > Math.abs(avgRy) ? avgTx : avgRy;
-            effectiveY = Math.abs(avgTy) > Math.abs(avgRx) ? avgTy : avgRx;
+            // RY maps to X movement (tilt left/right), RX maps to Y movement (tilt forward/back)
+            panX = Math.abs(tx) > Math.abs(ry) ? tx : ry;
+            panY = Math.abs(ty) > Math.abs(rx) ? ty : rx;
             
         } else if (tiltMode === 'tilt_assist') {
             // Smart combination: tilt reinforces translation when in same direction
-            // RX = tilt forward/back → affects Y pan
-            // RY = tilt left/right → affects X pan
+            // Now that both are inverted consistently, same sign = same physical direction
             
             // For X axis: translation TX and tilt RY
-            if (avgTx !== 0 && avgRy !== 0 && Math.sign(avgTx) === Math.sign(avgRy)) {
+            if (tx !== 0 && ry !== 0 && Math.sign(tx) === Math.sign(ry)) {
                 // Same direction: use the stronger signal
-                effectiveX = Math.abs(avgTx) > Math.abs(avgRy) ? avgTx : avgRy;
-            } else if (avgTx !== 0) {
+                panX = Math.abs(tx) > Math.abs(ry) ? tx : ry;
+            } else if (tx !== 0) {
                 // Translation only, or conflicting signals: use translation
-                effectiveX = avgTx;
+                panX = tx;
             } else {
                 // No translation: allow tilt to drive (scaled down slightly)
-                effectiveX = avgRy * (this._tiltWeight || 0.6);
+                panX = ry * (this._tiltWeight || 0.6);
             }
             
             // For Y axis: translation TY and tilt RX
-            if (avgTy !== 0 && avgRx !== 0 && Math.sign(avgTy) === Math.sign(avgRx)) {
+            if (ty !== 0 && rx !== 0 && Math.sign(ty) === Math.sign(rx)) {
                 // Same direction: use the stronger signal
-                effectiveY = Math.abs(avgTy) > Math.abs(avgRx) ? avgTy : avgRx;
-            } else if (avgTy !== 0) {
+                panY = Math.abs(ty) > Math.abs(rx) ? ty : rx;
+            } else if (ty !== 0) {
                 // Translation only, or conflicting signals: use translation
-                effectiveY = avgTy;
+                panY = ty;
             } else {
                 // No translation: allow tilt to drive (scaled down slightly)
-                effectiveY = avgRx * (this._tiltWeight || 0.6);
+                panY = rx * (this._tiltWeight || 0.6);
             }
         } else {
             // Fallback
-            effectiveX = avgTx;
-            effectiveY = avgTy;
+            panX = tx;
+            panY = ty;
         }
-        
-        // Apply inversion settings (configurable)
-        const invertX = this._invertX !== undefined ? this._invertX : true;
-        const invertY = this._invertY !== undefined ? this._invertY : true;
-        let panX = invertX ? -effectiveX : effectiveX;
-        let panY = invertY ? -effectiveY : effectiveY;
         const zoom = raw.rz;  // Twist ONLY
         
         // Apply polarity from calibration if available
