@@ -2575,55 +2575,61 @@ async def init_chunked_upload(
     Initialize a chunked upload session.
     Returns upload_id and chunk information for the client.
     """
-    # Validate file format
-    source_format = detect_format(request.filename)
-    if source_format == "unknown":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file format: {Path(request.filename).suffix}. "
-                   f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .bif, .mrxs, .zip, .dcm"
-        )
-    
-    # Validate file size
-    max_size = settings.max_upload_size_gb * 1024 * 1024 * 1024
-    if request.file_size > max_size:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum size is {settings.max_upload_size_gb}GB"
-        )
-    
-    # Generate upload ID
-    upload_id = str(uuid.uuid4())[:12]
-    
-    # Calculate chunks
-    total_chunks = (request.file_size + request.chunk_size - 1) // request.chunk_size
-    
-    # Create upload directory
-    upload_dir = chunks_dir / upload_id
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Store upload session
-    now = datetime.utcnow()
-    chunked_uploads[upload_id] = {
-        "upload_id": upload_id,
-        "filename": request.filename,
-        "file_size": request.file_size,
-        "chunk_size": request.chunk_size,
-        "total_chunks": total_chunks,
-        "uploaded_chunks": [],
-        "bytes_uploaded": 0,
-        "status": "uploading",
-        "progress": 0,
-        "message": "Ready for chunks",
-        "job_id": None,
-        "owner_id": current_user.id if current_user else None,
-        "source_format": source_format,
-        "created_at": now,
-        "expires_at": now.replace(hour=now.hour + 24),  # 24 hour expiry
-        "upload_dir": str(upload_dir)
-    }
-    
-    logger.info(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+    try:
+        # Validate file format
+        source_format = detect_format(request.filename)
+        if source_format == "unknown":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file format: {Path(request.filename).suffix}. "
+                       f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .bif, .mrxs, .zip, .dcm"
+            )
+        
+        # Validate file size
+        max_size = settings.max_upload_size_gb * 1024 * 1024 * 1024
+        if request.file_size > max_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {settings.max_upload_size_gb}GB"
+            )
+        
+        # Generate upload ID
+        upload_id = str(uuid.uuid4())[:12]
+        
+        # Calculate chunks
+        total_chunks = (request.file_size + request.chunk_size - 1) // request.chunk_size
+        
+        # Create upload directory
+        upload_dir = chunks_dir / upload_id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Store upload session
+        now = datetime.utcnow()
+        chunked_uploads[upload_id] = {
+            "upload_id": upload_id,
+            "filename": request.filename,
+            "file_size": request.file_size,
+            "chunk_size": request.chunk_size,
+            "total_chunks": total_chunks,
+            "uploaded_chunks": [],
+            "bytes_uploaded": 0,
+            "status": "uploading",
+            "progress": 0,
+            "message": "Ready for chunks",
+            "job_id": None,
+            "owner_id": current_user.id if current_user else None,
+            "source_format": source_format,
+            "created_at": now,
+            "expires_at": now.replace(hour=now.hour + 24),  # 24 hour expiry
+            "upload_dir": str(upload_dir)
+        }
+        
+        logger.info(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload init failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize upload: {str(e)}")
     
     return {
         "upload_id": upload_id,
