@@ -1931,8 +1931,9 @@ async def get_categorized_studies(
     """
     Get studies organized by category: owned, shared_with_me, samples.
     This is the main endpoint for the study list UI.
+    Now includes slide metadata (display_name, stain, patient, case, block).
     """
-    from auth import get_share_counts_for_studies
+    from auth import get_share_counts_for_studies, get_slides_metadata_bulk
     
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
@@ -1955,6 +1956,10 @@ async def get_categorized_studies(
         # Get share counts for owned studies
         share_counts = await get_share_counts_for_studies(list(owned_ids))
         
+        # Get slide metadata for all relevant studies
+        all_relevant_ids = list(owned_ids | shared_with_me_ids)
+        slide_metadata = await get_slides_metadata_bulk(all_relevant_ids)
+        
         # Categorize
         owned = [s for s in all_studies if s in owned_ids]
         shared_with_me = [s for s in all_studies if s in shared_with_me_ids]
@@ -1964,7 +1969,8 @@ async def get_categorized_studies(
             "shared_with_me": shared_with_me,
             "owned_count": len(owned),
             "shared_count": len(shared_with_me),
-            "share_counts": share_counts  # {study_id: count}
+            "share_counts": share_counts,  # {study_id: count}
+            "slide_metadata": slide_metadata  # {study_id: {display_name, stain, patient_name, ...}}
         }
         
         if include_samples:
@@ -2187,6 +2193,17 @@ async def create_new_case(case_data: CaseCreate, user: User = Depends(require_us
         return {"message": "Case created", "case_id": case_id}
     else:
         raise HTTPException(status_code=500, detail="Failed to create case")
+
+
+@app.get("/blocks")
+async def list_blocks(user: User = Depends(require_user)):
+    """Get blocks owned by user"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    from auth import get_user_blocks
+    blocks = await get_user_blocks(user.id)
+    return {"blocks": blocks, "count": len(blocks)}
 
 
 @app.post("/blocks")

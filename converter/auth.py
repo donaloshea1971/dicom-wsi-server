@@ -711,6 +711,53 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
 # Slide Management Functions (New Hierarchy Model)
 # =============================================================================
 
+async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
+    """Get slide metadata for multiple Orthanc study IDs at once.
+    Returns dict mapping orthanc_id -> metadata"""
+    if not orthanc_ids:
+        return {}
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return {}
+    
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT s.orthanc_study_id, s.display_name, s.stain,
+                       s.case_id, s.block_id, s.patient_id,
+                       c.accession_number as case_accession,
+                       b.block_id as block_name,
+                       p.name as patient_name, p.mrn as patient_mrn
+                FROM slides s
+                LEFT JOIN cases c ON s.case_id = c.id
+                LEFT JOIN blocks b ON s.block_id = b.id
+                LEFT JOIN patients p ON s.patient_id = p.id
+                WHERE s.orthanc_study_id = ANY($1)
+                """,
+                orthanc_ids
+            )
+            
+            return {
+                row["orthanc_study_id"]: {
+                    "display_name": row["display_name"],
+                    "stain": row["stain"],
+                    "case_id": row["case_id"],
+                    "block_id": row["block_id"],
+                    "patient_id": row["patient_id"],
+                    "case_accession": row["case_accession"],
+                    "block_name": row["block_name"],
+                    "patient_name": row["patient_name"],
+                    "patient_mrn": row["patient_mrn"]
+                }
+                for row in rows
+            }
+    except Exception as e:
+        logger.error(f"get_slides_metadata_bulk error: {e}")
+        return {}
+
+
 async def get_slide_by_orthanc_id(orthanc_study_id: str) -> Optional[dict]:
     """Get slide record by Orthanc study ID"""
     pool = await get_db_pool()
@@ -1009,6 +1056,32 @@ async def create_block(
             owner_id, block_id, case_id, tissue_type, patient_id
         )
         return row["id"] if row else None
+
+
+async def get_user_blocks(user_id: int) -> list[dict]:
+    """Get blocks owned by user"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT b.*,
+                    c.accession_number as case_accession,
+                    (SELECT COUNT(*) FROM slides s WHERE s.block_id = b.id) as slide_count
+                FROM blocks b
+                LEFT JOIN cases c ON b.case_id = c.id
+                WHERE b.owner_id = $1
+                ORDER BY b.created_at DESC
+                """,
+                user_id
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"get_user_blocks error: {e}")
+        return []
 
 
 async def get_user_cases(user_id: int) -> list[dict]:

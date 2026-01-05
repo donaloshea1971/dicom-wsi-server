@@ -1927,16 +1927,42 @@
                         const studyMap = {};
                         studies.forEach(s => studyMap[s.ID] = s);
                         
-                        // Get share counts from categorized response
+                        // Get share counts and slide metadata from categorized response
                         const shareCounts = categorized.share_counts || {};
+                        const slideMetadata = categorized.slide_metadata || {};
                         
-                        // Attach shareCount to owned studies
+                        // Attach shareCount and slide metadata to studies
                         const ownedStudies = ownedIds.map(id => {
                             const study = studyMap[id];
-                            if (study) study.shareCount = shareCounts[id] || 0;
+                            if (study) {
+                                study.shareCount = shareCounts[id] || 0;
+                                // Merge slide metadata if available
+                                const meta = slideMetadata[id];
+                                if (meta) {
+                                    study.display_name = meta.display_name;
+                                    study.stain = meta.stain;
+                                    study.patient_name = meta.patient_name;
+                                    study.patient_mrn = meta.patient_mrn;
+                                    study.case_accession = meta.case_accession;
+                                    study.block_name = meta.block_name;
+                                }
+                            }
                             return study;
                         }).filter(Boolean);
-                        const sharedStudies = sharedIds.map(id => studyMap[id]).filter(Boolean);
+                        const sharedStudies = sharedIds.map(id => {
+                            const study = studyMap[id];
+                            if (study) {
+                                const meta = slideMetadata[id];
+                                if (meta) {
+                                    study.display_name = meta.display_name;
+                                    study.stain = meta.stain;
+                                    study.patient_name = meta.patient_name;
+                                    study.case_accession = meta.case_accession;
+                                    study.block_name = meta.block_name;
+                                }
+                            }
+                            return study;
+                        }).filter(Boolean);
                         const sampleStudies = sampleIds.map(id => studyMap[id]).filter(Boolean);
                         
                         // Store study list for navigation
@@ -2043,14 +2069,26 @@
         }
         
         function renderStudyCard(study, ownershipType) {
-            const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
-            const accession = study.MainDicomTags?.AccessionNumber;
+            const dicomPatientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
+            const dicomAccession = study.MainDicomTags?.AccessionNumber;
             const studyDesc = study.MainDicomTags?.StudyDescription;
             const studyDate = formatDicomDate(study.MainDicomTags?.StudyDate);
             
             // Use custom display_name from slide record if available, otherwise DICOM data
-            const displayName = study.display_name || accession || studyDesc || patientName || 'Unnamed Slide';
-            const subtitle = patientName || 'Unknown Patient';
+            const displayName = study.display_name || dicomAccession || studyDesc || dicomPatientName || 'Unnamed Slide';
+            
+            // Build subtitle from our database fields first, fall back to DICOM
+            const patientInfo = study.patient_name || study.patient_mrn;
+            const caseInfo = study.case_accession;
+            const blockInfo = study.block_name;
+            
+            // Build a rich subtitle: Patient • Case • Block or fallback
+            let subtitleParts = [];
+            if (patientInfo) subtitleParts.push(patientInfo);
+            if (caseInfo) subtitleParts.push(caseInfo);
+            if (blockInfo) subtitleParts.push(`Block ${blockInfo}`);
+            const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' • ') : (dicomPatientName || 'Unknown Patient');
+            
             const stain = study.stain;
                         
             let badge = '';
@@ -2863,37 +2901,53 @@
         
         let currentEditSlideId = null;
         
-        async function openSlideEditDialog(slideId, displayName, stain) {
+        async function openSlideEditDialog(slideId, fallbackName, fallbackStain) {
             currentEditSlideId = slideId;
             document.getElementById('slide-edit-id').value = slideId;
-            document.getElementById('slide-edit-name').value = displayName || '';
-            document.getElementById('slide-edit-stain').value = stain || '';
             
-            // Reset hierarchy dropdowns
+            // Reset all fields first
+            document.getElementById('slide-edit-name').value = fallbackName || '';
+            document.getElementById('slide-edit-stain').value = fallbackStain || '';
             document.getElementById('slide-edit-case').innerHTML = '<option value="">-- No Case --</option>';
             document.getElementById('slide-edit-block').innerHTML = '<option value="">-- No Block --</option>';
             document.getElementById('slide-edit-patient').innerHTML = '<option value="">-- No Patient --</option>';
             
-            // Load existing slide data to get current assignments
+            // Show dialog immediately with loading state
+            document.getElementById('slide-edit-dialog').style.display = 'flex';
+            
+            // Load existing slide data from our database
             try {
-                const slideData = await authFetch(`/api/slides/${slideId}`);
-                if (slideData.ok) {
-                    const slide = await slideData.json();
-                    // Store current assignments
+                const slideRes = await authFetch(`/api/slides/${slideId}`);
+                if (slideRes.ok) {
+                    const slide = await slideRes.json();
                     window.currentSlideData = slide;
+                    
+                    // Populate fields from database (overrides fallbacks)
+                    if (slide.display_name) {
+                        document.getElementById('slide-edit-name').value = slide.display_name;
+                    }
+                    if (slide.stain) {
+                        document.getElementById('slide-edit-stain').value = slide.stain;
+                    }
+                    
+                    console.log('Loaded slide data:', slide);
+                } else {
+                    window.currentSlideData = null;
                 }
             } catch (e) {
                 console.log('Could not load slide data:', e);
+                window.currentSlideData = null;
             }
             
             // Load cases, blocks, patients for dropdowns
             await loadHierarchyOptions();
             
-            document.getElementById('slide-edit-dialog').style.display = 'flex';
             document.getElementById('slide-edit-name').focus();
         }
         
         async function loadHierarchyOptions() {
+            const slideData = window.currentSlideData;
+            
             try {
                 // Load cases
                 const casesRes = await authFetch('/api/cases');
@@ -2904,8 +2958,22 @@
                         const opt = document.createElement('option');
                         opt.value = c.id;
                         opt.textContent = c.accession_number || `Case #${c.id}`;
-                        if (window.currentSlideData?.case_id === c.id) opt.selected = true;
+                        if (slideData?.case_id === c.id) opt.selected = true;
                         caseSelect.appendChild(opt);
+                    });
+                }
+                
+                // Load blocks
+                const blocksRes = await authFetch('/api/blocks');
+                if (blocksRes.ok) {
+                    const data = await blocksRes.json();
+                    const blockSelect = document.getElementById('slide-edit-block');
+                    data.blocks?.forEach(b => {
+                        const opt = document.createElement('option');
+                        opt.value = b.id;
+                        opt.textContent = b.block_id || `Block #${b.id}`;
+                        if (slideData?.block_id === b.id) opt.selected = true;
+                        blockSelect.appendChild(opt);
                     });
                 }
                 
@@ -2918,7 +2986,7 @@
                         const opt = document.createElement('option');
                         opt.value = p.id;
                         opt.textContent = p.name || p.mrn || `Patient #${p.id}`;
-                        if (window.currentSlideData?.patient_id === p.id) opt.selected = true;
+                        if (slideData?.patient_id === p.id) opt.selected = true;
                         patientSelect.appendChild(opt);
                     });
                 }
