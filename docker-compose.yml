@@ -7,18 +7,20 @@ services:
       context: ./orthanc
       dockerfile: Dockerfile
     container_name: dicom-orthanc
-    ports:
-      - "8042:8042"
-      - "4242:4242"
+    # SECURITY: No external ports exposed - only accessible via internal network
+    # ports:
+    #   - "8042:8042"  # REMOVED - access only through nginx proxy
+    #   - "4242:4242"  # REMOVED - access only through nginx proxy
     volumes:
       - orthanc-storage:/var/lib/orthanc/db
     environment:
       - ORTHANC__POSTGRESQL__ENABLE_INDEX=true
       - ORTHANC__POSTGRESQL__HOST=postgres
       - ORTHANC__POSTGRESQL__PORT=5432
-      - ORTHANC__POSTGRESQL__DATABASE=orthanc
-      - ORTHANC__POSTGRESQL__USERNAME=orthanc
-      - ORTHANC__POSTGRESQL__PASSWORD=orthanc_secret
+      - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
+      - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
+      - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - ORTHANC__REGISTERED_USERS__${ORTHANC_USERNAME:-admin}=${ORTHANC_PASSWORD:?ORTHANC_PASSWORD must be set}
       - VERBOSE_ENABLED=false
     depends_on:
       postgres:
@@ -27,7 +29,7 @@ services:
     networks:
       - dicom-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null --user=admin --password=orthanc http://localhost:8042/system || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null --user=${ORTHANC_USERNAME:-admin} --password=${ORTHANC_PASSWORD} http://localhost:8042/system || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -47,16 +49,17 @@ services:
       context: ./postgres
       dockerfile: Dockerfile
     container_name: dicom-postgres
+    # SECURITY: No external ports exposed
     environment:
-      POSTGRES_DB: orthanc
-      POSTGRES_USER: orthanc
-      POSTGRES_PASSWORD: orthanc_secret
+      POSTGRES_DB: ${POSTGRES_DB:-orthanc}
+      POSTGRES_USER: ${POSTGRES_USER:-orthanc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - dicom-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orthanc -d orthanc"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc} -d ${POSTGRES_DB:-orthanc}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -76,6 +79,7 @@ services:
       context: ./redis
       dockerfile: Dockerfile
     container_name: dicom-redis
+    # SECURITY: No external ports exposed
     volumes:
       - redis-data:/data
     networks:
@@ -101,21 +105,31 @@ services:
       context: ./converter
       dockerfile: Dockerfile
     container_name: dicom-converter
-    ports:
-      - "8000:8000"
+    # SECURITY: No external ports exposed - access only through nginx proxy
+    # ports:
+    #   - "8000:8000"  # REMOVED
     volumes:
       - uploads:/uploads
     environment:
       - ORTHANC_URL=http://orthanc:8042
-      - ORTHANC_USERNAME=admin
-      - ORTHANC_PASSWORD=orthanc
-      - REDIS_URL=redis://redis:6379
+      - ORTHANC_USERNAME=${ORTHANC_USERNAME:-admin}
+      - ORTHANC_PASSWORD=${ORTHANC_PASSWORD:?ORTHANC_PASSWORD must be set}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - WATCH_FOLDER=/uploads
       - PYTHONUNBUFFERED=1
+      # Auth0 configuration
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN:?AUTH0_DOMAIN must be set}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE:?AUTH0_AUDIENCE must be set}
+      # Database for user management
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-orthanc}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-orthanc}
+      # CORS configuration
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
     depends_on:
       orthanc:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - dicom-network
@@ -129,12 +143,14 @@ services:
       context: ./cstore-proxy
       dockerfile: Dockerfile
     container_name: dicom-cstore-proxy
-    ports:
-      - "4243:4243"
+    # SECURITY: Only expose DICOM port if needed for external PACS integration
+    # Uncomment below if you need to receive DICOM from external systems
+    # ports:
+    #   - "4243:4243"
     environment:
       - ORTHANC_URL=http://orthanc:8042
-      - ORTHANC_USERNAME=admin
-      - ORTHANC_PASSWORD=orthanc
+      - ORTHANC_USERNAME=${ORTHANC_USERNAME:-admin}
+      - ORTHANC_PASSWORD=${ORTHANC_PASSWORD:?ORTHANC_PASSWORD must be set}
     depends_on:
       orthanc:
         condition: service_healthy
@@ -143,26 +159,55 @@ services:
     restart: unless-stopped
 
   # =============================================================================
-  # Web Viewer (OpenSeadragon + static files)
+  # Web Viewer (Nginx reverse proxy + static files)
   # =============================================================================
   viewer:
     build:
       context: ./viewer
       dockerfile: Dockerfile
+      args:
+        - ORTHANC_USERNAME=${ORTHANC_USERNAME:-admin}
+        - ORTHANC_PASSWORD=${ORTHANC_PASSWORD:?ORTHANC_PASSWORD must be set}
+        - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
     container_name: dicom-viewer
+    # SECURITY: Only the viewer/proxy ports are exposed
     ports:
-      - "3000:80"
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Optional: SSL certificates volume (for Let's Encrypt)
+      - ssl-certs:/etc/nginx/ssl:ro
+      - ssl-challenges:/var/www/certbot:ro
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost}
+      - ENABLE_TLS=${ENABLE_TLS:-false}
     depends_on:
       - orthanc
+      - converter
     networks:
       - dicom-network
     restart: unless-stopped
+
+  # =============================================================================
+  # Optional: Certbot for Let's Encrypt SSL certificates
+  # =============================================================================
+  # certbot:
+  #   image: certbot/certbot:latest
+  #   container_name: dicom-certbot
+  #   volumes:
+  #     - ssl-certs:/etc/letsencrypt
+  #     - ssl-challenges:/var/www/certbot
+  #   entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+  #   networks:
+  #     - dicom-network
 
 volumes:
   orthanc-storage:
   postgres-data:
   redis-data:
   uploads:
+  ssl-certs:
+  ssl-challenges:
 
 networks:
   dicom-network:

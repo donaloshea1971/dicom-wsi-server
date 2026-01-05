@@ -11,9 +11,6 @@
   
   "RemoteAccessAllowed": true,
   "AuthenticationEnabled": true,
-  "RegisteredUsers": {
-    "admin": "orthanc"
-  },
   
   "StorageDirectory": "/var/lib/orthanc/db",
   "IndexDirectory": "/var/lib/orthanc/db",
@@ -22,16 +19,6 @@
     "/usr/share/orthanc/plugins",
     "/usr/local/share/orthanc/plugins"
   ],
-  
-  "PostgreSQL": {
-    "EnableIndex": true,
-    "EnableStorage": false,
-    "Host": "postgres",
-    "Port": 5432,
-    "Database": "orthanc",
-    "Username": "orthanc",
-    "Password": "orthanc_secret"
-  },
   
   "DicomWeb": {
     "Enable": true,

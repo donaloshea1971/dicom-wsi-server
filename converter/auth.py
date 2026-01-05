@@ -17,16 +17,20 @@ import asyncpg
 
 logger = logging.getLogger(__name__)
 
-# Auth0 Configuration
-AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", "dev-jkm887wawwxknno6.us.auth0.com")
-AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", "https://pathviewpro.com/api")
+# Auth0 Configuration - MUST be set via environment variables
+AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
+AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
 AUTH0_ALGORITHMS = ["RS256"]
 
-# Database configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://orthanc:orthanc_secret@postgres:5432/orthanc"
-)
+if not AUTH0_DOMAIN:
+    logger.warning("AUTH0_DOMAIN not set - authentication will fail")
+if not AUTH0_AUDIENCE:
+    logger.warning("AUTH0_AUDIENCE not set - authentication will fail")
+
+# Database configuration - MUST be set via environment variable
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    logger.warning("DATABASE_URL not set - user management will fail")
 
 # Security scheme
 security = HTTPBearer(auto_error=False)

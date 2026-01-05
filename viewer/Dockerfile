@@ -1,5 +1,10 @@
 FROM nginx:alpine
 
+# Build arguments for credentials (passed at build time)
+ARG ORTHANC_USERNAME=admin
+ARG ORTHANC_PASSWORD
+ARG CORS_ALLOWED_ORIGINS=*
+
 # Copy viewer files
 COPY landing.html /usr/share/nginx/html/
 COPY callback.html /usr/share/nginx/html/
@@ -16,8 +21,15 @@ COPY sw.js /usr/share/nginx/html/
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
 
-# Create optimized nginx config
-RUN cat > /etc/nginx/nginx.conf << 'EOF'
+# Create SSL directory
+RUN mkdir -p /etc/nginx/ssl
+
+# Generate base64 auth string from build args
+RUN ORTHANC_AUTH=$(echo -n "${ORTHANC_USERNAME}:${ORTHANC_PASSWORD}" | base64) && \
+    echo "ORTHANC_AUTH_BASE64=$ORTHANC_AUTH" > /tmp/auth.env
+
+# Create optimized nginx config with security hardening
+RUN . /tmp/auth.env && cat > /etc/nginx/nginx.conf << EOF
 worker_processes auto;
 worker_rlimit_nofile 65535;
 
@@ -30,6 +42,11 @@ events {
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+
+    # ==========================================================================
+    # Security: Hide server version
+    # ==========================================================================
+    server_tokens off;
 
     # Optimizations
     sendfile on;
@@ -59,7 +76,8 @@ http {
                      max_size=1g inactive=7d use_temp_path=off;
 
     # Rate limiting (prevent abuse)
-    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=30r/s;
+    limit_req_zone \$binary_remote_addr zone=api_limit:10m rate=30r/s;
+    limit_req_zone \$binary_remote_addr zone=upload_limit:10m rate=5r/m;
 
     # Upstream connection pooling
     upstream orthanc {
@@ -74,10 +92,47 @@ http {
 
     resolver 127.0.0.11 valid=30s ipv6=off;
 
+    # ==========================================================================
+    # Security Headers Map
+    # ==========================================================================
+    map \$sent_http_content_type \$security_headers {
+        default "always";
+    }
+
     server {
         listen 80;
+        listen 443 ssl http2;
         server_name _;
         client_max_body_size 5000M;
+
+        # ==========================================================================
+        # SSL Configuration (optional - certificates mounted at runtime)
+        # ==========================================================================
+        ssl_certificate /etc/nginx/ssl/fullchain.pem;
+        ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:SSL:50m;
+        ssl_session_tickets off;
+        
+        # Modern SSL configuration
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+
+        # ==========================================================================
+        # Security Headers
+        # ==========================================================================
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+        
+        # HSTS (uncomment for production with valid SSL)
+        # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+        # Content Security Policy (adjust as needed)
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.auth0.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com wss://*.auth0.com https://cdn.jsdelivr.net;" always;
 
         # Landing page (default)
         location = / {
@@ -97,28 +152,34 @@ http {
             try_files /viewer.html =404;
         }
 
+        # Let's Encrypt challenge (for certbot)
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
         # Static files
         location / {
             root /usr/share/nginx/html;
-            try_files $uri $uri/ /landing.html;
+            try_files \$uri \$uri/ /landing.html;
             
             # Cache static assets
-            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)\$ {
                 expires 30d;
                 add_header Cache-Control "public, immutable";
             }
         }
 
         # Converter API
-        location ~ ^/api/(.*)$ {
+        location ~ ^/api/(.*)\$ {
             limit_req zone=api_limit burst=50 nodelay;
             
-            proxy_pass http://converter/$1$is_args$args;
+            proxy_pass http://converter/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_redirect off;
             proxy_read_timeout 600s;
             proxy_connect_timeout 30s;
@@ -126,20 +187,47 @@ http {
             # Large file uploads
             client_max_body_size 20G;
             proxy_request_buffering off;
+
+            # CORS headers (restricted)
+            add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
+            add_header Access-Control-Allow-Credentials "true" always;
+
+            if (\$request_method = OPTIONS) {
+                return 204;
+            }
+        }
+
+        # File upload endpoint (stricter rate limiting)
+        location = /api/upload {
+            limit_req zone=upload_limit burst=2 nodelay;
+            
+            proxy_pass http://converter/upload;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_redirect off;
+            proxy_read_timeout 3600s;
+            
+            client_max_body_size 20G;
+            proxy_request_buffering off;
         }
 
         # WSI tiles - CACHED for performance
-        location ~ ^/wsi/(.*)$ {
-            proxy_pass http://orthanc/wsi/$1$is_args$args;
+        location ~ ^/wsi/(.*)\$ {
+            proxy_pass http://orthanc/wsi/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
-            proxy_set_header Host $host;
-            proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
+            proxy_set_header Host \$host;
+            proxy_set_header Authorization "Basic $ORTHANC_AUTH_BASE64";
             proxy_redirect off;
             
             # Aggressive tile caching
             proxy_cache tile_cache;
-            proxy_cache_key "$request_uri";
+            proxy_cache_key "\$request_uri";
             proxy_cache_valid 200 7d;
             proxy_cache_valid 404 1m;
             proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
@@ -147,21 +235,21 @@ http {
             proxy_cache_lock_timeout 5s;
             
             # Cache headers
-            add_header X-Cache-Status $upstream_cache_status;
+            add_header X-Cache-Status \$upstream_cache_status;
             add_header Cache-Control "public, max-age=604800" always;
-            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
         }
 
         # DICOMweb
-        location ~ ^/dicom-web/(.*)$ {
-            proxy_pass http://orthanc/dicom-web/$1$is_args$args;
+        location ~ ^/dicom-web/(.*)\$ {
+            proxy_pass http://orthanc/dicom-web/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
-            proxy_set_header Host $host;
-            proxy_set_header Authorization "Basic YWRtaW46b3J0aGFuYw==";
+            proxy_set_header Host \$host;
+            proxy_set_header Authorization "Basic $ORTHANC_AUTH_BASE64";
             proxy_redirect off;
             
-            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
         }
 
         # Health check endpoint
@@ -170,10 +258,28 @@ http {
             return 200 "OK\n";
             add_header Content-Type text/plain;
         }
+
+        # Block access to sensitive files
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
     }
 }
 EOF
 
-EXPOSE 80
+# Create self-signed certificate for development (will be overwritten by Let's Encrypt in production)
+RUN apk add --no-cache openssl && \
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/privkey.pem \
+    -out /etc/nginx/ssl/fullchain.pem \
+    -subj "/CN=localhost" && \
+    apk del openssl
+
+# Clean up auth file
+RUN rm -f /tmp/auth.env
+
+EXPOSE 80 443
 
 CMD ["nginx", "-g", "daemon off;"]
