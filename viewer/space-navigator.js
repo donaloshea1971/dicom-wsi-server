@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.5';
+const SPACEMOUSE_VERSION = '1.9.6';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -371,6 +371,11 @@ class SpaceNavigatorController {
     handleButtons(buttonByte) {
         const leftPressed = (buttonByte & 0x01) !== 0;
         const rightPressed = (buttonByte & 0x02) !== 0;
+        
+        // Track button activity timing for event suppression
+        if (leftPressed || rightPressed) {
+            this._lastButtonActivity = Date.now();
+        }
         
         // Detect changes
         if (leftPressed !== this.buttons.left) {
@@ -1292,21 +1297,27 @@ class SpaceNavigatorController {
     enableEventSuppression() {
         if (this._suppressHandlers) return;  // Already enabled
         
-        // Block context menu (right-click menu that driver might trigger)
+        // Track recent button activity - driver events come slightly before WebHID
+        this._lastButtonActivity = 0;
+        
+        // Block context menu ALWAYS when SpaceMouse is connected
+        // The driver sends context menu events that we can't reliably time with button state
         const contextHandler = (e) => {
-            // Only suppress if SpaceMouse button was just pressed
-            if (this.buttons.left || this.buttons.right) {
+            // Block if there was recent button activity (within 500ms)
+            // or if we're currently tracking a button press
+            const recentActivity = (Date.now() - this._lastButtonActivity) < 500;
+            if (this.buttons.left || this.buttons.right || recentActivity) {
                 e.preventDefault();
                 e.stopPropagation();
+                console.log('SpaceMouse: Blocked context menu');
                 return false;
             }
         };
         
         // Block certain keyboard shortcuts the driver might send
         const keyHandler = (e) => {
-            // 3Dconnexion driver often sends F-keys or other shortcuts
-            // Block if a SpaceMouse button is currently pressed
-            if (this.buttons.left || this.buttons.right) {
+            const recentActivity = (Date.now() - this._lastButtonActivity) < 500;
+            if (this.buttons.left || this.buttons.right || recentActivity) {
                 // Allow essential keys
                 if (['F5', 'F12', 'Escape'].includes(e.key)) return;
                 e.preventDefault();
@@ -1317,18 +1328,33 @@ class SpaceNavigatorController {
         
         // Block auxclick (middle mouse button that driver might trigger)
         const auxHandler = (e) => {
-            if (this.buttons.left || this.buttons.right) {
+            const recentActivity = (Date.now() - this._lastButtonActivity) < 500;
+            if (this.buttons.left || this.buttons.right || recentActivity) {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
             }
         };
         
+        // Block mousedown on middle/right buttons from driver
+        const mouseDownHandler = (e) => {
+            // Block right-click (button 2) and middle-click (button 1) if SpaceMouse active
+            if ((e.button === 2 || e.button === 1) && this.connected) {
+                const recentActivity = (Date.now() - this._lastButtonActivity) < 500;
+                if (this.buttons.left || this.buttons.right || recentActivity) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            }
+        };
+        
         document.addEventListener('contextmenu', contextHandler, true);
         document.addEventListener('keydown', keyHandler, true);
         document.addEventListener('auxclick', auxHandler, true);
+        document.addEventListener('mousedown', mouseDownHandler, true);
         
-        this._suppressHandlers = { contextHandler, keyHandler, auxHandler };
+        this._suppressHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler };
         console.log('SpaceMouse: Event suppression enabled (blocking driver menus)');
     }
     
@@ -1341,6 +1367,7 @@ class SpaceNavigatorController {
         document.removeEventListener('contextmenu', this._suppressHandlers.contextHandler, true);
         document.removeEventListener('keydown', this._suppressHandlers.keyHandler, true);
         document.removeEventListener('auxclick', this._suppressHandlers.auxHandler, true);
+        document.removeEventListener('mousedown', this._suppressHandlers.mouseDownHandler, true);
         
         this._suppressHandlers = null;
         console.log('SpaceMouse: Event suppression disabled');
