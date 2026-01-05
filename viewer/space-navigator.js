@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.8.0';
+const SPACEMOUSE_VERSION = '1.8.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -73,6 +73,16 @@ class SpaceNavigatorController {
         // Crosshair element
         this._crosshair = null;
         this._crosshairVisible = true;  // Show by default when connected
+        
+        // Button states
+        this.buttons = {
+            left: false,
+            right: false
+        };
+        this._lastButtonState = 0;
+        
+        // Button callbacks
+        this.onButtonPress = null;   // Called with { button: 'left'|'right', pressed: true|false }
     }
 
     /**
@@ -309,8 +319,58 @@ class SpaceNavigatorController {
             }
         }
         
-        // Report ID 3 with < 12 bytes is typically button data
-        // Could add button support here if needed
+        // Button handling - Report ID 3 with short data, or dedicated button reports
+        // Also check for button data in various report formats
+        if ((reportId === 3 && length < 12) || reportId === 0) {
+            this.handleButtons(bytes[0]);
+        }
+        
+        // Some devices send buttons on report ID 21 or others
+        if (reportId === 21 || reportId === 22 || reportId === 23) {
+            this.handleButtons(bytes[0]);
+        }
+    }
+    
+    /**
+     * Handle button state changes
+     */
+    handleButtons(buttonByte) {
+        const leftPressed = (buttonByte & 0x01) !== 0;
+        const rightPressed = (buttonByte & 0x02) !== 0;
+        
+        // Detect changes
+        if (leftPressed !== this.buttons.left) {
+            this.buttons.left = leftPressed;
+            console.log(`%c🎮 SpaceMouse LEFT button ${leftPressed ? 'PRESSED' : 'released'}`, 
+                        leftPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
+            
+            if (this.onButtonPress) {
+                this.onButtonPress({ button: 'left', pressed: leftPressed });
+            }
+            
+            // Default action: Fit to screen on left button press
+            if (leftPressed && this.viewer) {
+                this.viewer.viewport.goHome();
+                console.log('🏠 Fit to screen');
+            }
+        }
+        
+        if (rightPressed !== this.buttons.right) {
+            this.buttons.right = rightPressed;
+            console.log(`%c🎮 SpaceMouse RIGHT button ${rightPressed ? 'PRESSED' : 'released'}`, 
+                        rightPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
+            
+            if (this.onButtonPress) {
+                this.onButtonPress({ button: 'right', pressed: rightPressed });
+            }
+            
+            // Default action: Toggle crosshair on right button press
+            if (rightPressed) {
+                this.toggleCrosshair();
+            }
+        }
+        
+        this._lastButtonState = buttonByte;
     }
     
     /**
