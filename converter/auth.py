@@ -769,7 +769,7 @@ async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
                     "block_name": row["block_name"],
                     "patient_name": row["patient_name"],
                     "patient_mrn": row["patient_mrn"],
-                    "patient_dob": row["patient_dob"].isoformat() if row["patient_dob"] else None
+                    "patient_dob": str(row["patient_dob"]) if row["patient_dob"] else None
                 }
                 for row in rows
             }
