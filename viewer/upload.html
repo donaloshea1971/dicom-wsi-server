@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload WSI - Diagnexia</title>
+    <title>Upload WSI - PathView Pro</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -402,9 +402,17 @@
                 <line x1="2" y1="12" x2="6" y2="12"/>
                 <line x1="18" y1="12" x2="22" y2="12"/>
             </svg>
-            Diagnexia
+            PathView Pro
         </a>
-        <a href="/" class="back-link">← Back to Viewer</a>
+        <div style="display: flex; align-items: center; gap: 16px; margin-left: auto;">
+            <a href="/" class="back-link">← Back to Viewer</a>
+            <div class="user-menu" id="user-menu" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border);">
+                    <img id="user-avatar" src="" alt="" style="width: 28px; height: 28px; border-radius: 50%;">
+                    <span id="user-name" style="font-size: 13px; color: var(--text-primary);">User</span>
+                </div>
+            </div>
+        </div>
     </header>
 
     <div class="container">
@@ -522,12 +530,28 @@
         
         function updateAuthUI(authenticated) {
             const authBadge = document.getElementById('auth-badge');
-            if (authBadge) {
-                if (authenticated) {
-                    authBadge.innerHTML = `✓ Logged in as ${currentUser.email}`;
+            const userMenu = document.getElementById('user-menu');
+            const userAvatar = document.getElementById('user-avatar');
+            const userName = document.getElementById('user-name');
+            
+            if (authenticated && currentUser) {
+                // Show user menu
+                if (userMenu) userMenu.style.display = 'block';
+                if (userAvatar) userAvatar.src = currentUser.picture || '';
+                if (userName) userName.textContent = currentUser.name || currentUser.email;
+                
+                // Update auth badge
+                if (authBadge) {
+                    authBadge.innerHTML = `✓ Logged in as <strong>${currentUser.email}</strong> - uploads will be saved to your account`;
                     authBadge.style.color = 'var(--success)';
-                } else {
-                    authBadge.innerHTML = '⚠ Not logged in - <a href="/" style="color: var(--accent);">Login first</a> to own uploads';
+                }
+            } else {
+                // Hide user menu
+                if (userMenu) userMenu.style.display = 'none';
+                
+                // Show warning
+                if (authBadge) {
+                    authBadge.innerHTML = '⚠ Not logged in - <a href="/" style="color: var(--accent);">Login on the main page first</a> to own your uploads';
                     authBadge.style.color = 'var(--warning)';
                 }
             }
