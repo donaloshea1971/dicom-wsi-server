@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.8';
+const SPACEMOUSE_VERSION = '1.9.9';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -32,7 +32,7 @@ class SpaceNavigatorController {
         this._hasActiveInput = false;
         
         // Configurable parameters (can be adjusted via config panel)
-        this._curvePower = 1.5;   // Exponential curve power (1.0=linear, 2.0=quadratic, 3.0=cubic)
+        this._curvePower = 1.2;   // Exponential curve power (1.0=linear, 1.2=gentle, 2.0=quadratic)
         this._invertX = true;     // Invert X axis (push left = pan left)
         this._invertY = true;     // Invert Y axis (push forward = pan up)
         
@@ -45,7 +45,7 @@ class SpaceNavigatorController {
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.07,        // Pan speed (divided by zoom for normalization)
+            pan: 0.05,        // Pan speed (divided by zoom for normalization)
             zoom: 0.002,      // Zoom speed (unused - now using snap zoom)
             rotation: 0.008   // Rotation speed
         };
@@ -450,7 +450,7 @@ class SpaceNavigatorController {
         // Steep exponential curve (configurable power)
         // This makes subtle inputs nearly imperceptible, 
         // while hard pushes accelerate dramatically
-        const power = this._curvePower || 1.5;
+        const power = this._curvePower || 1.2;
         const curved = Math.pow(normalized, power);
         
         return sign * curved;  // Returns ~0 to ~1 (or ~-1)
@@ -995,9 +995,9 @@ class SpaceNavigatorController {
             </div>
             
             <div class="param">
-                <label>Curve Power <span id="cfg-curve-val">${this._curvePower || 1.5}</span></label>
-                <input type="range" id="cfg-curve" min="1.0" max="3.0" step="0.1" value="${this._curvePower || 1.5}">
-                <div style="color:#64748b; font-size:11px;">1.0=linear, 1.5=gentle, 2.0=quadratic</div>
+                <label>Curve Power <span id="cfg-curve-val">${this._curvePower || 1.2}</span></label>
+                <input type="range" id="cfg-curve" min="1.0" max="3.0" step="0.1" value="${this._curvePower || 1.2}">
+                <div style="color:#64748b; font-size:11px;">1.0=linear, 1.2=gentle, 2.0=quadratic</div>
             </div>
             
             <div class="param">
@@ -1080,7 +1080,7 @@ class SpaceNavigatorController {
         });
         
         // Initialize curve power if not set
-        if (!this._curvePower) this._curvePower = 1.5;
+        if (!this._curvePower) this._curvePower = 1.2;
         if (this._invertX === undefined) this._invertX = true;
         if (this._invertY === undefined) this._invertY = true;
         
