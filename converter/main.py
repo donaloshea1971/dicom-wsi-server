@@ -1710,12 +1710,9 @@ async def batch_share_endpoint(request: BatchShareRequest, user: User = Depends(
 
 
 @app.get("/users/search")
-async def search_users_endpoint(q: str, user: User = Depends(require_user)):
-    """Search for users by email or name to share with"""
-    if not q or len(q) < 2:
-        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
-    
-    users = await search_users(q, exclude_user_id=user.id)
+async def search_users_endpoint(q: str = "", user: User = Depends(require_user)):
+    """Search for users by email or name to share with. Returns all users if q is empty."""
+    users = await search_users(q if q else None, exclude_user_id=user.id)
     return {"users": users, "count": len(users)}
 
 

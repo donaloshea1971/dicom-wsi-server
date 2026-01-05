@@ -519,40 +519,67 @@ async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
         ]
 
 
-async def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> list[dict]:
-    """Search users by email or name"""
+async def search_users(query: str = None, exclude_user_id: int = None, limit: int = 50) -> list[dict]:
+    """Search users by email or name. Returns all users if query is None or empty."""
     pool = await get_db_pool()
     if pool is None:
         return []
     
     async with pool.acquire() as conn:
-        # Search by email or name (case insensitive)
-        search_pattern = f"%{query}%"
-        
-        if exclude_user_id:
-            rows = await conn.fetch(
-                """
-                SELECT id, email, name, picture
-                FROM users
-                WHERE (email ILIKE $1 OR name ILIKE $1)
-                AND id != $2
-                LIMIT $3
-                """,
-                search_pattern,
-                exclude_user_id,
-                limit
-            )
+        # If no query, return all users
+        if not query:
+            if exclude_user_id:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, email, name, picture
+                    FROM users
+                    WHERE id != $1
+                    ORDER BY name, email
+                    LIMIT $2
+                    """,
+                    exclude_user_id,
+                    limit
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, email, name, picture
+                    FROM users
+                    ORDER BY name, email
+                    LIMIT $1
+                    """,
+                    limit
+                )
         else:
-            rows = await conn.fetch(
-                """
-                SELECT id, email, name, picture
-                FROM users
-                WHERE email ILIKE $1 OR name ILIKE $1
-                LIMIT $2
-                """,
-                search_pattern,
-                limit
-            )
+            # Search by email or name (case insensitive)
+            search_pattern = f"%{query}%"
+            
+            if exclude_user_id:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, email, name, picture
+                    FROM users
+                    WHERE (email ILIKE $1 OR name ILIKE $1)
+                    AND id != $2
+                    ORDER BY name, email
+                    LIMIT $3
+                    """,
+                    search_pattern,
+                    exclude_user_id,
+                    limit
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, email, name, picture
+                    FROM users
+                    WHERE email ILIKE $1 OR name ILIKE $1
+                    ORDER BY name, email
+                    LIMIT $2
+                    """,
+                    search_pattern,
+                    limit
+                )
         
         return [
             {
