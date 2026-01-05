@@ -24,7 +24,7 @@ import logging
 # Import authentication module
 from auth import (
     User, get_current_user, require_user, require_admin,
-    set_study_owner, get_user_study_ids, can_access_study, share_study,
+    set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
     get_db_pool
 )
 
@@ -646,7 +646,12 @@ async def upload_dicom_instance(
     request: Request,
     current_user: Optional[User] = Depends(get_current_user)
 ):
-    """Upload a DICOM instance directly to Orthanc with ownership tracking"""
+    """
+    Upload a DICOM instance directly to Orthanc with ownership tracking.
+    
+    - If authenticated: Sets ownership on new studies, claims unowned existing studies
+    - If anonymous: Study remains unowned (can be claimed later)
+    """
     try:
         content = await request.body()
         
@@ -666,20 +671,31 @@ async def upload_dicom_instance(
                     study_id = result.get("ParentStudy")
                     if study_id:
                         try:
-                            success = await set_study_owner(study_id, current_user.id)
-                            if success:
-                                logger.info(f"✅ DICOM upload: Set owner of study {study_id} to user {current_user.id} ({current_user.email})")
+                            # Check if study already has an owner
+                            existing_owner = await get_study_owner(study_id)
+                            
+                            if existing_owner is None:
+                                # Unowned study - claim it
+                                success = await set_study_owner(study_id, current_user.id)
+                                if success:
+                                    logger.info(f"✅ DICOM upload: Claimed ownership of study {study_id} for user {current_user.id} ({current_user.email})")
+                                else:
+                                    logger.warning(f"⚠️ DICOM upload: Failed to claim study {study_id}")
+                            elif existing_owner == current_user.id:
+                                # Already owned by this user
+                                logger.debug(f"📤 DICOM upload: Study {study_id} already owned by current user")
                             else:
-                                logger.warning(f"⚠️ DICOM upload: Study {study_id} may already have an owner")
+                                # Owned by someone else - just add to their collection
+                                logger.info(f"📤 DICOM upload: Study {study_id} owned by user {existing_owner}, not changing ownership")
                         except Exception as e:
                             logger.warning(f"❌ Failed to set DICOM study owner: {e}")
                     else:
                         logger.warning(f"⚠️ DICOM upload: No ParentStudy in response: {result}")
                 else:
                     if not current_user:
-                        logger.info("📤 DICOM upload: Anonymous upload (no auth token)")
+                        logger.info("📤 DICOM upload: Anonymous upload (no auth token) - study will be unowned")
                     elif not current_user.id:
-                        logger.warning(f"📤 DICOM upload: User {current_user.email} has no DB ID")
+                        logger.warning(f"📤 DICOM upload: User {current_user.email} has no DB ID - cannot set ownership")
                 
                 return result
             else:

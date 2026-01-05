@@ -266,27 +266,83 @@ async def require_admin(user: User = Depends(require_user)) -> User:
 # Study Ownership Functions
 # =============================================================================
 
-async def set_study_owner(study_id: str, user_id: int) -> bool:
-    """Set the owner of a study"""
+async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> bool:
+    """
+    Set the owner of a study.
+    
+    Args:
+        study_id: Orthanc study ID
+        user_id: Database user ID
+        force: If True, overwrite existing ownership. If False, only set if unowned.
+        
+    Returns:
+        True if ownership was set, False if already owned (when force=False) or error
+    """
     pool = await get_db_pool()
     if pool is None:
+        logger.error("Database pool not available for set_study_owner")
         return False
     
     async with pool.acquire() as conn:
         try:
-            await conn.execute(
-                """
-                INSERT INTO study_owners (study_id, user_id)
-                VALUES ($1, $2)
-                ON CONFLICT (study_id) DO NOTHING
-                """,
-                study_id,
-                user_id
-            )
-            return True
+            if force:
+                # Always set ownership (overwrite if exists)
+                await conn.execute(
+                    """
+                    INSERT INTO study_owners (study_id, user_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (study_id) DO UPDATE SET user_id = $2
+                    """,
+                    study_id,
+                    user_id
+                )
+                logger.info(f"Set study {study_id} owner to user {user_id} (forced)")
+                return True
+            else:
+                # Only set if not already owned
+                result = await conn.execute(
+                    """
+                    INSERT INTO study_owners (study_id, user_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (study_id) DO NOTHING
+                    """,
+                    study_id,
+                    user_id
+                )
+                # Check if insert happened (result format: "INSERT 0 1" or "INSERT 0 0")
+                rows_affected = int(result.split()[-1])
+                if rows_affected > 0:
+                    logger.info(f"Set study {study_id} owner to user {user_id}")
+                    return True
+                else:
+                    # Study already has an owner
+                    existing = await conn.fetchrow(
+                        "SELECT user_id FROM study_owners WHERE study_id = $1",
+                        study_id
+                    )
+                    if existing and existing["user_id"] == user_id:
+                        logger.debug(f"Study {study_id} already owned by user {user_id}")
+                        return True  # Already owned by same user
+                    else:
+                        logger.warning(f"Study {study_id} already owned by user {existing['user_id'] if existing else 'unknown'}")
+                        return False
         except Exception as e:
             logger.error(f"Failed to set study owner: {e}")
             return False
+
+
+async def get_study_owner(study_id: str) -> Optional[int]:
+    """Get the owner user_id of a study, or None if unowned"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id FROM study_owners WHERE study_id = $1",
+            study_id
+        )
+        return row["user_id"] if row else None
 
 
 async def get_user_study_ids(user_id: int) -> list[str]:
