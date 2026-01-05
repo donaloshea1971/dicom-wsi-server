@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.6.2';
+const SPACEMOUSE_VERSION = '1.7.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -74,7 +74,65 @@ class SpaceNavigatorController {
     }
 
     /**
-     * Connect to Space Navigator device
+     * Try to auto-connect to a previously paired SpaceMouse
+     * Returns true if connected, false if no device found
+     */
+    async autoConnect() {
+        if (!SpaceNavigatorController.isSupported()) {
+            return false;
+        }
+
+        try {
+            // Get devices that user has previously granted permission to
+            const devices = await navigator.hid.getDevices();
+            
+            // Find a 3Dconnexion device
+            const spaceMouse = devices.find(d => 
+                this.vendorIds.includes(d.vendorId)
+            );
+            
+            if (spaceMouse) {
+                console.log('%c🎮 SpaceMouse auto-connecting...', 'color: #10b981');
+                this.device = spaceMouse;
+                
+                if (!this.device.opened) {
+                    await this.device.open();
+                }
+                
+                // Set up input handler
+                this.device.addEventListener('inputreport', (e) => this.handleInput(e));
+                
+                // Start animation loop
+                this.startAnimationLoop();
+                
+                this.connected = true;
+                this.updateStatus('connected');
+                
+                // Disable OSD scroll-to-zoom when SpaceMouse is active
+                if (this.viewer) {
+                    this.viewer.mouseNavEnabled = false;
+                }
+                
+                console.log('%c🎮 SpaceMouse auto-connected!', 'color: #10b981; font-weight: bold');
+                console.log(`Device: ${this.device.productName}`);
+                
+                // Apply debug mode if it was enabled
+                if (typeof window !== 'undefined' && window._spaceMouseDebugEnabled) {
+                    this.debugMode = true;
+                }
+                
+                return true;
+            }
+            
+            return false;
+        } catch (err) {
+            console.log('SpaceMouse auto-connect failed:', err.message);
+            return false;
+        }
+    }
+
+    /**
+     * Connect to Space Navigator device (with user gesture/picker)
      */
     async connect() {
         if (!SpaceNavigatorController.isSupported()) {

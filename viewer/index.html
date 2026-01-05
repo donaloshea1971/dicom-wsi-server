@@ -1124,7 +1124,7 @@
     <script src="dicomweb-tilesource.js"></script>
     <script src="color-correction.js"></script>
     <script src="annotations.js"></script>
-    <script src="space-navigator.js?v=1.6.2"></script>
+    <script src="space-navigator.js?v=1.7.0"></script>
     <script>
         // Auth0 Configuration
         const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
@@ -1756,9 +1756,21 @@
                     console.log('Viewer opened successfully');
                     showLoading(false);
                     
-                    // Update SpaceMouse viewer reference if connected
+                    // Update SpaceMouse viewer reference if connected, or try auto-connect
                     if (spaceNavController && spaceNavController.connected) {
                         spaceNavController.setViewer(viewer);
+                    } else if (SpaceNavigatorController.isSupported()) {
+                        // Try to auto-connect to previously paired SpaceMouse
+                        if (!spaceNavController) {
+                            spaceNavController = new SpaceNavigatorController(viewer);
+                        } else {
+                            spaceNavController.setViewer(viewer);
+                        }
+                        spaceNavController.autoConnect().then(connected => {
+                            if (connected) {
+                                updateSpaceNavButton(true);
+                            }
+                        });
                     }
                     
                 // Reset and show annotation toolbar
