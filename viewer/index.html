@@ -1354,6 +1354,10 @@
                 // Get user info
                 currentUser = await auth0Client.getUser();
                 updateUserUI();
+                
+                // Sync profile to backend (email, name, picture)
+                syncUserProfile();
+                
                 return true;
             } catch (e) {
                 console.error('Auth init error:', e);
@@ -1378,6 +1382,30 @@
             if (userAvatar) userAvatar.src = currentUser.picture || '';
             if (userName) userName.textContent = currentUser.name || currentUser.email?.split('@')[0] || 'User';
             if (userEmail) userEmail.textContent = currentUser.email || '';
+        }
+        
+        async function syncUserProfile() {
+            // Sync Auth0 profile info to backend database
+            if (!currentUser || !auth0Client) return;
+            
+            try {
+                const token = await auth0Client.getTokenSilently();
+                await fetch('/api/users/me', {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: currentUser.email,
+                        name: currentUser.name,
+                        picture: currentUser.picture
+                    })
+                });
+            } catch (e) {
+                // Silent fail - profile sync is non-critical
+                console.debug('Profile sync:', e.message);
+            }
         }
 
         function toggleUserDropdown() {

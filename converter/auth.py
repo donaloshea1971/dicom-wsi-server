@@ -592,6 +592,44 @@ async def search_users(query: str = None, exclude_user_id: int = None, limit: in
         ]
 
 
+async def update_user_profile(user_id: int, email: str = None, name: str = None, picture: str = None) -> bool:
+    """Update user profile with info from Auth0 userinfo"""
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+    
+    async with pool.acquire() as conn:
+        # Build update query dynamically based on provided fields
+        updates = []
+        params = []
+        param_idx = 1
+        
+        if email and not email.endswith("@auth0.user"):
+            updates.append(f"email = ${param_idx}")
+            params.append(email)
+            param_idx += 1
+        
+        if name:
+            updates.append(f"name = ${param_idx}")
+            params.append(name)
+            param_idx += 1
+            
+        if picture:
+            updates.append(f"picture = ${param_idx}")
+            params.append(picture)
+            param_idx += 1
+        
+        if not updates:
+            return False
+        
+        params.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE id = ${param_idx}"
+        
+        result = await conn.execute(query, *params)
+        logger.info(f"Updated user {user_id} profile: {result}")
+        return "UPDATE" in result
+
+
 async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_email: str, permission: str = "view") -> dict:
     """Share multiple studies with a user at once"""
     pool = await get_db_pool()

@@ -1716,6 +1716,31 @@ async def search_users_endpoint(q: str = "", user: User = Depends(require_user))
     return {"users": users, "count": len(users)}
 
 
+class UserProfileUpdate(BaseModel):
+    """Profile update from Auth0 userinfo"""
+    email: Optional[str] = None
+    name: Optional[str] = None
+    picture: Optional[str] = None
+
+
+@app.put("/users/me")
+async def update_my_profile(profile: UserProfileUpdate, user: User = Depends(require_user)):
+    """Update current user's profile with info from Auth0 userinfo endpoint"""
+    from auth import update_user_profile
+    
+    updated = await update_user_profile(
+        user_id=user.id,
+        email=profile.email,
+        name=profile.name,
+        picture=profile.picture
+    )
+    
+    if updated:
+        return {"status": "updated", "message": "Profile updated successfully"}
+    else:
+        return {"status": "unchanged", "message": "No changes made"}
+
+
 @app.get("/studies/categorized")
 async def get_categorized_studies(
     user: User = Depends(require_user),
