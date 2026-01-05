@@ -642,8 +642,11 @@ async def get_orthanc_system():
 
 
 @app.post("/instances")
-async def upload_dicom_instance(request: Request):
-    """Upload a DICOM instance directly to Orthanc"""
+async def upload_dicom_instance(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Upload a DICOM instance directly to Orthanc with ownership tracking"""
     try:
         content = await request.body()
         
@@ -656,7 +659,29 @@ async def upload_dicom_instance(request: Request):
             )
             
             if response.status_code in [200, 201]:
-                return response.json()
+                result = response.json()
+                
+                # Set study ownership if user is authenticated
+                if current_user and current_user.id and isinstance(result, dict):
+                    study_id = result.get("ParentStudy")
+                    if study_id:
+                        try:
+                            success = await set_study_owner(study_id, current_user.id)
+                            if success:
+                                logger.info(f"✅ DICOM upload: Set owner of study {study_id} to user {current_user.id} ({current_user.email})")
+                            else:
+                                logger.warning(f"⚠️ DICOM upload: Study {study_id} may already have an owner")
+                        except Exception as e:
+                            logger.warning(f"❌ Failed to set DICOM study owner: {e}")
+                    else:
+                        logger.warning(f"⚠️ DICOM upload: No ParentStudy in response: {result}")
+                else:
+                    if not current_user:
+                        logger.info("📤 DICOM upload: Anonymous upload (no auth token)")
+                    elif not current_user.id:
+                        logger.warning(f"📤 DICOM upload: User {current_user.email} has no DB ID")
+                
+                return result
             else:
                 raise HTTPException(
                     status_code=response.status_code,
