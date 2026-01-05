@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.1';
+const SPACEMOUSE_VERSION = '1.9.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -35,6 +35,13 @@ class SpaceNavigatorController {
         this._curvePower = 2.0;   // Exponential curve power
         this._invertX = true;     // Invert X axis (push left = pan left)
         this._invertY = true;     // Invert Y axis (push forward = pan up)
+        
+        // Tilt handling mode: how to handle inadvertent tilt (RX/RY) while panning
+        // 'translation_only' - ignore tilt, use only TX/TY (old behavior)
+        // 'max_signal' - use stronger of translation OR tilt for each axis
+        // 'tilt_assist' - tilt reinforces translation when same direction (recommended)
+        this._tiltMode = 'tilt_assist';
+        this._tiltWeight = 0.6;   // How much tilt contributes (0-1, for max_signal blending)
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
@@ -586,37 +593,99 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Map raw input to viewport actions with simple moving average
-     * Uses ONLY translation axes for panning (RX/RY are tilt artifacts):
-     *   - TX → Pan X (left/right) - horizontal puck movement
-     *   - TY → Pan Y (forward/back) - vertical puck movement  
-     *   - RZ → Zoom (twist ONLY)
-     *   - TZ, RX, RY → Ignored (TZ reserved for MFP, RX/RY are tilt noise)
+     * Map raw input to viewport actions with smart tilt handling
+     * 
+     * Translation axes (TX/TY): Primary pan input from pushing/pulling the puck
+     * Rotation axes (RX/RY): Tilt input - often happens inadvertently while panning
+     * 
+     * Tilt modes:
+     *   - 'translation_only': Ignore tilt, use only TX/TY (cleanest but loses input)
+     *   - 'max_signal': Use stronger of translation OR tilt for each axis
+     *   - 'tilt_assist': Tilt reinforces translation when same direction (recommended)
+     * 
      * Returns: { panX, panY, zoom }
      */
     getMappedInput() {
         const raw = this.input;
         
-        // Add current sample to history
-        this._inputHistory.push({ tx: raw.tx, ty: raw.ty });
+        // Add current sample to history (now including tilt values)
+        this._inputHistory.push({ 
+            tx: raw.tx, ty: raw.ty,
+            rx: raw.rx, ry: raw.ry 
+        });
         if (this._inputHistory.length > this._historySize) {
             this._inputHistory.shift();
         }
         
-        // Simple moving average of last N samples
-        let avgTx = 0, avgTy = 0;
+        // Simple moving average of last N samples (for all axes we care about)
+        let avgTx = 0, avgTy = 0, avgRx = 0, avgRy = 0;
         for (const sample of this._inputHistory) {
             avgTx += sample.tx;
             avgTy += sample.ty;
+            avgRx += sample.rx || 0;
+            avgRy += sample.ry || 0;
         }
-        avgTx /= this._inputHistory.length;
-        avgTy /= this._inputHistory.length;
+        const n = this._inputHistory.length;
+        avgTx /= n;
+        avgTy /= n;
+        avgRx /= n;
+        avgRy /= n;
+        
+        // Smart tilt handling - combine translation and tilt intelligently
+        let effectiveX, effectiveY;
+        
+        const tiltMode = this._tiltMode || 'tilt_assist';
+        
+        if (tiltMode === 'translation_only') {
+            // Original behavior: ignore tilt completely
+            effectiveX = avgTx;
+            effectiveY = avgTy;
+            
+        } else if (tiltMode === 'max_signal') {
+            // Use whichever signal is stronger (translation or tilt)
+            // RX maps to Y movement (tilt forward/back), RY maps to X movement (tilt left/right)
+            effectiveX = Math.abs(avgTx) > Math.abs(avgRy) ? avgTx : avgRy;
+            effectiveY = Math.abs(avgTy) > Math.abs(avgRx) ? avgTy : avgRx;
+            
+        } else if (tiltMode === 'tilt_assist') {
+            // Smart combination: tilt reinforces translation when in same direction
+            // RX = tilt forward/back → affects Y pan
+            // RY = tilt left/right → affects X pan
+            
+            // For X axis: translation TX and tilt RY
+            if (avgTx !== 0 && avgRy !== 0 && Math.sign(avgTx) === Math.sign(avgRy)) {
+                // Same direction: use the stronger signal
+                effectiveX = Math.abs(avgTx) > Math.abs(avgRy) ? avgTx : avgRy;
+            } else if (avgTx !== 0) {
+                // Translation only, or conflicting signals: use translation
+                effectiveX = avgTx;
+            } else {
+                // No translation: allow tilt to drive (scaled down slightly)
+                effectiveX = avgRy * (this._tiltWeight || 0.6);
+            }
+            
+            // For Y axis: translation TY and tilt RX
+            if (avgTy !== 0 && avgRx !== 0 && Math.sign(avgTy) === Math.sign(avgRx)) {
+                // Same direction: use the stronger signal
+                effectiveY = Math.abs(avgTy) > Math.abs(avgRx) ? avgTy : avgRx;
+            } else if (avgTy !== 0) {
+                // Translation only, or conflicting signals: use translation
+                effectiveY = avgTy;
+            } else {
+                // No translation: allow tilt to drive (scaled down slightly)
+                effectiveY = avgRx * (this._tiltWeight || 0.6);
+            }
+        } else {
+            // Fallback
+            effectiveX = avgTx;
+            effectiveY = avgTy;
+        }
         
         // Apply inversion settings (configurable)
         const invertX = this._invertX !== undefined ? this._invertX : true;
         const invertY = this._invertY !== undefined ? this._invertY : true;
-        let panX = invertX ? -avgTx : avgTx;
-        let panY = invertY ? -avgTy : avgTy;
+        let panX = invertX ? -effectiveX : effectiveX;
+        let panY = invertY ? -effectiveY : effectiveY;
         const zoom = raw.rz;  // Twist ONLY
         
         // Apply polarity from calibration if available
@@ -927,6 +996,24 @@ class SpaceNavigatorController {
             </div>
             
             <div class="param">
+                <label>Tilt Mode</label>
+                <select id="cfg-tilt-mode" style="width:100%; padding:6px; background:#1e293b; border:1px solid #334155; color:#e2e8f0; border-radius:4px; margin-top:4px;">
+                    <option value="translation_only" ${this._tiltMode === 'translation_only' ? 'selected' : ''}>Translation Only (TX/TY)</option>
+                    <option value="max_signal" ${this._tiltMode === 'max_signal' ? 'selected' : ''}>Max Signal (stronger wins)</option>
+                    <option value="tilt_assist" ${this._tiltMode === 'tilt_assist' ? 'selected' : ''}>Tilt Assist (recommended)</option>
+                </select>
+                <div style="color:#64748b; font-size:11px; margin-top:4px;">
+                    Tilt Assist: tilt reinforces translation when moving same direction
+                </div>
+            </div>
+            
+            <div class="param">
+                <label>Tilt Weight <span id="cfg-tilt-weight-val">${this._tiltWeight || 0.6}</span></label>
+                <input type="range" id="cfg-tilt-weight" min="0.1" max="1.0" step="0.1" value="${this._tiltWeight || 0.6}">
+                <div style="color:#64748b; font-size:11px;">How much pure tilt (no translation) contributes</div>
+            </div>
+            
+            <div class="param">
                 <label>Invert X <input type="checkbox" id="cfg-invert-x" ${this._invertX ? 'checked' : ''}></label>
             </div>
             
@@ -1011,6 +1098,17 @@ class SpaceNavigatorController {
             document.getElementById('cfg-momentum-val').textContent = this.value;
         };
         
+        document.getElementById('cfg-tilt-mode').onchange = function() {
+            self._tiltMode = this.value;
+            self._inputHistory = [];  // Clear history when changing mode
+            console.log('SpaceMouse tilt mode:', this.value);
+        };
+        
+        document.getElementById('cfg-tilt-weight').oninput = function() {
+            self._tiltWeight = parseFloat(this.value);
+            document.getElementById('cfg-tilt-weight-val').textContent = this.value;
+        };
+        
         document.getElementById('cfg-invert-x').onchange = function() {
             self._invertX = this.checked;
         };
@@ -1035,6 +1133,8 @@ class SpaceNavigatorController {
                 historySize: self._historySize,
                 smoothing: self.smoothing,
                 momentum: self._momentumDecay,
+                tiltMode: self._tiltMode,
+                tiltWeight: self._tiltWeight,
                 invertX: self._invertX,
                 invertY: self._invertY
             };
@@ -1049,13 +1149,23 @@ class SpaceNavigatorController {
                 const r = this._rawInput;
                 const rawTX = Math.round(r.tx * 350);
                 const rawTY = Math.round(r.ty * 350);
+                const rawRX = Math.round(r.rx * 350);
+                const rawRY = Math.round(r.ry * 350);
                 const rawRZ = Math.round(r.rz * 350);
                 const panX = this._smoothedPan?.x?.toFixed(3) || '0.000';
                 const panY = this._smoothedPan?.y?.toFixed(3) || '0.000';
+                
+                // Color code based on which signal is being used
+                const txColor = Math.abs(rawTX) > Math.abs(rawRY) ? '#10b981' : '#64748b';
+                const tyColor = Math.abs(rawTY) > Math.abs(rawRX) ? '#10b981' : '#64748b';
+                const rxColor = Math.abs(rawRX) > Math.abs(rawTY) ? '#f59e0b' : '#64748b';
+                const ryColor = Math.abs(rawRY) > Math.abs(rawTX) ? '#f59e0b' : '#64748b';
+                
                 live.innerHTML = 
-                    `<div>RAW: TX:${rawTX.toString().padStart(4)} TY:${rawTY.toString().padStart(4)} RZ:${rawRZ.toString().padStart(4)}</div>` +
-                    `<div>OUT: panX:${panX} panY:${panY}</div>` +
-                    `<div>Avg buffer: ${this._inputHistory.length}/${this._historySize}</div>`;
+                    `<div>Translation: <span style="color:${txColor}">TX:${rawTX.toString().padStart(4)}</span> <span style="color:${tyColor}">TY:${rawTY.toString().padStart(4)}</span></div>` +
+                    `<div>Tilt: <span style="color:${ryColor}">RY:${rawRY.toString().padStart(4)}</span> <span style="color:${rxColor}">RX:${rawRX.toString().padStart(4)}</span> | RZ:${rawRZ.toString().padStart(4)}</div>` +
+                    `<div>Output: panX:${panX} panY:${panY}</div>` +
+                    `<div style="color:#64748b; font-size:10px;">Green=translation, Orange=tilt winning</div>`;
             }
         }, 100);
         
