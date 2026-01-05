@@ -1959,6 +1959,7 @@ async def get_categorized_studies(
         # Get slide metadata for all relevant studies
         all_relevant_ids = list(owned_ids | shared_with_me_ids)
         slide_metadata = await get_slides_metadata_bulk(all_relevant_ids)
+        logger.info(f"Slide metadata for {len(all_relevant_ids)} studies: {slide_metadata}")
         
         # Categorize
         owned = [s for s in all_studies if s in owned_ids]
@@ -2083,12 +2084,15 @@ async def update_slide_metadata(
         slide = await get_slide_by_orthanc_id(orthanc_id)
         
         if not slide:
-            # Create new slide record
+            # Create new slide record with all fields
             slide_id = await create_slide(
                 orthanc_study_id=orthanc_id,
                 owner_id=user.id,
                 display_name=slide_update.display_name,
-                stain=slide_update.stain
+                stain=slide_update.stain,
+                block_id=slide_update.block_id if slide_update.block_id and slide_update.block_id > 0 else None,
+                case_id=slide_update.case_id if slide_update.case_id and slide_update.case_id > 0 else None,
+                patient_id=slide_update.patient_id if slide_update.patient_id and slide_update.patient_id > 0 else None
             )
             if not slide_id:
                 raise HTTPException(

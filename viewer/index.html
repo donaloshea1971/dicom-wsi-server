@@ -1930,6 +1930,7 @@
                         // Get share counts and slide metadata from categorized response
                         const shareCounts = categorized.share_counts || {};
                         const slideMetadata = categorized.slide_metadata || {};
+                        console.log('Slide metadata from API:', slideMetadata);
                         
                         // Attach shareCount and slide metadata to studies
                         const ownedStudies = ownedIds.map(id => {
