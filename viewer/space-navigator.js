@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.3';
+const SPACEMOUSE_VERSION = '1.9.4';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -28,7 +28,7 @@ class SpaceNavigatorController {
         
         // Momentum/inertia for smooth deceleration
         this._velocity = { x: 0, y: 0 };
-        this._momentumDecay = 0.92;  // Decay factor per frame (~60fps = ~1 second to stop)
+        this._momentumDecay = 0.96;  // Decay factor per frame (0.96 = longer glide)
         this._hasActiveInput = false;
         
         // Configurable parameters (can be adjusted via config panel)
@@ -41,7 +41,7 @@ class SpaceNavigatorController {
         // 'max_signal' - use stronger of translation OR tilt for each axis
         // 'tilt_assist' - tilt reinforces translation when same direction (recommended)
         this._tiltMode = 'tilt_assist';
-        this._tiltWeight = 0.6;   // How much tilt contributes (0-1, for max_signal blending)
+        this._tiltWeight = 1.0;   // How much tilt contributes (0-1, 1.0 = full contribution)
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
