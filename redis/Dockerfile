@@ -1,7 +1,8 @@
 FROM redis:7-alpine
 
-# Optimized Redis config for tile caching
-RUN cat > /usr/local/etc/redis/redis.conf << 'EOF'
+# Create config directory and optimized Redis config for tile caching
+RUN mkdir -p /usr/local/etc/redis && \
+    cat > /usr/local/etc/redis/redis.conf << 'EOF'
 # Memory management
 maxmemory 200mb
 maxmemory-policy allkeys-lru
