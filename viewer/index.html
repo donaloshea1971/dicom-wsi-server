@@ -2627,6 +2627,23 @@
             }, 300);
         }
         
+        function updateShareButtonState(studyId, shareCount) {
+            // Find the study card and update its share button
+            const card = document.querySelector(`.study-card[data-id="${studyId}"]`);
+            if (!card) return;
+            
+            const btn = card.querySelector('.share-btn');
+            if (!btn) return;
+            
+            if (shareCount > 0) {
+                btn.classList.add('shared');
+                btn.title = `Shared with ${shareCount} user(s)`;
+            } else {
+                btn.classList.remove('shared');
+                btn.title = 'Share this study';
+            }
+        }
+        
         async function shareWithUser(email, element) {
             if (!currentShareStudyId) return;
             
@@ -2650,8 +2667,9 @@
                     <span style="color: var(--accent);">✓ Shared with ${email}</span>
                 `;
                 
-                // Reload current shares
-                loadCurrentShares(currentShareStudyId);
+                // Reload current shares and update button
+                const shares = await loadCurrentShares(currentShareStudyId);
+                updateShareButtonState(currentShareStudyId, shares.length);
                 
                 // Clear search
                 document.getElementById('share-search').value = '';
@@ -2680,7 +2698,7 @@
                     container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">
                         Not shared with anyone yet
                     </div>`;
-                    return;
+                    return shares;
                 }
                 
                 container.innerHTML = shares.map(share => `
@@ -2697,10 +2715,13 @@
                     </div>
                 `).join('');
                 
+                return shares;
+                
             } catch (e) {
                 container.innerHTML = `<div style="color: var(--danger); font-size: 13px;">
                     ${e.message}
                 </div>`;
+                return [];
             }
         }
         
@@ -2715,8 +2736,9 @@
                 
                 if (!response.ok) throw new Error('Failed to remove share');
                 
-                // Reload
-                loadCurrentShares(currentShareStudyId);
+                // Reload and update button
+                const shares = await loadCurrentShares(currentShareStudyId);
+                updateShareButtonState(currentShareStudyId, shares.length);
                 
             } catch (e) {
                 alert('Failed to remove: ' + e.message);
