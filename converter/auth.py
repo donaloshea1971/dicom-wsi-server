@@ -717,21 +717,25 @@ async def get_slide_by_orthanc_id(orthanc_study_id: str) -> Optional[dict]:
     if pool is None:
         return None
     
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT id, orthanc_study_id, display_name, stain, original_filename,
-                   source_format, scanner_manufacturer, width, height, magnification,
-                   block_id, case_id, patient_id, owner_id, is_sample,
-                   created_at, updated_at
-            FROM slides
-            WHERE orthanc_study_id = $1
-            """,
-            orthanc_study_id
-        )
-        
-        if row:
-            return dict(row)
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, orthanc_study_id, display_name, stain, original_filename,
+                       source_format, scanner_manufacturer, width, height, magnification,
+                       block_id, case_id, patient_id, owner_id, is_sample,
+                       created_at, updated_at
+                FROM slides
+                WHERE orthanc_study_id = $1
+                """,
+                orthanc_study_id
+            )
+            
+            if row:
+                return dict(row)
+            return None
+    except Exception as e:
+        logger.error(f"get_slide_by_orthanc_id error (table may not exist): {e}")
         return None
 
 

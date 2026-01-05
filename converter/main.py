@@ -2072,40 +2072,52 @@ async def update_slide_metadata(
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    # Get or create slide record
-    slide = await get_slide_by_orthanc_id(orthanc_id)
-    
-    if not slide:
-        # Create new slide record
-        slide_id = await create_slide(
-            orthanc_study_id=orthanc_id,
-            owner_id=user.id,
-            display_name=slide_update.display_name,
-            stain=slide_update.stain
-        )
-        if not slide_id:
-            raise HTTPException(status_code=500, detail="Failed to create slide record")
+    try:
+        # Get or create slide record
+        slide = await get_slide_by_orthanc_id(orthanc_id)
         
-        return {"message": "Slide created", "slide_id": slide_id}
-    
-    # Verify ownership
-    if slide["owner_id"] and slide["owner_id"] != user.id and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Not authorized to edit this slide")
-    
-    # Update slide
-    success = await update_slide(
-        slide_id=slide["id"],
-        display_name=slide_update.display_name,
-        stain=slide_update.stain,
-        block_id=slide_update.block_id,
-        case_id=slide_update.case_id,
-        patient_id=slide_update.patient_id
-    )
-    
-    if success:
-        return {"message": "Slide updated"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to update slide")
+        if not slide:
+            # Create new slide record
+            slide_id = await create_slide(
+                orthanc_study_id=orthanc_id,
+                owner_id=user.id,
+                display_name=slide_update.display_name,
+                stain=slide_update.stain
+            )
+            if not slide_id:
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to create slide record. The 'slides' table may not exist - run hierarchy_schema.sql migration."
+                )
+            
+            return {"message": "Slide created", "slide_id": slide_id}
+        
+        # Verify ownership
+        if slide["owner_id"] and slide["owner_id"] != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Not authorized to edit this slide")
+        
+        # Update slide
+        success = await update_slide(
+            slide_id=slide["id"],
+            display_name=slide_update.display_name,
+            stain=slide_update.stain,
+            block_id=slide_update.block_id,
+            case_id=slide_update.case_id,
+            patient_id=slide_update.patient_id
+        )
+        
+        if success:
+            return {"message": "Slide updated"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update slide")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Slide update error: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Slide update failed: {str(e)}. You may need to run the hierarchy_schema.sql migration."
+        )
 
 
 @app.post("/slides/{orthanc_id}/assign")
