@@ -25,7 +25,8 @@ import logging
 from auth import (
     User, get_current_user, require_user, require_admin,
     set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
-    get_db_pool
+    unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
+    search_users, batch_share_studies, get_db_pool
 )
 
 # Configure logging
@@ -1652,6 +1653,16 @@ class ShareRequest(BaseModel):
     permission: str = "view"  # view, annotate, full
 
 
+class BatchShareRequest(BaseModel):
+    study_ids: list[str]
+    email: str
+    permission: str = "view"
+
+
+class UnshareRequest(BaseModel):
+    user_id: int
+
+
 @app.post("/studies/{study_id}/share")
 async def share_study_endpoint(study_id: str, request: ShareRequest, user: User = Depends(require_user)):
     """Share a study with another user by email"""
@@ -1663,6 +1674,98 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
         return {"message": f"Study shared with {request.email}", "permission": request.permission}
     else:
         raise HTTPException(status_code=400, detail="Could not share study - check ownership and email")
+
+
+@app.delete("/studies/{study_id}/share/{user_id}")
+async def unshare_study_endpoint(study_id: str, user_id: int, user: User = Depends(require_user)):
+    """Remove a share from a study"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    success = await unshare_study(study_id, user.id, user_id)
+    if success:
+        return {"message": "Share removed"}
+    else:
+        raise HTTPException(status_code=400, detail="Could not remove share - check ownership")
+
+
+@app.get("/studies/{study_id}/shares")
+async def get_study_shares_endpoint(study_id: str, user: User = Depends(require_user)):
+    """Get list of users a study is shared with"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    shares = await get_study_shares(study_id, user.id)
+    return {"shares": shares, "count": len(shares)}
+
+
+@app.post("/studies/batch-share")
+async def batch_share_endpoint(request: BatchShareRequest, user: User = Depends(require_user)):
+    """Share multiple studies with a user at once"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    result = await batch_share_studies(request.study_ids, user.id, request.email, request.permission)
+    return result
+
+
+@app.get("/users/search")
+async def search_users_endpoint(q: str, user: User = Depends(require_user)):
+    """Search for users by email or name to share with"""
+    if not q or len(q) < 2:
+        raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+    
+    users = await search_users(q, exclude_user_id=user.id)
+    return {"users": users, "count": len(users)}
+
+
+@app.get("/studies/categorized")
+async def get_categorized_studies(
+    user: User = Depends(require_user),
+    include_samples: bool = True
+):
+    """
+    Get studies organized by category: owned, shared_with_me, samples.
+    This is the main endpoint for the study list UI.
+    """
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/studies",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            response.raise_for_status()
+            all_studies = response.json()
+        
+        # Get user's owned and shared studies
+        owned_ids = await get_owned_study_ids(user.id)
+        shared_with_me_ids = await get_shared_with_me_study_ids(user.id)
+        all_owned_ids = await get_all_owned_study_ids()
+        
+        # Categorize
+        owned = [s for s in all_studies if s in owned_ids]
+        shared_with_me = [s for s in all_studies if s in shared_with_me_ids]
+        
+        result = {
+            "owned": owned,
+            "shared_with_me": shared_with_me,
+            "owned_count": len(owned),
+            "shared_count": len(shared_with_me)
+        }
+        
+        if include_samples:
+            samples = [s for s in all_studies if s not in all_owned_ids]
+            result["samples"] = samples
+            result["samples_count"] = len(samples)
+        
+        return result
+        
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
 
 @app.get("/studies/{study_id}")

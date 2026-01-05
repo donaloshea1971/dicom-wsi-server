@@ -222,6 +222,190 @@
             margin-left: 6px;
             vertical-align: middle;
         }
+        
+        .shared-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 9px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #00d4aa, #00a3ff);
+            color: #0a0a0f;
+            border-radius: 4px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        
+        .shared-study {
+            border-left: 3px solid #00d4aa;
+        }
+        
+        .study-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .share-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 6px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .share-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-dark);
+        }
+        
+        /* Share Dialog */
+        .share-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        
+        .share-dialog-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .share-dialog h3 {
+            margin: 0 0 16px;
+            color: var(--text-primary);
+            font-size: 18px;
+        }
+        
+        .share-search-input {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .share-search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .share-results {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+        }
+        
+        .share-user-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        
+        .share-user-item:hover {
+            background: var(--bg-elevated);
+        }
+        
+        .share-user-item.selected {
+            background: rgba(0, 212, 170, 0.15);
+            border: 1px solid var(--accent);
+        }
+        
+        .share-user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--bg-elevated);
+        }
+        
+        .share-user-info {
+            flex: 1;
+        }
+        
+        .share-user-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .share-user-email {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .share-current-list {
+            margin-top: 16px;
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+        }
+        
+        .share-current-list h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        
+        .share-current-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            background: var(--bg-elevated);
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        
+        .share-current-item img {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+        }
+        
+        .share-current-item .email {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        .share-remove-btn {
+            background: transparent;
+            border: none;
+            color: var(--danger);
+            cursor: pointer;
+            padding: 4px;
+        }
+        
+        .share-dialog-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
 
         .study-card {
             background: var(--bg-tertiary);
@@ -1343,67 +1527,132 @@
             list.innerHTML = '<div class="empty-state"><div class="spinner" style="margin: 0 auto 16px;"></div><p>Loading studies...</p></div>';
 
             try {
-                // Get list of study IDs (uses auth token to filter by user)
                 const hideSamples = isSamplesHidden();
-                const response = await authFetch(`/api/studies?include_samples=${!hideSamples}`);
-                const studyIds = await response.json();
                 
-                // Handle both array and {value:[]} formats
-                const ids = Array.isArray(studyIds) ? studyIds : (studyIds.value || []);
-                
-                // Get ownership info
-                let ownership = {};
+                // Try new categorized endpoint first (provides owned/shared/samples separately)
+                let categorized = null;
                 try {
-                    const ownershipRes = await authFetch('/api/studies/ownership');
-                    if (ownershipRes.ok) {
-                        ownership = await ownershipRes.json();
+                    const catResponse = await authFetch(`/api/studies/categorized?include_samples=${!hideSamples}`);
+                    if (catResponse.ok) {
+                        categorized = await catResponse.json();
                     }
                 } catch (e) {
-                    console.log('Could not fetch ownership info');
+                    console.log('Categorized endpoint not available, falling back');
                 }
                 
-                if (ids && ids.length > 0) {
-                    // Fetch details for each study
-                    const studies = await Promise.all(
-                        ids.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
-                    );
+                if (categorized) {
+                    // Use categorized data
+                    const ownedIds = categorized.owned || [];
+                    const sharedIds = categorized.shared_with_me || [];
+                    const sampleIds = categorized.samples || [];
                     
-                    // Separate owned and sample studies
-                    const ownedStudies = studies.filter(s => ownership[s.ID] === 'owned');
-                    const sampleStudies = studies.filter(s => ownership[s.ID] === 'sample');
+                    // Fetch details for all studies
+                    const allIds = [...ownedIds, ...sharedIds, ...sampleIds];
                     
-                    // Store study list for navigation (owned first, then samples)
-                    studyList = [...ownedStudies.map(s => s.ID), ...sampleStudies.map(s => s.ID)];
-                    
-                    let html = '';
-                    
-                    // Show owned studies first
-                    if (ownedStudies.length > 0) {
-                        html += `<div class="study-section-header">Your Images</div>`;
-                        html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
+                    if (allIds.length > 0) {
+                        const studies = await Promise.all(
+                            allIds.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
+                        );
+                        
+                        const studyMap = {};
+                        studies.forEach(s => studyMap[s.ID] = s);
+                        
+                        const ownedStudies = ownedIds.map(id => studyMap[id]).filter(Boolean);
+                        const sharedStudies = sharedIds.map(id => studyMap[id]).filter(Boolean);
+                        const sampleStudies = sampleIds.map(id => studyMap[id]).filter(Boolean);
+                        
+                        // Store study list for navigation
+                        studyList = [...ownedIds, ...sharedIds, ...sampleIds];
+                        
+                        let html = '';
+                        
+                        // Show owned studies
+                        if (ownedStudies.length > 0) {
+                            html += `<div class="study-section-header">📁 Your Images (${ownedStudies.length})</div>`;
+                            html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
+                        }
+                        
+                        // Show shared studies
+                        if (sharedStudies.length > 0) {
+                            html += `<div class="study-section-header" style="margin-top: 16px;">🔗 Shared with You (${sharedStudies.length})</div>`;
+                            html += sharedStudies.map(study => renderStudyCard(study, 'shared')).join('');
+                        }
+                        
+                        // Show sample studies
+                        if (sampleStudies.length > 0 && !hideSamples) {
+                            html += `
+                                <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>📚 Sample Images (${sampleStudies.length})</span>
+                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample images">
+                                        ✕ Hide
+                                    </button>
+                                </div>
+                            `;
+                            html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
+                        }
+                        
+                        if (!html) {
+                            html = renderEmptyState(hideSamples);
+                        }
+                        
+                        list.innerHTML = html;
+                    } else {
+                        list.innerHTML = renderEmptyState(hideSamples);
                     }
-                    
-                    // Show sample studies with option to hide
-                    if (sampleStudies.length > 0 && !hideSamples) {
-                        html += `
-                            <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                                <span>📚 Sample Images</span>
-                                <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample images">
-                                    ✕ Hide
-                                </button>
-                            </div>
-                        `;
-                        html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
-                    }
-                    
-                    // If nothing after filtering
-                    if (!html) {
-                        html = renderEmptyState(hideSamples);
-                    }
-                    
-                    list.innerHTML = html;
                 } else {
-                    list.innerHTML = renderEmptyState(hideSamples);
+                    // Fallback to old endpoint
+                    const response = await authFetch(`/api/studies?include_samples=${!hideSamples}`);
+                    const studyIds = await response.json();
+                    const ids = Array.isArray(studyIds) ? studyIds : (studyIds.value || []);
+                    
+                    // Get ownership info
+                    let ownership = {};
+                    try {
+                        const ownershipRes = await authFetch('/api/studies/ownership');
+                        if (ownershipRes.ok) {
+                            ownership = await ownershipRes.json();
+                        }
+                    } catch (e) {
+                        console.log('Could not fetch ownership info');
+                    }
+                    
+                    if (ids && ids.length > 0) {
+                        const studies = await Promise.all(
+                            ids.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
+                        );
+                        
+                        const ownedStudies = studies.filter(s => ownership[s.ID] === 'owned');
+                        const sampleStudies = studies.filter(s => ownership[s.ID] === 'sample');
+                        
+                        studyList = [...ownedStudies.map(s => s.ID), ...sampleStudies.map(s => s.ID)];
+                        
+                        let html = '';
+                        
+                        if (ownedStudies.length > 0) {
+                            html += `<div class="study-section-header">📁 Your Images</div>`;
+                            html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
+                        }
+                        
+                        if (sampleStudies.length > 0 && !hideSamples) {
+                            html += `
+                                <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>📚 Sample Images</span>
+                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample images">
+                                        ✕ Hide
+                                    </button>
+                                </div>
+                            `;
+                            html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
+                        }
+                        
+                        if (!html) {
+                            html = renderEmptyState(hideSamples);
+                        }
+                        
+                        list.innerHTML = html;
+                    } else {
+                        list.innerHTML = renderEmptyState(hideSamples);
+                    }
                 }
             } catch (e) {
                 list.innerHTML = `
@@ -1424,13 +1673,29 @@
                         const displayName = accession || studyDesc || patientName || 'Unnamed Study';
                         const subtitle = patientName || 'Unknown Patient';
                         
-            const sampleBadge = ownershipType === 'sample' 
-                ? '<span class="sample-badge">SAMPLE</span>' 
+            let badge = '';
+            if (ownershipType === 'sample') {
+                badge = '<span class="sample-badge">SAMPLE</span>';
+            } else if (ownershipType === 'shared') {
+                badge = '<span class="shared-badge">SHARED</span>';
+            }
+            
+            // Share button only for owned studies
+            const shareBtn = ownershipType === 'owned' 
+                ? `<button class="share-btn" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="Share this study">
+                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                           <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                       </svg>
+                   </button>`
                 : '';
                         
                         return `
-                <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
-                    <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${sampleBadge}</div>
+                <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''} ${ownershipType === 'shared' ? 'shared-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
+                    <div class="study-header">
+                        <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${badge}</div>
+                        ${shareBtn}
+                    </div>
                                 <div class="study-desc">${displayName}</div>
                                 <div class="study-meta">
                                     ${subtitle} • ${study.Series?.length || 0} series
@@ -2205,6 +2470,209 @@
 
         function openUploader() {
             window.location.href = '/upload.html';
+        }
+        
+        // =========================================
+        // Sharing System
+        // =========================================
+        
+        let currentShareStudyId = null;
+        let shareSearchTimeout = null;
+        
+        async function openShareDialog(studyId) {
+            currentShareStudyId = studyId;
+            
+            // Create dialog
+            const dialog = document.createElement('div');
+            dialog.className = 'share-dialog';
+            dialog.id = 'share-dialog';
+            dialog.innerHTML = `
+                <div class="share-dialog-content">
+                    <h3>🔗 Share Study</h3>
+                    <input type="text" class="share-search-input" id="share-search" 
+                           placeholder="Search by email or name..." 
+                           oninput="searchUsersToShare(this.value)">
+                    <div class="share-results" id="share-results">
+                        <div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                            Type to search for users
+                        </div>
+                    </div>
+                    <div class="share-current-list" id="share-current">
+                        <h4>Currently shared with</h4>
+                        <div id="current-shares">Loading...</div>
+                    </div>
+                    <div class="share-dialog-buttons">
+                        <button class="btn" onclick="closeShareDialog()">Close</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(dialog);
+            
+            // Load current shares
+            loadCurrentShares(studyId);
+            
+            // Focus search input
+            document.getElementById('share-search').focus();
+            
+            // Close on backdrop click
+            dialog.addEventListener('click', (e) => {
+                if (e.target === dialog) closeShareDialog();
+            });
+        }
+        
+        function closeShareDialog() {
+            const dialog = document.getElementById('share-dialog');
+            if (dialog) dialog.remove();
+            currentShareStudyId = null;
+        }
+        
+        async function searchUsersToShare(query) {
+            const results = document.getElementById('share-results');
+            
+            if (!query || query.length < 2) {
+                results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                    Type at least 2 characters to search
+                </div>`;
+                return;
+            }
+            
+            // Debounce
+            clearTimeout(shareSearchTimeout);
+            shareSearchTimeout = setTimeout(async () => {
+                results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                    Searching...
+                </div>`;
+                
+                try {
+                    const response = await authFetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+                    if (!response.ok) throw new Error('Search failed');
+                    
+                    const data = await response.json();
+                    const users = data.users || [];
+                    
+                    if (users.length === 0) {
+                        results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                            No users found matching "${query}"
+                        </div>`;
+                        return;
+                    }
+                    
+                    results.innerHTML = users.map(user => `
+                        <div class="share-user-item" onclick="shareWithUser('${user.email}', this)">
+                            <img src="${user.picture || 'data:image/svg+xml,...'}" class="share-user-avatar" 
+                                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%2720%27 fill=%27%23334155%27/%3E%3Ctext x=%2720%27 y=%2726%27 text-anchor=%27middle%27 fill=%27%2394a3b8%27 font-size=%2716%27%3E${user.name ? user.name[0].toUpperCase() : '?'}%3C/text%3E%3C/svg%3E'">
+                            <div class="share-user-info">
+                                <div class="share-user-name">${user.name || 'Unknown'}</div>
+                                <div class="share-user-email">${user.email}</div>
+                            </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14"/>
+                            </svg>
+                        </div>
+                    `).join('');
+                } catch (e) {
+                    results.innerHTML = `<div style="color: var(--danger); text-align: center; padding: 20px;">
+                        Error: ${e.message}
+                    </div>`;
+                }
+            }, 300);
+        }
+        
+        async function shareWithUser(email, element) {
+            if (!currentShareStudyId) return;
+            
+            element.style.opacity = '0.5';
+            element.style.pointerEvents = 'none';
+            
+            try {
+                const response = await authFetch(`/api/studies/${currentShareStudyId}/share`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, permission: 'view' })
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Share failed');
+                }
+                
+                // Show success
+                element.innerHTML = `
+                    <span style="color: var(--accent);">✓ Shared with ${email}</span>
+                `;
+                
+                // Reload current shares
+                loadCurrentShares(currentShareStudyId);
+                
+                // Clear search
+                document.getElementById('share-search').value = '';
+                document.getElementById('share-results').innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                    Type to search for more users
+                </div>`;
+                
+            } catch (e) {
+                element.style.opacity = '1';
+                element.style.pointerEvents = 'auto';
+                alert('Failed to share: ' + e.message);
+            }
+        }
+        
+        async function loadCurrentShares(studyId) {
+            const container = document.getElementById('current-shares');
+            
+            try {
+                const response = await authFetch(`/api/studies/${studyId}/shares`);
+                if (!response.ok) throw new Error('Failed to load shares');
+                
+                const data = await response.json();
+                const shares = data.shares || [];
+                
+                if (shares.length === 0) {
+                    container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">
+                        Not shared with anyone yet
+                    </div>`;
+                    return;
+                }
+                
+                container.innerHTML = shares.map(share => `
+                    <div class="share-current-item">
+                        <img src="${share.picture || ''}" 
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%2712%27 fill=%27%23334155%27/%3E%3C/svg%3E'">
+                        <span class="email">${share.email}</span>
+                        <span style="color: var(--text-muted); font-size: 11px;">${share.permission}</span>
+                        <button class="share-remove-btn" onclick="unshareWithUser(${share.user_id})" title="Remove access">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                `).join('');
+                
+            } catch (e) {
+                container.innerHTML = `<div style="color: var(--danger); font-size: 13px;">
+                    ${e.message}
+                </div>`;
+            }
+        }
+        
+        async function unshareWithUser(userId) {
+            if (!currentShareStudyId) return;
+            if (!confirm('Remove access for this user?')) return;
+            
+            try {
+                const response = await authFetch(`/api/studies/${currentShareStudyId}/share/${userId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) throw new Error('Failed to remove share');
+                
+                // Reload
+                loadCurrentShares(currentShareStudyId);
+                
+            } catch (e) {
+                alert('Failed to remove: ' + e.message);
+            }
         }
 
         // =========================================

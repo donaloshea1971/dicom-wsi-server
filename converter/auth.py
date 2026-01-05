@@ -422,3 +422,198 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
         )
         
         return True
+
+
+async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> bool:
+    """Remove a share from a study"""
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        is_owner = await conn.fetchrow(
+            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
+            study_id,
+            owner_id
+        )
+        
+        if not is_owner:
+            return False
+        
+        # Remove share
+        await conn.execute(
+            "DELETE FROM study_shares WHERE study_id = $1 AND shared_with_id = $2",
+            study_id,
+            unshare_user_id
+        )
+        
+        return True
+
+
+async def get_owned_study_ids(user_id: int) -> list[str]:
+    """Get study IDs owned by a user (not shared with them)"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT study_id FROM study_owners WHERE user_id = $1",
+            user_id
+        )
+        return [row["study_id"] for row in rows]
+
+
+async def get_shared_with_me_study_ids(user_id: int) -> list[str]:
+    """Get study IDs shared with a user (not owned by them)"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT study_id FROM study_shares WHERE shared_with_id = $1",
+            user_id
+        )
+        return [row["study_id"] for row in rows]
+
+
+async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
+    """Get list of users a study is shared with"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        is_owner = await conn.fetchrow(
+            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
+            study_id,
+            owner_id
+        )
+        
+        if not is_owner:
+            return []
+        
+        rows = await conn.fetch(
+            """
+            SELECT ss.shared_with_id, ss.permission, ss.created_at, u.email, u.name, u.picture
+            FROM study_shares ss
+            JOIN users u ON ss.shared_with_id = u.id
+            WHERE ss.study_id = $1
+            """,
+            study_id
+        )
+        
+        return [
+            {
+                "user_id": row["shared_with_id"],
+                "email": row["email"],
+                "name": row["name"],
+                "picture": row["picture"],
+                "permission": row["permission"],
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None
+            }
+            for row in rows
+        ]
+
+
+async def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> list[dict]:
+    """Search users by email or name"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        # Search by email or name (case insensitive)
+        search_pattern = f"%{query}%"
+        
+        if exclude_user_id:
+            rows = await conn.fetch(
+                """
+                SELECT id, email, name, picture
+                FROM users
+                WHERE (email ILIKE $1 OR name ILIKE $1)
+                AND id != $2
+                LIMIT $3
+                """,
+                search_pattern,
+                exclude_user_id,
+                limit
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT id, email, name, picture
+                FROM users
+                WHERE email ILIKE $1 OR name ILIKE $1
+                LIMIT $2
+                """,
+                search_pattern,
+                limit
+            )
+        
+        return [
+            {
+                "id": row["id"],
+                "email": row["email"],
+                "name": row["name"],
+                "picture": row["picture"]
+            }
+            for row in rows
+        ]
+
+
+async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_email: str, permission: str = "view") -> dict:
+    """Share multiple studies with a user at once"""
+    pool = await get_db_pool()
+    if pool is None:
+        return {"success": 0, "failed": len(study_ids), "errors": ["Database unavailable"]}
+    
+    async with pool.acquire() as conn:
+        # Find target user
+        target_user = await conn.fetchrow(
+            "SELECT id FROM users WHERE email = $1",
+            share_with_email
+        )
+        
+        if not target_user:
+            return {"success": 0, "failed": len(study_ids), "errors": [f"User {share_with_email} not found"]}
+        
+        target_user_id = target_user["id"]
+        success = 0
+        failed = 0
+        errors = []
+        
+        for study_id in study_ids:
+            # Verify ownership
+            is_owner = await conn.fetchrow(
+                "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
+                study_id,
+                owner_id
+            )
+            
+            if not is_owner:
+                failed += 1
+                errors.append(f"Not owner of {study_id}")
+                continue
+            
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO study_shares (study_id, owner_id, shared_with_id, permission)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (study_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                    """,
+                    study_id,
+                    owner_id,
+                    target_user_id,
+                    permission
+                )
+                success += 1
+            except Exception as e:
+                failed += 1
+                errors.append(f"Failed to share {study_id}: {str(e)}")
+        
+        return {"success": success, "failed": failed, "errors": errors if errors else None}
