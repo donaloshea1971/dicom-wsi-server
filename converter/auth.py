@@ -268,7 +268,7 @@ async def require_admin(user: User = Depends(require_user)) -> User:
 
 async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> bool:
     """
-    Set the owner of a study.
+    Set the owner of a study by creating/updating a slide record.
     
     Args:
         study_id: Orthanc study ID
@@ -289,9 +289,9 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 # Always set ownership (overwrite if exists)
                 await conn.execute(
                     """
-                    INSERT INTO study_owners (study_id, user_id)
+                    INSERT INTO slides (orthanc_study_id, owner_id)
                     VALUES ($1, $2)
-                    ON CONFLICT (study_id) DO UPDATE SET user_id = $2
+                    ON CONFLICT (orthanc_study_id) DO UPDATE SET owner_id = $2, updated_at = CURRENT_TIMESTAMP
                     """,
                     study_id,
                     user_id
@@ -302,9 +302,9 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 # Only set if not already owned
                 result = await conn.execute(
                     """
-                    INSERT INTO study_owners (study_id, user_id)
+                    INSERT INTO slides (orthanc_study_id, owner_id)
                     VALUES ($1, $2)
-                    ON CONFLICT (study_id) DO NOTHING
+                    ON CONFLICT (orthanc_study_id) DO NOTHING
                     """,
                     study_id,
                     user_id
@@ -317,14 +317,14 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 else:
                     # Study already has an owner
                     existing = await conn.fetchrow(
-                        "SELECT user_id FROM study_owners WHERE study_id = $1",
+                        "SELECT owner_id FROM slides WHERE orthanc_study_id = $1",
                         study_id
                     )
-                    if existing and existing["user_id"] == user_id:
+                    if existing and existing["owner_id"] == user_id:
                         logger.debug(f"Study {study_id} already owned by user {user_id}")
                         return True  # Already owned by same user
                     else:
-                        logger.warning(f"Study {study_id} already owned by user {existing['user_id'] if existing else 'unknown'}")
+                        logger.warning(f"Study {study_id} already owned by user {existing['owner_id'] if existing else 'unknown'}")
                         return False
         except Exception as e:
             logger.error(f"Failed to set study owner: {e}")
