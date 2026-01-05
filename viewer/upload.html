@@ -407,6 +407,7 @@
         </a>
         <div style="display: flex; align-items: center; gap: 16px; margin-left: auto;">
             <a href="/" class="back-link">← Back to Viewer</a>
+            <button id="login-btn" class="btn btn-primary" onclick="login()" style="display: none;">Login</button>
             <div class="user-menu" id="user-menu" style="display: none;">
                 <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border);">
                     <img id="user-avatar" src="" alt="" style="width: 28px; height: 28px; border-radius: 50%;">
@@ -515,10 +516,21 @@
                     cacheLocation: 'localstorage'
                 });
                 
+                // Handle redirect callback from login
+                if (window.location.search.includes('code=') || window.location.search.includes('error=')) {
+                    try {
+                        await auth0Client.handleRedirectCallback();
+                        // Clean up URL
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    } catch (e) {
+                        console.error('Callback handling failed:', e);
+                    }
+                }
+                
                 const isAuthenticated = await auth0Client.isAuthenticated();
                 if (isAuthenticated) {
                     currentUser = await auth0Client.getUser();
-                    console.log('Authenticated as:', currentUser.email);
+                    console.log('✓ Authenticated as:', currentUser.email);
                     updateAuthUI(true);
                 } else {
                     console.log('Not authenticated - uploads will be anonymous');
@@ -526,18 +538,21 @@
                 }
             } catch (e) {
                 console.error('Auth init failed:', e);
+                updateAuthUI(false);
             }
         }
         
         function updateAuthUI(authenticated) {
             const authBadge = document.getElementById('auth-badge');
             const userMenu = document.getElementById('user-menu');
+            const loginBtn = document.getElementById('login-btn');
             const userAvatar = document.getElementById('user-avatar');
             const userName = document.getElementById('user-name');
             
             if (authenticated && currentUser) {
-                // Show user menu
+                // Show user menu, hide login button
                 if (userMenu) userMenu.style.display = 'block';
+                if (loginBtn) loginBtn.style.display = 'none';
                 if (userAvatar) userAvatar.src = currentUser.picture || '';
                 if (userName) userName.textContent = currentUser.name || currentUser.email;
                 
@@ -547,14 +562,33 @@
                     authBadge.style.color = 'var(--success)';
                 }
             } else {
-                // Hide user menu
+                // Hide user menu, show login button
                 if (userMenu) userMenu.style.display = 'none';
+                if (loginBtn) loginBtn.style.display = 'block';
                 
                 // Show warning
                 if (authBadge) {
-                    authBadge.innerHTML = '⚠ Not logged in - <a href="/" style="color: var(--accent);">Login on the main page first</a> to own your uploads';
+                    authBadge.innerHTML = '⚠ Not logged in - <button onclick="login()" style="color: var(--accent); background: none; border: none; cursor: pointer; text-decoration: underline;">Click to login</button> to own your uploads';
                     authBadge.style.color = 'var(--warning)';
                 }
+            }
+        }
+        
+        // Login via Auth0
+        async function login() {
+            if (!auth0Client) {
+                alert('Auth not initialized. Please refresh the page.');
+                return;
+            }
+            try {
+                await auth0Client.loginWithRedirect({
+                    authorizationParams: {
+                        redirect_uri: window.location.origin + '/upload.html'
+                    }
+                });
+            } catch (e) {
+                console.error('Login failed:', e);
+                alert('Login failed. Please try again.');
             }
         }
         
