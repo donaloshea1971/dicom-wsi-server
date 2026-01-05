@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>PathView Pro - Viewer</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230f172a'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2310b981' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%2310b981'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1124,7 +1127,7 @@
     <script src="dicomweb-tilesource.js"></script>
     <script src="color-correction.js"></script>
     <script src="annotations.js"></script>
-    <script src="space-navigator.js?v=1.10.0"></script>
+    <script src="space-navigator.js?v=1.10.1"></script>
     <script>
         // Auth0 Configuration
         const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
@@ -1268,7 +1271,7 @@
                 return; // Redirect will happen
             }
             
-            console.log('PathView Pro v1.0.11 loaded');
+            console.log('PathView Pro v1.0.12 loaded');
             console.log('SpaceMouse controller:', spaceNavController ? 'EXISTS' : 'NULL');
             checkServerStatus();
             initSpaceNavigator();
@@ -1424,7 +1427,7 @@
             const sampleBadge = ownershipType === 'sample' 
                 ? '<span class="sample-badge">SAMPLE</span>' 
                 : '';
-            
+                        
                         return `
                 <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
                     <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${sampleBadge}</div>
