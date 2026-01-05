@@ -1,5 +1,6 @@
 // Service Worker for WSI Tile Caching
-const CACHE_NAME = 'wsi-tiles-v1';
+// Build: 2026-01-05-gamepad-api
+const CACHE_NAME = 'wsi-tiles-v2';
 const TILE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_CACHE_SIZE = 500; // Max tiles to cache
 
