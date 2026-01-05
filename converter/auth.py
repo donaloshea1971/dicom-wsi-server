@@ -705,3 +705,349 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
                 errors.append(f"Failed to share {study_id}: {str(e)}")
         
         return {"success": success, "failed": failed, "errors": errors if errors else None}
+
+
+# =============================================================================
+# Slide Management Functions (New Hierarchy Model)
+# =============================================================================
+
+async def get_slide_by_orthanc_id(orthanc_study_id: str) -> Optional[dict]:
+    """Get slide record by Orthanc study ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, orthanc_study_id, display_name, stain, original_filename,
+                   source_format, scanner_manufacturer, width, height, magnification,
+                   block_id, case_id, patient_id, owner_id, is_sample,
+                   created_at, updated_at
+            FROM slides
+            WHERE orthanc_study_id = $1
+            """,
+            orthanc_study_id
+        )
+        
+        if row:
+            return dict(row)
+        return None
+
+
+async def create_slide(
+    orthanc_study_id: str,
+    owner_id: Optional[int] = None,
+    display_name: Optional[str] = None,
+    stain: Optional[str] = None,
+    original_filename: Optional[str] = None,
+    source_format: Optional[str] = None,
+    scanner_manufacturer: Optional[str] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    magnification: Optional[str] = None,
+    block_id: Optional[int] = None,
+    case_id: Optional[int] = None,
+    patient_id: Optional[int] = None
+) -> Optional[int]:
+    """Create a new slide record, returns slide ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO slides (
+                    orthanc_study_id, owner_id, display_name, stain,
+                    original_filename, source_format, scanner_manufacturer,
+                    width, height, magnification, block_id, case_id, patient_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                ON CONFLICT (orthanc_study_id) DO UPDATE SET
+                    owner_id = COALESCE(EXCLUDED.owner_id, slides.owner_id),
+                    display_name = COALESCE(EXCLUDED.display_name, slides.display_name),
+                    stain = COALESCE(EXCLUDED.stain, slides.stain),
+                    original_filename = COALESCE(EXCLUDED.original_filename, slides.original_filename),
+                    source_format = COALESCE(EXCLUDED.source_format, slides.source_format),
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
+                """,
+                orthanc_study_id, owner_id, display_name, stain,
+                original_filename, source_format, scanner_manufacturer,
+                width, height, magnification, block_id, case_id, patient_id
+            )
+            return row["id"] if row else None
+        except Exception as e:
+            logger.error(f"Failed to create slide: {e}")
+            return None
+
+
+async def update_slide(
+    slide_id: int,
+    display_name: Optional[str] = None,
+    stain: Optional[str] = None,
+    block_id: Optional[int] = None,
+    case_id: Optional[int] = None,
+    patient_id: Optional[int] = None
+) -> bool:
+    """Update slide metadata"""
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+    
+    async with pool.acquire() as conn:
+        # Build dynamic update
+        updates = []
+        params = []
+        idx = 1
+        
+        if display_name is not None:
+            updates.append(f"display_name = ${idx}")
+            params.append(display_name)
+            idx += 1
+        
+        if stain is not None:
+            updates.append(f"stain = ${idx}")
+            params.append(stain)
+            idx += 1
+            
+        # For hierarchy fields, None means "don't change", 0 or -1 means "clear"
+        if block_id is not None:
+            updates.append(f"block_id = ${idx}")
+            params.append(block_id if block_id > 0 else None)
+            idx += 1
+            
+        if case_id is not None:
+            updates.append(f"case_id = ${idx}")
+            params.append(case_id if case_id > 0 else None)
+            idx += 1
+            
+        if patient_id is not None:
+            updates.append(f"patient_id = ${idx}")
+            params.append(patient_id if patient_id > 0 else None)
+            idx += 1
+        
+        if not updates:
+            return True  # Nothing to update
+        
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(slide_id)
+        
+        query = f"UPDATE slides SET {', '.join(updates)} WHERE id = ${idx}"
+        
+        try:
+            result = await conn.execute(query, *params)
+            return "UPDATE 1" in result
+        except Exception as e:
+            logger.error(f"Failed to update slide: {e}")
+            return False
+
+
+async def get_user_slides(user_id: int) -> list[dict]:
+    """Get all slides visible to a user (owned + shared + via case shares)"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT s.*, 
+                CASE 
+                    WHEN s.owner_id = $1 THEN 'owner'
+                    WHEN EXISTS (SELECT 1 FROM slide_shares ss WHERE ss.slide_id = s.id AND ss.shared_with_id = $1) THEN 'shared'
+                    WHEN EXISTS (SELECT 1 FROM case_shares cs WHERE cs.case_id = s.case_id AND cs.shared_with_id = $1) THEN 'case_shared'
+                    ELSE 'sample'
+                END as permission
+            FROM slides s
+            WHERE s.owner_id = $1
+               OR EXISTS (SELECT 1 FROM slide_shares ss WHERE ss.slide_id = s.id AND ss.shared_with_id = $1)
+               OR EXISTS (SELECT 1 FROM case_shares cs WHERE cs.case_id = s.case_id AND cs.shared_with_id = $1)
+               OR s.is_sample = true
+            ORDER BY s.created_at DESC
+            """,
+            user_id
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_slides_categorized(user_id: int) -> dict:
+    """Get slides organized by ownership category"""
+    pool = await get_db_pool()
+    if pool is None:
+        return {"owned": [], "shared": [], "samples": []}
+    
+    async with pool.acquire() as conn:
+        # Owned slides
+        owned = await conn.fetch(
+            """
+            SELECT s.*, 
+                (SELECT COUNT(*) FROM slide_shares ss WHERE ss.slide_id = s.id) as share_count
+            FROM slides s
+            WHERE s.owner_id = $1
+            ORDER BY s.created_at DESC
+            """,
+            user_id
+        )
+        
+        # Shared with me
+        shared = await conn.fetch(
+            """
+            SELECT s.*, ss.permission, 'slide' as share_type
+            FROM slides s
+            JOIN slide_shares ss ON ss.slide_id = s.id
+            WHERE ss.shared_with_id = $1
+            
+            UNION
+            
+            SELECT s.*, cs.permission, 'case' as share_type
+            FROM slides s
+            JOIN case_shares cs ON cs.case_id = s.case_id
+            WHERE cs.shared_with_id = $1
+            
+            ORDER BY created_at DESC
+            """,
+            user_id
+        )
+        
+        # Sample slides (unowned or marked as sample)
+        samples = await conn.fetch(
+            """
+            SELECT s.*
+            FROM slides s
+            WHERE s.is_sample = true
+               OR (s.owner_id IS NULL AND NOT EXISTS (
+                   SELECT 1 FROM slide_shares ss WHERE ss.slide_id = s.id AND ss.shared_with_id = $1
+               ))
+            ORDER BY s.created_at DESC
+            LIMIT 50
+            """,
+            user_id
+        )
+        
+        return {
+            "owned": [dict(r) for r in owned],
+            "shared": [dict(r) for r in shared],
+            "samples": [dict(r) for r in samples]
+        }
+
+
+async def get_stain_types() -> list[dict]:
+    """Get available stain types for dropdown"""
+    pool = await get_db_pool()
+    if pool is None:
+        # Return defaults if DB unavailable
+        return [
+            {"code": "HE", "name": "H&E", "category": "Routine"},
+            {"code": "ER", "name": "ER", "category": "IHC"},
+            {"code": "PR", "name": "PR", "category": "IHC"},
+            {"code": "HER2", "name": "HER2", "category": "IHC"},
+            {"code": "KI67", "name": "Ki-67", "category": "IHC"},
+            {"code": "OTHER", "name": "Other", "category": "Other"},
+        ]
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT code, name, category FROM stain_types ORDER BY sort_order, name"
+        )
+        return [dict(r) for r in rows]
+
+
+# =============================================================================
+# Case & Block Management
+# =============================================================================
+
+async def create_case(
+    owner_id: int,
+    accession_number: Optional[str] = None,
+    case_type: Optional[str] = None,
+    specimen_type: Optional[str] = None,
+    patient_id: Optional[int] = None
+) -> Optional[int]:
+    """Create a new case, returns case ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO cases (owner_id, accession_number, case_type, specimen_type, patient_id)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id
+            """,
+            owner_id, accession_number, case_type, specimen_type, patient_id
+        )
+        return row["id"] if row else None
+
+
+async def create_block(
+    owner_id: int,
+    block_id: str,
+    case_id: Optional[int] = None,
+    tissue_type: Optional[str] = None,
+    patient_id: Optional[int] = None
+) -> Optional[int]:
+    """Create a new block, returns block ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO blocks (owner_id, block_id, case_id, tissue_type, patient_id)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id
+            """,
+            owner_id, block_id, case_id, tissue_type, patient_id
+        )
+        return row["id"] if row else None
+
+
+async def get_user_cases(user_id: int) -> list[dict]:
+    """Get cases owned by or shared with user"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT c.*, 
+                (SELECT COUNT(*) FROM slides s WHERE s.case_id = c.id) as slide_count,
+                p.name as patient_name,
+                p.mrn as patient_mrn
+            FROM cases c
+            LEFT JOIN patients p ON c.patient_id = p.id
+            WHERE c.owner_id = $1
+               OR EXISTS (SELECT 1 FROM case_shares cs WHERE cs.case_id = c.id AND cs.shared_with_id = $1)
+            ORDER BY c.created_at DESC
+            """,
+            user_id
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_user_patients(user_id: int) -> list[dict]:
+    """Get patients owned by user"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT p.*,
+                (SELECT COUNT(*) FROM cases c WHERE c.patient_id = p.id) as case_count,
+                (SELECT COUNT(*) FROM slides s WHERE s.patient_id = p.id OR 
+                    s.case_id IN (SELECT id FROM cases WHERE patient_id = p.id)) as slide_count
+            FROM patients p
+            WHERE p.owner_id = $1
+            ORDER BY p.name, p.created_at DESC
+            """,
+            user_id
+        )
+        return [dict(r) for r in rows]

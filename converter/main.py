@@ -1978,6 +1978,235 @@ async def get_categorized_studies(
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
 
+# =============================================================================
+# Slide Management API (New Hierarchy Model)
+# =============================================================================
+
+from auth import (
+    get_slide_by_orthanc_id, create_slide, update_slide, get_user_slides,
+    get_slides_categorized, get_stain_types, create_case, create_block,
+    get_user_cases, get_user_patients
+)
+
+
+class SlideUpdate(BaseModel):
+    """Request model for updating slide metadata"""
+    display_name: Optional[str] = None
+    stain: Optional[str] = None
+    block_id: Optional[int] = None  # -1 to clear
+    case_id: Optional[int] = None   # -1 to clear
+    patient_id: Optional[int] = None  # -1 to clear
+
+
+class CaseCreate(BaseModel):
+    """Request model for creating a case"""
+    accession_number: Optional[str] = None
+    case_type: Optional[str] = None
+    specimen_type: Optional[str] = None
+    patient_id: Optional[int] = None
+
+
+class BlockCreate(BaseModel):
+    """Request model for creating a block"""
+    block_id: str  # A1, A2, B1, etc.
+    case_id: Optional[int] = None
+    tissue_type: Optional[str] = None
+    patient_id: Optional[int] = None
+
+
+@app.get("/slides")
+async def list_slides(user: User = Depends(require_user)):
+    """Get all slides visible to user, organized by category"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    result = await get_slides_categorized(user.id)
+    return result
+
+
+@app.get("/slides/stains")
+async def list_stain_types():
+    """Get available stain types for dropdown"""
+    stains = await get_stain_types()
+    return {"stains": stains}
+
+
+@app.get("/slides/{orthanc_id}")
+async def get_slide(orthanc_id: str, user: Optional[User] = Depends(get_current_user)):
+    """Get slide details by Orthanc study ID"""
+    slide = await get_slide_by_orthanc_id(orthanc_id)
+    
+    if slide:
+        return slide
+    
+    # If no slide record exists, return basic info from Orthanc
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/studies/{orthanc_id}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                orthanc_data = response.json()
+                return {
+                    "orthanc_study_id": orthanc_id,
+                    "display_name": orthanc_data.get("MainDicomTags", {}).get("StudyDescription"),
+                    "stain": None,
+                    "owner_id": None,
+                    "orthanc_data": orthanc_data
+                }
+    except:
+        pass
+    
+    raise HTTPException(status_code=404, detail="Slide not found")
+
+
+@app.put("/slides/{orthanc_id}")
+async def update_slide_metadata(
+    orthanc_id: str,
+    slide_update: SlideUpdate,
+    user: User = Depends(require_user)
+):
+    """Update slide display name, stain, or hierarchy assignment"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    # Get or create slide record
+    slide = await get_slide_by_orthanc_id(orthanc_id)
+    
+    if not slide:
+        # Create new slide record
+        slide_id = await create_slide(
+            orthanc_study_id=orthanc_id,
+            owner_id=user.id,
+            display_name=slide_update.display_name,
+            stain=slide_update.stain
+        )
+        if not slide_id:
+            raise HTTPException(status_code=500, detail="Failed to create slide record")
+        
+        return {"message": "Slide created", "slide_id": slide_id}
+    
+    # Verify ownership
+    if slide["owner_id"] and slide["owner_id"] != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to edit this slide")
+    
+    # Update slide
+    success = await update_slide(
+        slide_id=slide["id"],
+        display_name=slide_update.display_name,
+        stain=slide_update.stain,
+        block_id=slide_update.block_id,
+        case_id=slide_update.case_id,
+        patient_id=slide_update.patient_id
+    )
+    
+    if success:
+        return {"message": "Slide updated"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update slide")
+
+
+@app.post("/slides/{orthanc_id}/assign")
+async def assign_slide(
+    orthanc_id: str,
+    block_id: Optional[int] = None,
+    case_id: Optional[int] = None,
+    patient_id: Optional[int] = None,
+    user: User = Depends(require_user)
+):
+    """Assign slide to a block, case, or patient"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    slide = await get_slide_by_orthanc_id(orthanc_id)
+    
+    if not slide:
+        # Create slide record first
+        slide_id = await create_slide(orthanc_study_id=orthanc_id, owner_id=user.id)
+        if not slide_id:
+            raise HTTPException(status_code=500, detail="Failed to create slide record")
+    else:
+        slide_id = slide["id"]
+        # Check ownership
+        if slide["owner_id"] and slide["owner_id"] != user.id and user.role != "admin":
+            raise HTTPException(status_code=403, detail="Not authorized")
+    
+    success = await update_slide(
+        slide_id=slide_id,
+        block_id=block_id if block_id else -1,  # -1 clears
+        case_id=case_id if case_id else -1,
+        patient_id=patient_id if patient_id else -1
+    )
+    
+    return {"message": "Slide assigned" if success else "Assignment failed"}
+
+
+# =============================================================================
+# Case & Block Management
+# =============================================================================
+
+@app.get("/cases")
+async def list_cases(user: User = Depends(require_user)):
+    """Get cases owned by or shared with user"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    cases = await get_user_cases(user.id)
+    return {"cases": cases, "count": len(cases)}
+
+
+@app.post("/cases")
+async def create_new_case(case_data: CaseCreate, user: User = Depends(require_user)):
+    """Create a new case"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    case_id = await create_case(
+        owner_id=user.id,
+        accession_number=case_data.accession_number,
+        case_type=case_data.case_type,
+        specimen_type=case_data.specimen_type,
+        patient_id=case_data.patient_id
+    )
+    
+    if case_id:
+        return {"message": "Case created", "case_id": case_id}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to create case")
+
+
+@app.post("/blocks")
+async def create_new_block(block_data: BlockCreate, user: User = Depends(require_user)):
+    """Create a new block"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    block_id = await create_block(
+        owner_id=user.id,
+        block_id=block_data.block_id,
+        case_id=block_data.case_id,
+        tissue_type=block_data.tissue_type,
+        patient_id=block_data.patient_id
+    )
+    
+    if block_id:
+        return {"message": "Block created", "block_id": block_id}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to create block")
+
+
+@app.get("/patients")
+async def list_patients(user: User = Depends(require_user)):
+    """Get patients owned by user"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    patients = await get_user_patients(user.id)
+    return {"patients": patients, "count": len(patients)}
+
+
 @app.get("/studies/{study_id}")
 async def get_study(study_id: str):
     """Get study details from Orthanc"""

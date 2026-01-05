@@ -275,6 +275,112 @@
             border-color: #059669;
         }
         
+        /* Edit button */
+        .edit-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 6px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .edit-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-dark);
+        }
+        
+        /* Card actions container */
+        .card-actions {
+            display: flex;
+            gap: 4px;
+        }
+        
+        /* Stain badge */
+        .stain-badge {
+            background: var(--accent);
+            color: var(--bg-dark);
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 4px;
+        }
+        
+        /* Slide Edit Dialog */
+        .slide-edit-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        
+        .slide-edit-dialog-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90vw;
+        }
+        
+        .slide-edit-dialog-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .slide-edit-dialog-header h3 {
+            color: var(--text-primary);
+            margin: 0;
+        }
+        
+        .slide-edit-dialog-body label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        
+        .slide-edit-dialog-body input,
+        .slide-edit-dialog-body select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .slide-edit-dialog-body input:focus,
+        .slide-edit-dialog-body select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .slide-edit-dialog-footer {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
         /* Share Dialog */
         .share-dialog {
             position: fixed;
@@ -770,6 +876,17 @@
         .btn-primary:hover {
             background: var(--accent-dim);
         }
+        
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border-color: var(--border);
+            color: var(--text-secondary);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
 
         /* Scrollbar */
         ::-webkit-scrollbar {
@@ -1186,7 +1303,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h2>Studies</h2>
+            <h2>🔬 Slides</h2>
         </div>
         <div class="study-list" id="study-list">
             <div class="empty-state">
@@ -1195,7 +1312,7 @@
                     <line x1="3" y1="9" x2="21" y2="9"/>
                     <line x1="9" y1="21" x2="9" y2="9"/>
                 </svg>
-                <p>No studies found</p>
+                <p>No slides found</p>
                 <p style="margin-top: 8px; font-size: 12px;">Upload a WSI file to get started</p>
             </div>
         </div>
@@ -1209,7 +1326,7 @@
                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                     <circle cx="12" cy="12" r="3"/>
                 </svg>
-                <h3>Select a study to view</h3>
+                <h3>Select a slide to view</h3>
                 <p>Choose from the sidebar or upload a new WSI file</p>
             </div>
         </div>
@@ -1342,6 +1459,44 @@
             <div class="annotations-list" id="annotations-list">
                 <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">
                     No annotations yet.<br>Use the tools on the left to add measurements.
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide Edit Dialog -->
+        <div id="slide-edit-dialog" class="slide-edit-dialog" style="display: none;">
+            <div class="slide-edit-dialog-content">
+                <div class="slide-edit-dialog-header">
+                    <h3>✏️ Edit Slide</h3>
+                    <button class="modal-close" onclick="closeSlideEditDialog()">&times;</button>
+                </div>
+                <div class="slide-edit-dialog-body">
+                    <input type="hidden" id="slide-edit-id">
+                    <label for="slide-edit-name">Slide Name</label>
+                    <input type="text" id="slide-edit-name" placeholder="Enter slide name...">
+                    <label for="slide-edit-stain">Stain Type</label>
+                    <select id="slide-edit-stain">
+                        <option value="">-- Select Stain --</option>
+                        <option value="HE">H&E (Hematoxylin & Eosin)</option>
+                        <option value="ER">ER (Estrogen Receptor)</option>
+                        <option value="PR">PR (Progesterone Receptor)</option>
+                        <option value="HER2">HER2/neu</option>
+                        <option value="KI67">Ki-67</option>
+                        <option value="P53">p53</option>
+                        <option value="CK7">Cytokeratin 7</option>
+                        <option value="CK20">Cytokeratin 20</option>
+                        <option value="CD3">CD3 (T-cell)</option>
+                        <option value="CD20">CD20 (B-cell)</option>
+                        <option value="S100">S-100</option>
+                        <option value="SOX10">SOX10</option>
+                        <option value="PAS">PAS</option>
+                        <option value="TRICHROME">Trichrome</option>
+                        <option value="OTHER">Other</option>
+                    </select>
+                </div>
+                <div class="slide-edit-dialog-footer">
+                    <button class="btn btn-secondary" onclick="closeSlideEditDialog()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveSlideEdit()">Save</button>
                 </div>
             </div>
         </div>
@@ -1641,7 +1796,7 @@
                 return; // Redirect will happen
             }
             
-            console.log('PathView Pro v1.0.13 loaded');
+            console.log('PathView Pro v1.1.0 loaded - Slide Hierarchy');
             console.log('SpaceMouse controller:', spaceNavController ? 'EXISTS' : 'NULL');
             checkServerStatus();
             initSpaceNavigator();
@@ -1760,24 +1915,24 @@
                         
                         let html = '';
                         
-                        // Show owned studies
+                        // Show owned slides
                         if (ownedStudies.length > 0) {
-                            html += `<div class="study-section-header">📁 Your Images (${ownedStudies.length})</div>`;
+                            html += `<div class="study-section-header">🔬 Your Slides (${ownedStudies.length})</div>`;
                             html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
                         }
                         
-                        // Show shared studies
+                        // Show shared slides
                         if (sharedStudies.length > 0) {
                             html += `<div class="study-section-header" style="margin-top: 16px;">🔗 Shared with You (${sharedStudies.length})</div>`;
                             html += sharedStudies.map(study => renderStudyCard(study, 'shared')).join('');
                         }
                         
-                        // Show sample studies
+                        // Show sample slides
                         if (sampleStudies.length > 0 && !hideSamples) {
                             html += `
                                 <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>📚 Sample Images (${sampleStudies.length})</span>
-                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample images">
+                                    <span>📚 Sample Slides (${sampleStudies.length})</span>
+                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
                                         ✕ Hide
                                     </button>
                                 </div>
@@ -1823,15 +1978,15 @@
                         let html = '';
                         
                         if (ownedStudies.length > 0) {
-                            html += `<div class="study-section-header">📁 Your Images</div>`;
+                            html += `<div class="study-section-header">🔬 Your Slides</div>`;
                             html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
                         }
                         
                         if (sampleStudies.length > 0 && !hideSamples) {
                             html += `
                                 <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>📚 Sample Images</span>
-                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample images">
+                                    <span>📚 Sample Slides</span>
+                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
                                         ✕ Hide
                                     </button>
                                 </div>
@@ -1859,13 +2014,15 @@
         }
         
         function renderStudyCard(study, ownershipType) {
-                        const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
-                        const accession = study.MainDicomTags?.AccessionNumber;
-                        const studyDesc = study.MainDicomTags?.StudyDescription;
-                        const studyDate = formatDicomDate(study.MainDicomTags?.StudyDate);
-                        
-                        const displayName = accession || studyDesc || patientName || 'Unnamed Study';
-                        const subtitle = patientName || 'Unknown Patient';
+            const patientName = formatDicomName(study.PatientMainDicomTags?.PatientName);
+            const accession = study.MainDicomTags?.AccessionNumber;
+            const studyDesc = study.MainDicomTags?.StudyDescription;
+            const studyDate = formatDicomDate(study.MainDicomTags?.StudyDate);
+            
+            // Use custom display_name from slide record if available, otherwise DICOM data
+            const displayName = study.display_name || accession || studyDesc || patientName || 'Unnamed Slide';
+            const subtitle = patientName || 'Unknown Patient';
+            const stain = study.stain;
                         
             let badge = '';
             if (ownershipType === 'sample') {
@@ -1874,29 +2031,45 @@
                 badge = '<span class="shared-badge">SHARED</span>';
             }
             
-            // Share button only for owned studies
+            // Stain badge
+            const stainBadge = stain ? `<span class="stain-badge">${stain}</span>` : '';
+            
+            // Share button only for owned slides
             const isShared = study.shareCount > 0;
             const shareBtn = ownershipType === 'owned' 
-                ? `<button class="share-btn ${isShared ? 'shared' : ''}" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="${isShared ? 'Shared with ' + study.shareCount + ' user(s)' : 'Share this study'}">
+                ? `<button class="share-btn ${isShared ? 'shared' : ''}" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="${isShared ? 'Shared with ' + study.shareCount + ' user(s)' : 'Share this slide'}">
                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
                        </svg>
                    </button>`
                 : '';
+            
+            // Edit button only for owned slides
+            const editBtn = ownershipType === 'owned'
+                ? `<button class="edit-btn" onclick="event.stopPropagation(); openSlideEditDialog('${study.ID}', '${displayName.replace(/'/g, "\\'")}', '${stain || ''}')" title="Edit slide name">
+                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                       </svg>
+                   </button>`
+                : '';
                         
-                        return `
+            return `
                 <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''} ${ownershipType === 'shared' ? 'shared-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
                     <div class="study-header">
-                        <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${badge}</div>
-                        ${shareBtn}
+                        <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${badge} ${stainBadge}</div>
+                        <div class="card-actions">
+                            ${editBtn}
+                            ${shareBtn}
+                        </div>
                     </div>
-                                <div class="study-desc">${displayName}</div>
-                                <div class="study-meta">
-                                    ${subtitle} • ${study.Series?.length || 0} series
-                                </div>
-                            </div>
-                        `;
+                    <div class="study-desc">${displayName}</div>
+                    <div class="study-meta">
+                        ${subtitle} • ${study.Series?.length || 0} series
+                    </div>
+                </div>
+            `;
         }
         
         function renderEmptyState(samplesHidden) {
@@ -1907,11 +2080,11 @@
                                 <line x1="3" y1="9" x2="21" y2="9"/>
                                 <line x1="9" y1="21" x2="9" y2="9"/>
                             </svg>
-                            <p>No studies found</p>
+                            <p>No slides found</p>
                             <p style="margin-top: 8px; font-size: 12px;">Upload a WSI file to get started</p>
                     ${samplesHidden ? `
                         <button class="btn" style="margin-top: 12px;" onclick="showSamples()">
-                            Show Sample Images
+                            Show Sample Slides
                         </button>
                     ` : ''}
                         </div>
@@ -2655,6 +2828,80 @@
         let currentShareStudyId = null;
         let shareSearchTimeout = null;
         
+        // =============================================================================
+        // Slide Edit Functions
+        // =============================================================================
+        
+        let currentEditSlideId = null;
+        
+        function openSlideEditDialog(slideId, displayName, stain) {
+            currentEditSlideId = slideId;
+            document.getElementById('slide-edit-id').value = slideId;
+            document.getElementById('slide-edit-name').value = displayName || '';
+            document.getElementById('slide-edit-stain').value = stain || '';
+            document.getElementById('slide-edit-dialog').style.display = 'flex';
+            document.getElementById('slide-edit-name').focus();
+        }
+        
+        function closeSlideEditDialog() {
+            document.getElementById('slide-edit-dialog').style.display = 'none';
+            currentEditSlideId = null;
+        }
+        
+        async function saveSlideEdit() {
+            const slideId = document.getElementById('slide-edit-id').value;
+            const displayName = document.getElementById('slide-edit-name').value.trim();
+            const stain = document.getElementById('slide-edit-stain').value;
+            
+            if (!slideId) {
+                alert('No slide selected');
+                return;
+            }
+            
+            try {
+                const response = await authFetch(`/api/slides/${slideId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        display_name: displayName || null,
+                        stain: stain || null
+                    })
+                });
+                
+                if (response.ok) {
+                    closeSlideEditDialog();
+                    // Refresh the slide list to show updated name
+                    await refreshStudies();
+                    
+                    // Update the card immediately
+                    const card = document.querySelector(`.study-card[data-id="${slideId}"]`);
+                    if (card) {
+                        const descEl = card.querySelector('.study-desc');
+                        if (descEl && displayName) {
+                            descEl.textContent = displayName;
+                        }
+                    }
+                } else {
+                    const err = await response.json();
+                    alert('Failed to save: ' + (err.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Failed to save slide:', error);
+                alert('Failed to save slide: ' + error.message);
+            }
+        }
+        
+        // Close edit dialog on Escape
+        document.getElementById('slide-edit-dialog')?.addEventListener('click', (e) => {
+            if (e.target.id === 'slide-edit-dialog') {
+                closeSlideEditDialog();
+            }
+        });
+        
+        // =============================================================================
+        // Share Functions
+        // =============================================================================
+
         async function openShareDialog(studyId) {
             currentShareStudyId = studyId;
             
@@ -2664,7 +2911,7 @@
             dialog.id = 'share-dialog';
             dialog.innerHTML = `
                 <div class="share-dialog-content">
-                    <h3>🔗 Share Study</h3>
+                    <h3>🔗 Share Slide</h3>
                     <input type="text" class="share-search-input" id="share-search" 
                            placeholder="Search by email or name..." 
                            oninput="searchUsersToShare(this.value)">
