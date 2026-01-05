@@ -587,22 +587,26 @@
                     </div>
                 </div>
             </div>
-            <div class="hero-visual">
+            <div class="hero-visual" id="demo">
                 <div class="viewer-preview">
                     <div class="preview-header">
                         <span class="preview-dot red"></span>
                         <span class="preview-dot yellow"></span>
                         <span class="preview-dot green"></span>
+                        <span style="margin-left: auto; color: var(--text-muted); font-size: 12px;">PathView Pro Demo</span>
                     </div>
-                    <div class="preview-content">
-                        <div class="preview-placeholder">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5"/>
-                                <path d="M21 15l-5-5L5 21"/>
-                            </svg>
-                            <div>Interactive Viewer Preview</div>
-                        </div>
+                    <div class="preview-content" style="padding: 0; height: auto;">
+                        <video 
+                            id="demo-video"
+                            autoplay 
+                            loop 
+                            muted 
+                            playsinline
+                            style="width: 100%; display: block; border-radius: 0 0 15px 15px;"
+                        >
+                            <source src="/demo-video.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
                     </div>
                 </div>
             </div>

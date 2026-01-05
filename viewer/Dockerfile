@@ -17,6 +17,7 @@ COPY annotations.js /usr/share/nginx/html/
 COPY space-navigator.js /usr/share/nginx/html/
 COPY spacemouse-calibration.html /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
+COPY demo-video.mp4 /usr/share/nginx/html/
 
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
@@ -164,7 +165,7 @@ http {
             try_files \$uri \$uri/ /landing.html;
             
             # Cache static assets
-            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)\$ {
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|mp4|webm)\$ {
                 expires 30d;
                 add_header Cache-Control "public, immutable";
             }
