@@ -1055,3 +1055,29 @@ async def get_user_patients(user_id: int) -> list[dict]:
             user_id
         )
         return [dict(r) for r in rows]
+
+
+async def create_patient(
+    owner_id: int,
+    name: Optional[str] = None,
+    mrn: Optional[str] = None
+) -> Optional[int]:
+    """Create a new patient, returns patient ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO patients (owner_id, name, mrn)
+                VALUES ($1, $2, $3)
+                RETURNING id
+                """,
+                owner_id, name, mrn
+            )
+            return row["id"] if row else None
+    except Exception as e:
+        logger.error(f"Failed to create patient: {e}")
+        return None

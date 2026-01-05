@@ -1493,6 +1493,35 @@
                         <option value="TRICHROME">Trichrome</option>
                         <option value="OTHER">Other</option>
                     </select>
+                    
+                    <hr style="border: none; border-top: 1px solid var(--border); margin: 16px 0;">
+                    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">
+                        📁 Organization (optional)
+                    </p>
+                    
+                    <label for="slide-edit-case">Case / Accession</label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="slide-edit-case" style="flex: 1;">
+                            <option value="">-- No Case --</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="showNewCaseForm()" title="Create new case" style="padding: 8px 12px;">+</button>
+                    </div>
+                    
+                    <label for="slide-edit-block">Block</label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="slide-edit-block" style="flex: 1;">
+                            <option value="">-- No Block --</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="showNewBlockForm()" title="Create new block" style="padding: 8px 12px;">+</button>
+                    </div>
+                    
+                    <label for="slide-edit-patient">Patient</label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="slide-edit-patient" style="flex: 1;">
+                            <option value="">-- No Patient --</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="showNewPatientForm()" title="Create new patient" style="padding: 8px 12px;">+</button>
+                    </div>
                 </div>
                 <div class="slide-edit-dialog-footer">
                     <button class="btn btn-secondary" onclick="closeSlideEditDialog()">Cancel</button>
@@ -2834,24 +2863,83 @@
         
         let currentEditSlideId = null;
         
-        function openSlideEditDialog(slideId, displayName, stain) {
+        async function openSlideEditDialog(slideId, displayName, stain) {
             currentEditSlideId = slideId;
             document.getElementById('slide-edit-id').value = slideId;
             document.getElementById('slide-edit-name').value = displayName || '';
             document.getElementById('slide-edit-stain').value = stain || '';
+            
+            // Reset hierarchy dropdowns
+            document.getElementById('slide-edit-case').innerHTML = '<option value="">-- No Case --</option>';
+            document.getElementById('slide-edit-block').innerHTML = '<option value="">-- No Block --</option>';
+            document.getElementById('slide-edit-patient').innerHTML = '<option value="">-- No Patient --</option>';
+            
+            // Load existing slide data to get current assignments
+            try {
+                const slideData = await authFetch(`/api/slides/${slideId}`);
+                if (slideData.ok) {
+                    const slide = await slideData.json();
+                    // Store current assignments
+                    window.currentSlideData = slide;
+                }
+            } catch (e) {
+                console.log('Could not load slide data:', e);
+            }
+            
+            // Load cases, blocks, patients for dropdowns
+            await loadHierarchyOptions();
+            
             document.getElementById('slide-edit-dialog').style.display = 'flex';
             document.getElementById('slide-edit-name').focus();
+        }
+        
+        async function loadHierarchyOptions() {
+            try {
+                // Load cases
+                const casesRes = await authFetch('/api/cases');
+                if (casesRes.ok) {
+                    const data = await casesRes.json();
+                    const caseSelect = document.getElementById('slide-edit-case');
+                    data.cases?.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c.id;
+                        opt.textContent = c.accession_number || `Case #${c.id}`;
+                        if (window.currentSlideData?.case_id === c.id) opt.selected = true;
+                        caseSelect.appendChild(opt);
+                    });
+                }
+                
+                // Load patients
+                const patientsRes = await authFetch('/api/patients');
+                if (patientsRes.ok) {
+                    const data = await patientsRes.json();
+                    const patientSelect = document.getElementById('slide-edit-patient');
+                    data.patients?.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.textContent = p.name || p.mrn || `Patient #${p.id}`;
+                        if (window.currentSlideData?.patient_id === p.id) opt.selected = true;
+                        patientSelect.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.log('Could not load hierarchy options:', e);
+            }
         }
         
         function closeSlideEditDialog() {
             document.getElementById('slide-edit-dialog').style.display = 'none';
             currentEditSlideId = null;
+            window.currentSlideData = null;
         }
         
         async function saveSlideEdit() {
             const slideId = document.getElementById('slide-edit-id').value;
             const displayName = document.getElementById('slide-edit-name').value.trim();
             const stain = document.getElementById('slide-edit-stain').value;
+            const caseId = document.getElementById('slide-edit-case').value;
+            const blockId = document.getElementById('slide-edit-block').value;
+            const patientId = document.getElementById('slide-edit-patient').value;
             
             if (!slideId) {
                 alert('No slide selected');
@@ -2864,7 +2952,10 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         display_name: displayName || null,
-                        stain: stain || null
+                        stain: stain || null,
+                        case_id: caseId ? parseInt(caseId) : -1,  // -1 to clear
+                        block_id: blockId ? parseInt(blockId) : -1,
+                        patient_id: patientId ? parseInt(patientId) : -1
                     })
                 });
                 
@@ -2888,6 +2979,96 @@
             } catch (error) {
                 console.error('Failed to save slide:', error);
                 alert('Failed to save slide: ' + error.message);
+            }
+        }
+        
+        // Quick create new case
+        async function showNewCaseForm() {
+            const accession = prompt('Enter Case/Accession Number:\n(e.g., S24-12345)');
+            if (!accession) return;
+            
+            try {
+                const response = await authFetch('/api/cases', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accession_number: accession.trim() })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    // Add to dropdown and select it
+                    const select = document.getElementById('slide-edit-case');
+                    const opt = document.createElement('option');
+                    opt.value = result.case_id;
+                    opt.textContent = accession.trim();
+                    opt.selected = true;
+                    select.appendChild(opt);
+                } else {
+                    alert('Failed to create case');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        // Quick create new block
+        async function showNewBlockForm() {
+            const blockId = prompt('Enter Block ID:\n(e.g., A1, A2, B1)');
+            if (!blockId) return;
+            
+            const caseId = document.getElementById('slide-edit-case').value;
+            
+            try {
+                const response = await authFetch('/api/blocks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        block_id: blockId.trim(),
+                        case_id: caseId ? parseInt(caseId) : null
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    const select = document.getElementById('slide-edit-block');
+                    const opt = document.createElement('option');
+                    opt.value = result.block_id;
+                    opt.textContent = blockId.trim();
+                    opt.selected = true;
+                    select.appendChild(opt);
+                } else {
+                    alert('Failed to create block');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        // Quick create new patient
+        async function showNewPatientForm() {
+            const name = prompt('Enter Patient Name:\n(or MRN if no name)');
+            if (!name) return;
+            
+            try {
+                const response = await authFetch('/api/patients', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim() })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    const select = document.getElementById('slide-edit-patient');
+                    const opt = document.createElement('option');
+                    opt.value = result.patient_id;
+                    opt.textContent = name.trim();
+                    opt.selected = true;
+                    select.appendChild(opt);
+                } else {
+                    alert('Failed to create patient');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
             }
         }
         

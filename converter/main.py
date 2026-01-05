@@ -2219,6 +2219,33 @@ async def list_patients(user: User = Depends(require_user)):
     return {"patients": patients, "count": len(patients)}
 
 
+class PatientCreate(BaseModel):
+    """Request model for creating a patient"""
+    name: Optional[str] = None
+    mrn: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    sex: Optional[str] = None
+
+
+@app.post("/patients")
+async def create_new_patient(patient_data: PatientCreate, user: User = Depends(require_user)):
+    """Create a new patient"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    from auth import create_patient
+    patient_id = await create_patient(
+        owner_id=user.id,
+        name=patient_data.name,
+        mrn=patient_data.mrn
+    )
+    
+    if patient_id:
+        return {"message": "Patient created", "patient_id": patient_id}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to create patient")
+
+
 @app.get("/studies/{study_id}")
 async def get_study(study_id: str):
     """Get study details from Orthanc"""
