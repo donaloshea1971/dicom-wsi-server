@@ -621,34 +621,88 @@
         // Drop zone events
         dropZone.addEventListener('click', () => fileInput.click());
         
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('drag-over');
+        // Prevent default drag behaviors on the whole document
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
         });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('drag-over');
+        
+        // Highlight drop zone on drag enter/over
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.add('drag-over');
+            }, false);
+        });
+        
+        // Remove highlight on drag leave/drop
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.remove('drag-over');
+            }, false);
         });
 
         dropZone.addEventListener('drop', async (e) => {
             e.preventDefault();
+            e.stopPropagation();
             dropZone.classList.remove('drag-over');
             
-            const items = e.dataTransfer.items;
+            console.log('Drop event received');
             const files = [];
             
-            // Handle directory drops
-            for (const item of items) {
-                if (item.kind === 'file') {
-                    const entry = item.webkitGetAsEntry();
-                    if (entry) {
+            // Try to use DataTransferItemList with webkitGetAsEntry for folder support
+            if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+                console.log(`Processing ${e.dataTransfer.items.length} items`);
+                
+                const entries = [];
+                // First, collect all entries (must be done synchronously)
+                for (let i = 0; i < e.dataTransfer.items.length; i++) {
+                    const item = e.dataTransfer.items[i];
+                    if (item.kind === 'file') {
+                        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                        if (entry) {
+                            entries.push(entry);
+                        } else {
+                            // Fallback: get as file directly
+                            const file = item.getAsFile();
+                            if (file) {
+                                files.push(file);
+                            }
+                        }
+                    }
+                }
+                
+                // Now traverse entries asynchronously
+                for (const entry of entries) {
+                    try {
                         await traverseEntry(entry, files);
+                    } catch (err) {
+                        console.error('Error traversing entry:', err);
                     }
                 }
             }
             
-            addFilesToQueue(files);
-        });
+            // Fallback to FileList if no files collected via items
+            if (files.length === 0 && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                console.log(`Fallback: using FileList with ${e.dataTransfer.files.length} files`);
+                for (let i = 0; i < e.dataTransfer.files.length; i++) {
+                    files.push(e.dataTransfer.files[i]);
+                }
+            }
+            
+            console.log(`Total files collected: ${files.length}`);
+            
+            if (files.length > 0) {
+                addFilesToQueue(files);
+            } else {
+                console.warn('No files found in drop');
+            }
+        }, false);
 
         fileInput.addEventListener('change', (e) => {
             addFilesToQueue(Array.from(e.target.files));
@@ -657,30 +711,42 @@
 
         // Traverse directory entries recursively
         async function traverseEntry(entry, files, path = '') {
-            if (entry.isFile) {
-                const file = await new Promise((resolve) => entry.file(resolve));
-                file.relativePath = path + file.name;
-                files.push(file);
-            } else if (entry.isDirectory) {
-                const reader = entry.createReader();
-                const entries = await new Promise((resolve) => {
-                    const allEntries = [];
-                    const readBatch = () => {
-                        reader.readEntries((batch) => {
-                            if (batch.length === 0) {
-                                resolve(allEntries);
-                            } else {
-                                allEntries.push(...batch);
-                                readBatch();
-                            }
-                        });
-                    };
-                    readBatch();
-                });
-                
-                for (const childEntry of entries) {
-                    await traverseEntry(childEntry, files, path + entry.name + '/');
+            try {
+                if (entry.isFile) {
+                    const file = await new Promise((resolve, reject) => {
+                        entry.file(resolve, reject);
+                    });
+                    file.relativePath = path + file.name;
+                    files.push(file);
+                    console.log(`Added file: ${file.relativePath}`);
+                } else if (entry.isDirectory) {
+                    console.log(`Entering directory: ${path}${entry.name}/`);
+                    const reader = entry.createReader();
+                    
+                    // readEntries may not return all entries at once, so we need to call it repeatedly
+                    const entries = await new Promise((resolve, reject) => {
+                        const allEntries = [];
+                        const readBatch = () => {
+                            reader.readEntries((batch) => {
+                                if (batch.length === 0) {
+                                    resolve(allEntries);
+                                } else {
+                                    allEntries.push(...batch);
+                                    readBatch(); // Continue reading
+                                }
+                            }, reject);
+                        };
+                        readBatch();
+                    });
+                    
+                    console.log(`Found ${entries.length} entries in ${entry.name}`);
+                    
+                    for (const childEntry of entries) {
+                        await traverseEntry(childEntry, files, path + entry.name + '/');
+                    }
                 }
+            } catch (err) {
+                console.error(`Error processing entry ${path}${entry.name}:`, err);
             }
         }
 
