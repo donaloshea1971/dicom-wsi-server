@@ -1117,7 +1117,7 @@
         <!-- Status bar - minimal essential info only -->
         <div class="status-bar">
             <div class="status-badge" id="zoom-level">1.0x</div>
-            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click: connect | Right-click: menu">🎮</div>
+            <div class="status-badge" id="space-nav-badge" style="cursor: pointer; background: var(--bg-tertiary); color: var(--text-muted);" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click to connect SpaceMouse">🎮</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
             <!-- Hidden badges - shown only on hover or in debug mode -->
             <div class="status-badge debug-only" id="viewer-version" style="display: none;" title="Viewer version">v1.0.10</div>
@@ -2966,56 +2966,53 @@
                 }
                 
                 badge.textContent = '🎮';
-                badge.title = `SpaceMouse (${connectionMode}) - click to toggle`;
+                badge.title = `SpaceMouse (${connectionMode}) - click to cycle`;
                 badge.style.background = bgColor;
                 badge.style.color = '#000';
             } else {
                 badge.classList.remove('connected');
-                badge.style.display = 'none';  // Hide when disconnected
+                badge.style.display = 'block';  // Show gray when disconnected
                 badge.textContent = '🎮';
-                badge.title = 'Connect SpaceMouse';
-                badge.style.background = '';
-                badge.style.color = '';
+                badge.title = 'Click to connect SpaceMouse';
+                badge.style.background = 'var(--bg-tertiary)';
+                badge.style.color = 'var(--text-muted)';
             }
         }
         
-        // Track click count for mode cycling
-        let spaceMouseClickCount = 0;
-        let spaceMouseClickTimer = null;
-        
+        // Simple click cycle: Green (WebHID) → Orange (Gamepad) → Gray (off) → Selector
         async function toggleSpaceNavigator() {
             if (!viewer) {
                 alert('Please load a study first before connecting the SpaceMouse.');
                 return;
             }
             
-            const badge = document.getElementById('space-nav-badge');
-            
-            // If not connected, connect
+            // Not connected → show device selector
             if (!spaceNavController || !spaceNavController.connected) {
                 await connectSpaceMouse();
                 return;
             }
             
-            // If connected, handle click cycling: 1=toggle mode, 2=reselect device, 3=disconnect
-            spaceMouseClickCount++;
-            clearTimeout(spaceMouseClickTimer);
+            const currentMode = spaceNavController.getConnectionMode();
             
-            spaceMouseClickTimer = setTimeout(async () => {
-                const clicks = spaceMouseClickCount;
-                spaceMouseClickCount = 0;
+            if (currentMode === 'webhid') {
+                // Green → Orange: Switch to Gamepad
+                console.log('%c🎮 Switching to Gamepad API...', 'color: #f59e0b');
+                await spaceNavController.disconnect();
                 
-                if (clicks === 1) {
-                    // Single click: Toggle mode (WebHID <-> Gamepad)
-                    await toggleSpaceMouseMode();
-                } else if (clicks === 2) {
-                    // Double click: Reselect device (disconnect and reconnect with picker)
-                    await reselectSpaceMouse();
-                } else if (clicks >= 3) {
-                    // Triple click: Disconnect
-                    await disconnectSpaceMouse();
+                const gamepad = spaceNavController._findSpaceMouseGamepad();
+                if (gamepad) {
+                    spaceNavController._connectViaGamepad(gamepad);
+                    updateSpaceNavButton(true, 'gamepad');
+                } else {
+                    // No gamepad available, go straight to disconnected
+                    console.log('%c🎮 No gamepad found, disconnecting', 'color: #6b7280');
+                    updateSpaceNavButton(false);
                 }
-            }, 300);
+            } else {
+                // Orange (or any other) → Gray: Disconnect
+                console.log('%c🎮 Disconnecting...', 'color: #6b7280');
+                await disconnectSpaceMouse();
+            }
         }
         
         async function connectSpaceMouse() {
