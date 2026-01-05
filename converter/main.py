@@ -9,7 +9,7 @@ import shutil
 import asyncio
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -2620,7 +2620,7 @@ async def init_chunked_upload(
             "owner_id": current_user.id if current_user else None,
             "source_format": source_format,
             "created_at": now,
-            "expires_at": now.replace(hour=now.hour + 24),  # 24 hour expiry
+            "expires_at": now + timedelta(hours=24),  # 24 hour expiry
             "upload_dir": str(upload_dir)
         }
         
