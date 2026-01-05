@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.10';
+const SPACEMOUSE_VERSION = '1.9.11';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -55,7 +55,7 @@ class SpaceNavigatorController {
         this._zoomRepeatDelay = 200;  // ms between repeated zoom snaps
         
         // Dead zone to prevent drift
-        this.deadZone = 0.15;
+        this.deadZone = 0.25;
         
         // Smoothing factor (0-1, higher = more responsive, lower = smoother)
         this.smoothing = 0.1;  // Output smoothing (in addition to history averaging)
@@ -991,7 +991,7 @@ class SpaceNavigatorController {
             
             <div class="param">
                 <label>Deadzone <span id="cfg-dead-val">${this.deadZone}</span></label>
-                <input type="range" id="cfg-dead" min="0.02" max="0.2" step="0.01" value="${this.deadZone}">
+                <input type="range" id="cfg-dead" min="0.05" max="0.3" step="0.01" value="${this.deadZone}">
             </div>
             
             <div class="param">
