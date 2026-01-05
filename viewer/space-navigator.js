@@ -540,6 +540,9 @@ class SpaceNavigatorController {
         // Show crosshair
         this.showCrosshair();
         
+        // Disable OSD navigation (mouse pan/zoom/scroll)
+        this._disableOSDNavigation();
+        
         // Suppress events
         this.enableEventSuppression();
         
@@ -747,12 +750,8 @@ class SpaceNavigatorController {
             // Show crosshair
             this.showCrosshair();
             
-            // DISABLE OpenSeadragon scroll-to-zoom to prevent 3Dconnexion driver conflict
-            if (this.viewer && this.viewer.innerTracker) {
-                this._savedScrollHandler = this.viewer.innerTracker.scrollHandler;
-                this.viewer.innerTracker.scrollHandler = false;
-                console.log('SpaceMouse: Disabled OSD scroll-to-zoom');
-            }
+            // DISABLE all OpenSeadragon navigation when SpaceMouse is active
+            this._disableOSDNavigation();
             
             // Suppress 3Dconnexion driver default actions (menus, shortcuts)
             this.enableEventSuppression();
@@ -804,11 +803,8 @@ class SpaceNavigatorController {
         // Remove event suppression
         this.disableEventSuppression();
         
-        // RE-ENABLE OpenSeadragon scroll-to-zoom
-        if (this.viewer && this.viewer.innerTracker && this._savedScrollHandler !== undefined) {
-            this.viewer.innerTracker.scrollHandler = this._savedScrollHandler;
-            console.log('SpaceMouse: Restored OSD scroll-to-zoom');
-        }
+        // RE-ENABLE all OpenSeadragon navigation
+        this._enableOSDNavigation();
         
         // Close WebHID device if applicable
         if (this._connectionMode === 'webhid' && this.device) {
@@ -1326,15 +1322,77 @@ class SpaceNavigatorController {
     }
 
     /**
+     * Disable all OpenSeadragon navigation (mouse pan, scroll zoom, click zoom)
+     * Called when SpaceMouse is connected
+     */
+    _disableOSDNavigation() {
+        if (!this.viewer) return;
+        
+        // Save current settings
+        this._savedNavSettings = {
+            mouseNavEnabled: this.viewer.mouseNavEnabled,
+            scrollHandler: this.viewer.innerTracker?.scrollHandler,
+            clickToZoom: this.viewer.gestureSettingsMouse?.clickToZoom,
+            dblClickToZoom: this.viewer.gestureSettingsMouse?.dblClickToZoom,
+            scrollToZoom: this.viewer.gestureSettingsMouse?.scrollToZoom,
+            dragToPan: this.viewer.gestureSettingsMouse?.dragToPan
+        };
+        
+        // Disable all mouse navigation
+        this.viewer.mouseNavEnabled = false;
+        
+        // Disable scroll handler
+        if (this.viewer.innerTracker) {
+            this.viewer.innerTracker.scrollHandler = false;
+        }
+        
+        // Disable gesture settings
+        if (this.viewer.gestureSettingsMouse) {
+            this.viewer.gestureSettingsMouse.clickToZoom = false;
+            this.viewer.gestureSettingsMouse.dblClickToZoom = false;
+            this.viewer.gestureSettingsMouse.scrollToZoom = false;
+            this.viewer.gestureSettingsMouse.dragToPan = false;
+        }
+        
+        console.log('SpaceMouse: Disabled OSD navigation (pan/zoom/scroll)');
+    }
+    
+    /**
+     * Re-enable all OpenSeadragon navigation
+     * Called when SpaceMouse is disconnected
+     */
+    _enableOSDNavigation() {
+        if (!this.viewer || !this._savedNavSettings) return;
+        
+        // Restore mouse navigation
+        this.viewer.mouseNavEnabled = this._savedNavSettings.mouseNavEnabled ?? true;
+        
+        // Restore scroll handler
+        if (this.viewer.innerTracker && this._savedNavSettings.scrollHandler !== undefined) {
+            this.viewer.innerTracker.scrollHandler = this._savedNavSettings.scrollHandler;
+        }
+        
+        // Restore gesture settings
+        if (this.viewer.gestureSettingsMouse) {
+            this.viewer.gestureSettingsMouse.clickToZoom = this._savedNavSettings.clickToZoom ?? true;
+            this.viewer.gestureSettingsMouse.dblClickToZoom = this._savedNavSettings.dblClickToZoom ?? true;
+            this.viewer.gestureSettingsMouse.scrollToZoom = this._savedNavSettings.scrollToZoom ?? true;
+            this.viewer.gestureSettingsMouse.dragToPan = this._savedNavSettings.dragToPan ?? true;
+        }
+        
+        console.log('SpaceMouse: Restored OSD navigation');
+    }
+    
+    /**
      * Update the viewer reference (for when viewer is recreated on study switch)
      */
     setViewer(newViewer) {
         this.viewer = newViewer;
         console.log('SpaceMouse: Viewer reference updated');
         
-        // Re-disable scroll-to-zoom on new viewer
-        if (this.connected && this.viewer && this.viewer.innerTracker) {
-            this.viewer.innerTracker.scrollHandler = false;
+        // Re-disable navigation on new viewer if SpaceMouse is connected
+        if (this.connected) {
+            this._disableOSDNavigation();
         }
         
         // Re-attach crosshair to new viewer if it was visible
