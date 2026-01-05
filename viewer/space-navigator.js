@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.6.1';
+const SPACEMOUSE_VERSION = '1.6.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -22,18 +22,18 @@ class SpaceNavigatorController {
         this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         // Simple moving average buffer for raw input
         this._inputHistory = [];
-        this._historySize = 10;  // Configurable: average last N samples
+        this._historySize = 15;  // Configurable: average last N samples
         // Smoothed output values
         this._smoothedPan = { x: 0, y: 0 };
         
         // Configurable parameters (can be adjusted via config panel)
-        this._curvePower = 3.0;   // Exponential curve power
+        this._curvePower = 2.0;   // Exponential curve power
         this._invertX = true;     // Invert X axis (push left = pan left)
         this._invertY = true;     // Invert Y axis (push forward = pan up)
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
-            pan: 0.4,         // Pan speed (divided by zoom for normalization) - halved for comfortable max
+            pan: 0.1,         // Pan speed (divided by zoom for normalization)
             zoom: 0.002,      // Zoom speed (unused - now using snap zoom)
             rotation: 0.008   // Rotation speed
         };
@@ -43,10 +43,10 @@ class SpaceNavigatorController {
         this._zoomRepeatDelay = 200;  // ms between repeated zoom snaps
         
         // Dead zone to prevent drift
-        this.deadZone = 0.08;
+        this.deadZone = 0.15;
         
         // Smoothing factor (0-1, higher = more responsive, lower = smoother)
-        this.smoothing = 0.5;  // Output smoothing (in addition to direction smoothing)
+        this.smoothing = 0.1;  // Output smoothing (in addition to history averaging)
         
         // Debug mode for troubleshooting
         this.debugMode = false;
