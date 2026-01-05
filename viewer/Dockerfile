@@ -132,7 +132,8 @@ http {
         # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
         # Content Security Policy (adjust as needed)
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.auth0.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com wss://*.auth0.com https://cdn.jsdelivr.net;" always;
+        # Note: SpaceMouse 3DxNLServer runs locally on user's machine at wss://127.51.68.120:8181
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.auth0.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com wss://*.auth0.com https://cdn.jsdelivr.net wss://127.51.68.120:8181 ws://localhost:8181 ws://localhost:8182 ws://localhost:8080;" always;
 
         # Landing page (default)
         location = / {
