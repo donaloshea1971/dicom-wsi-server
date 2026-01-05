@@ -27,7 +27,8 @@ from auth import (
     User, get_current_user, require_user, require_admin,
     set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
     unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
-    search_users, batch_share_studies, get_db_pool
+    search_users, batch_share_studies, get_db_pool, get_slides_metadata_bulk,
+    get_share_counts_for_studies
 )
 
 # Configure logging
@@ -1933,8 +1934,6 @@ async def get_categorized_studies(
     This is the main endpoint for the study list UI.
     Now includes slide metadata (display_name, stain, patient, case, block).
     """
-    from auth import get_share_counts_for_studies, get_slides_metadata_bulk
-    
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
