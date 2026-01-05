@@ -264,6 +264,17 @@
             color: var(--bg-dark);
         }
         
+        .share-btn.shared {
+            background: #10b981;
+            border-color: #10b981;
+            color: #000;
+        }
+        
+        .share-btn.shared:hover {
+            background: #059669;
+            border-color: #059669;
+        }
+        
         /* Share Dialog */
         .share-dialog {
             position: fixed;
@@ -1585,7 +1596,15 @@
                         const studyMap = {};
                         studies.forEach(s => studyMap[s.ID] = s);
                         
-                        const ownedStudies = ownedIds.map(id => studyMap[id]).filter(Boolean);
+                        // Get share counts from categorized response
+                        const shareCounts = categorized.share_counts || {};
+                        
+                        // Attach shareCount to owned studies
+                        const ownedStudies = ownedIds.map(id => {
+                            const study = studyMap[id];
+                            if (study) study.shareCount = shareCounts[id] || 0;
+                            return study;
+                        }).filter(Boolean);
                         const sharedStudies = sharedIds.map(id => studyMap[id]).filter(Boolean);
                         const sampleStudies = sampleIds.map(id => studyMap[id]).filter(Boolean);
                         
@@ -1709,8 +1728,9 @@
             }
             
             // Share button only for owned studies
+            const isShared = study.shareCount > 0;
             const shareBtn = ownershipType === 'owned' 
-                ? `<button class="share-btn" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="Share this study">
+                ? `<button class="share-btn ${isShared ? 'shared' : ''}" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="${isShared ? 'Shared with ' + study.shareCount + ' user(s)' : 'Share this study'}">
                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>

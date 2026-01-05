@@ -519,6 +519,29 @@ async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
         ]
 
 
+async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
+    """Get share counts for multiple studies at once"""
+    if not study_ids:
+        return {}
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return {}
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT study_id, COUNT(*) as share_count
+            FROM study_shares
+            WHERE study_id = ANY($1)
+            GROUP BY study_id
+            """,
+            study_ids
+        )
+        
+        return {row["study_id"]: row["share_count"] for row in rows}
+
+
 async def search_users(query: str = None, exclude_user_id: int = None, limit: int = 50) -> list[dict]:
     """Search users by email or name. Returns all users if query is None or empty."""
     pool = await get_db_pool()

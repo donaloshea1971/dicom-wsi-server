@@ -1750,6 +1750,8 @@ async def get_categorized_studies(
     Get studies organized by category: owned, shared_with_me, samples.
     This is the main endpoint for the study list UI.
     """
+    from auth import get_share_counts_for_studies
+    
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
@@ -1768,6 +1770,9 @@ async def get_categorized_studies(
         shared_with_me_ids = await get_shared_with_me_study_ids(user.id)
         all_owned_ids = await get_all_owned_study_ids()
         
+        # Get share counts for owned studies
+        share_counts = await get_share_counts_for_studies(list(owned_ids))
+        
         # Categorize
         owned = [s for s in all_studies if s in owned_ids]
         shared_with_me = [s for s in all_studies if s in shared_with_me_ids]
@@ -1776,7 +1781,8 @@ async def get_categorized_studies(
             "owned": owned,
             "shared_with_me": shared_with_me,
             "owned_count": len(owned),
-            "shared_count": len(shared_with_me)
+            "shared_count": len(shared_with_me),
+            "share_counts": share_counts  # {study_id: count}
         }
         
         if include_samples:
