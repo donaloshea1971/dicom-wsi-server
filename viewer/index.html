@@ -925,7 +925,7 @@
             <div class="status-badge" id="server-status">Checking...</div>
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
-            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseCalibration(event)" title="Click to connect | Right-click to calibrate">🎮 3D Mouse</div>
+            <div class="status-badge" id="space-nav-badge" style="display: none; cursor: pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click: connect | 1-click: toggle mode | 2-click: reselect | 3-click: disconnect | Right-click: menu">🎮 3D Mouse</div>
             <div class="status-badge" id="gamma-badge" style="display: none; cursor: pointer;" onclick="toggleGamma()" title="Click to toggle gamma correction">γ 2.2</div>
             <div class="status-badge" id="icc-badge" style="display: none; cursor: pointer;" onclick="toggleICCInfo()" title="ICC Profile status">ICC</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color correction settings">🎨 Color</div>
@@ -2274,6 +2274,127 @@
             window.open('/spacemouse-calibration.html', '_blank');
         }
         
+        function openSpaceMouseMenu(event) {
+            event.preventDefault();
+            
+            // Remove existing menu if any
+            const existingMenu = document.getElementById('spacemouse-context-menu');
+            if (existingMenu) existingMenu.remove();
+            
+            const connected = spaceNavController && spaceNavController.connected;
+            const mode = connected ? spaceNavController.getConnectionMode() : null;
+            const deviceInfo = connected ? spaceNavController.getDeviceInfo() : null;
+            
+            const menu = document.createElement('div');
+            menu.id = 'spacemouse-context-menu';
+            menu.style.cssText = `
+                position: fixed;
+                left: ${event.clientX}px;
+                top: ${event.clientY}px;
+                background: rgba(15, 23, 42, 0.98);
+                border: 1px solid #334155;
+                border-radius: 8px;
+                padding: 8px 0;
+                min-width: 200px;
+                z-index: 10000;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+                font-family: system-ui, sans-serif;
+                font-size: 13px;
+            `;
+            
+            const menuItems = [];
+            
+            if (connected) {
+                menuItems.push({
+                    label: `✓ Connected via ${mode === 'webhid' ? 'WebHID' : 'Gamepad API'}`,
+                    disabled: true,
+                    style: 'color: #10b981; font-weight: bold;'
+                });
+                if (deviceInfo) {
+                    menuItems.push({
+                        label: `   ${deviceInfo.productName?.substring(0, 30) || 'Unknown device'}`,
+                        disabled: true,
+                        style: 'color: #64748b; font-size: 11px;'
+                    });
+                }
+                menuItems.push({ divider: true });
+                menuItems.push({
+                    label: mode === 'webhid' ? '🔄 Switch to Gamepad API' : '🔄 Switch to WebHID',
+                    action: toggleSpaceMouseMode
+                });
+                menuItems.push({
+                    label: '🔌 Reselect Device',
+                    action: reselectSpaceMouse
+                });
+                menuItems.push({
+                    label: '⚙️ Config Panel',
+                    action: () => spaceNavController.createConfigPanel()
+                });
+                menuItems.push({
+                    label: spaceNavController._crosshairVisible ? '🎯 Hide Crosshair' : '🎯 Show Crosshair',
+                    action: () => spaceNavController.toggleCrosshair()
+                });
+                menuItems.push({ divider: true });
+                menuItems.push({
+                    label: '❌ Disconnect',
+                    action: disconnectSpaceMouse,
+                    style: 'color: #ef4444;'
+                });
+            } else {
+                menuItems.push({
+                    label: '🔌 Connect SpaceMouse',
+                    action: connectSpaceMouse
+                });
+            }
+            
+            menuItems.push({ divider: true });
+            menuItems.push({
+                label: '🎓 Calibration Page',
+                action: () => window.open('/spacemouse-calibration.html', '_blank')
+            });
+            menuItems.push({
+                label: '🧪 Test Pages',
+                action: () => window.open('/spacemouse-gamepad-test.html', '_blank')
+            });
+            
+            menuItems.forEach(item => {
+                if (item.divider) {
+                    const divider = document.createElement('div');
+                    divider.style.cssText = 'height: 1px; background: #334155; margin: 6px 0;';
+                    menu.appendChild(divider);
+                } else {
+                    const menuItem = document.createElement('div');
+                    menuItem.textContent = item.label;
+                    menuItem.style.cssText = `
+                        padding: 8px 16px;
+                        cursor: ${item.disabled ? 'default' : 'pointer'};
+                        color: ${item.disabled ? '#64748b' : '#e2e8f0'};
+                        ${item.style || ''}
+                    `;
+                    if (!item.disabled) {
+                        menuItem.onmouseenter = () => menuItem.style.background = '#1e293b';
+                        menuItem.onmouseleave = () => menuItem.style.background = '';
+                        menuItem.onclick = () => {
+                            menu.remove();
+                            if (item.action) item.action();
+                        };
+                    }
+                    menu.appendChild(menuItem);
+                }
+            });
+            
+            document.body.appendChild(menu);
+            
+            // Close menu on click outside
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closeMenu), 0);
+        }
+        
         // Navigate to next study in the list (exposed globally for SpaceMouse)
         window.nextStudy = function nextStudy() {
             if (!studyList || studyList.length === 0) {
@@ -2341,6 +2462,10 @@
             }
         }
         
+        // Track click count for mode cycling
+        let spaceMouseClickCount = 0;
+        let spaceMouseClickTimer = null;
+        
         async function toggleSpaceNavigator() {
             if (!viewer) {
                 alert('Please load a study first before connecting the SpaceMouse.');
@@ -2349,29 +2474,112 @@
             
             const badge = document.getElementById('space-nav-badge');
             
-            if (spaceNavController && spaceNavController.connected) {
-                // Disconnect
+            // If not connected, connect
+            if (!spaceNavController || !spaceNavController.connected) {
+                await connectSpaceMouse();
+                return;
+            }
+            
+            // If connected, handle click cycling: 1=toggle mode, 2=reselect device, 3=disconnect
+            spaceMouseClickCount++;
+            clearTimeout(spaceMouseClickTimer);
+            
+            spaceMouseClickTimer = setTimeout(async () => {
+                const clicks = spaceMouseClickCount;
+                spaceMouseClickCount = 0;
+                
+                if (clicks === 1) {
+                    // Single click: Toggle mode (WebHID <-> Gamepad)
+                    await toggleSpaceMouseMode();
+                } else if (clicks === 2) {
+                    // Double click: Reselect device (disconnect and reconnect with picker)
+                    await reselectSpaceMouse();
+                } else if (clicks >= 3) {
+                    // Triple click: Disconnect
+                    await disconnectSpaceMouse();
+                }
+            }, 300);
+        }
+        
+        async function connectSpaceMouse() {
+            spaceNavController = new SpaceNavigatorController(viewer);
+            spaceNavController.debugMode = spaceMouseDebugEnabled;
+            spaceNavController.onStatusChange = (status) => {
+                if (status === 'connected') {
+                    const mode = spaceNavController.getConnectionMode();
+                    updateSpaceNavButton(true, mode);
+                } else {
+                    updateSpaceNavButton(false);
+                }
+            };
+            
+            const connected = await spaceNavController.connect();
+            if (!connected) {
+                spaceNavController = null;
+            }
+        }
+        
+        async function disconnectSpaceMouse() {
+            if (spaceNavController) {
                 await spaceNavController.disconnect();
                 spaceNavController = null;
                 updateSpaceNavButton(false);
+                console.log('%c🎮 SpaceMouse disconnected', 'color: #ef4444');
+            }
+        }
+        
+        async function toggleSpaceMouseMode() {
+            if (!spaceNavController || !spaceNavController.connected) return;
+            
+            const currentMode = spaceNavController.getConnectionMode();
+            console.log('%c🎮 Toggling SpaceMouse mode from: ' + currentMode, 'color: #6366f1');
+            
+            // Disconnect current
+            await spaceNavController.disconnect();
+            
+            // Reconnect with different mode
+            if (currentMode === 'webhid') {
+                // Try Gamepad API
+                console.log('%c   Switching to Gamepad API...', 'color: #f59e0b');
+                const gamepad = spaceNavController._findSpaceMouseGamepad();
+                if (gamepad) {
+                    spaceNavController._connectViaGamepad(gamepad);
+                    const newMode = spaceNavController.getConnectionMode();
+                    updateSpaceNavButton(true, newMode);
+                    console.log('%c   ✓ Now using Gamepad API', 'color: #f59e0b');
+                } else {
+                    console.log('%c   ✗ No gamepad found - move SpaceMouse and try again', 'color: #ef4444');
+                    // Fall back to WebHID
+                    await spaceNavController.connect();
+                }
             } else {
-                // Connect
-                spaceNavController = new SpaceNavigatorController(viewer);
-                spaceNavController.debugMode = spaceMouseDebugEnabled;  // Apply debug setting
-                spaceNavController.onStatusChange = (status) => {
-                    if (status === 'connected') {
-                        const mode = spaceNavController.getConnectionMode();
-                        updateSpaceNavButton(true, mode);
+                // Try WebHID
+                console.log('%c   Switching to WebHID...', 'color: #10b981');
+                if (SpaceNavigatorController.isWebHIDSupported()) {
+                    const connected = await spaceNavController._autoConnectWebHID();
+                    if (connected) {
+                        const newMode = spaceNavController.getConnectionMode();
+                        updateSpaceNavButton(true, newMode);
+                        console.log('%c   ✓ Now using WebHID', 'color: #10b981');
                     } else {
-                        updateSpaceNavButton(false);
+                        // Need user gesture for WebHID picker
+                        const connected = await spaceNavController._connectViaWebHID();
+                        if (connected) {
+                            const newMode = spaceNavController.getConnectionMode();
+                            updateSpaceNavButton(true, newMode);
+                        }
                     }
-                };
-                
-                const connected = await spaceNavController.connect();
-                if (!connected) {
-                    spaceNavController = null;
+                } else {
+                    console.log('%c   WebHID not supported - staying on Gamepad', 'color: #f59e0b');
+                    await spaceNavController.connect();
                 }
             }
+        }
+        
+        async function reselectSpaceMouse() {
+            console.log('%c🎮 Reselecting SpaceMouse device...', 'color: #6366f1');
+            await disconnectSpaceMouse();
+            await connectSpaceMouse();
         }
         
         function resetAnnotationToolbar() {
