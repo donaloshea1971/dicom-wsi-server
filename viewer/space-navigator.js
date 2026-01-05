@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.4.1';
+const SPACEMOUSE_VERSION = '1.5.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -20,8 +20,13 @@ class SpaceNavigatorController {
         this.input = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
         // Raw input values (before processing) for debug
         this._rawInput = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+        // Smoothed RAW input (before curve) for stable direction
+        this._smoothedRaw = { tx: 0, ty: 0 };
         // Smoothed output values for smooth diagonal motion
         this._smoothedPan = { x: 0, y: 0 };
+        // Ring buffer for direction averaging (last 8 samples)
+        this._directionHistory = [];
+        this._historySize = 8;
         
         // Sensitivity settings - tuned for pathology viewing
         this.sensitivity = {
@@ -38,7 +43,7 @@ class SpaceNavigatorController {
         this.deadZone = 0.08;
         
         // Smoothing factor (0-1, higher = more responsive, lower = smoother)
-        this.smoothing = 0.4;
+        this.smoothing = 0.5;  // Output smoothing (in addition to direction smoothing)
         
         // Debug mode for troubleshooting
         this.debugMode = false;
@@ -407,7 +412,7 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Map raw input to viewport actions
+     * Map raw input to viewport actions with direction smoothing
      * Uses ONLY translation axes for panning (RX/RY are tilt artifacts):
      *   - TX → Pan X (left/right) - horizontal puck movement
      *   - TY → Pan Y (forward/back) - vertical puck movement  
@@ -418,11 +423,42 @@ class SpaceNavigatorController {
     getMappedInput() {
         const raw = this.input;
         
-        // Use ONLY translation axes - RX/RY are tilt that accompanies translation
-        // and causes unwanted diagonal movement
+        // Smooth the RAW input before applying exponential curve
+        // This stabilizes the direction of travel
+        const rawSmoothing = 0.25;  // Lower = more smoothing
+        this._smoothedRaw.tx = this._smoothedRaw.tx * (1 - rawSmoothing) + raw.tx * rawSmoothing;
+        this._smoothedRaw.ty = this._smoothedRaw.ty * (1 - rawSmoothing) + raw.ty * rawSmoothing;
+        
+        // Calculate magnitude and direction separately
+        const magnitude = Math.sqrt(this._smoothedRaw.tx * this._smoothedRaw.tx + 
+                                    this._smoothedRaw.ty * this._smoothedRaw.ty);
+        
+        // Track direction history for averaging (only when moving)
+        if (magnitude > 0.05) {
+            const angle = Math.atan2(this._smoothedRaw.ty, this._smoothedRaw.tx);
+            this._directionHistory.push(angle);
+            if (this._directionHistory.length > this._historySize) {
+                this._directionHistory.shift();
+            }
+        }
+        
+        // Average direction from history for stable diagonals
+        let avgAngle = Math.atan2(this._smoothedRaw.ty, this._smoothedRaw.tx);
+        if (this._directionHistory.length > 0) {
+            // Circular mean for angles
+            let sinSum = 0, cosSum = 0;
+            for (const a of this._directionHistory) {
+                sinSum += Math.sin(a);
+                cosSum += Math.cos(a);
+            }
+            avgAngle = Math.atan2(sinSum / this._directionHistory.length, 
+                                  cosSum / this._directionHistory.length);
+        }
+        
+        // Reconstruct X/Y from averaged direction and current magnitude
         // Inverted so push = move in that direction (natural mapping)
-        let panX = -raw.tx;   // Horizontal puck movement (inverted)
-        let panY = -raw.ty;   // Forward/back puck movement (inverted)
+        let panX = -Math.cos(avgAngle) * magnitude;
+        let panY = -Math.sin(avgAngle) * magnitude;
         const zoom = raw.rz;  // Twist ONLY
         
         // Apply polarity from calibration if available
