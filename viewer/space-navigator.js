@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.11';
+const SPACEMOUSE_VERSION = '1.9.12';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -580,13 +580,13 @@ class SpaceNavigatorController {
         const rawRZ = raw.rz * 350;  // Convert back to raw scale (~-350 to +350)
         const now = Date.now();
         
-        if (rawRZ > 300 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
+        if (rawRZ > 200 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
             // Twist RIGHT - zoom IN (2x)
             console.log('SpaceMouse SNAP ZOOM: 2x (in), rawRZ:', rawRZ.toFixed(0));
             viewport.zoomBy(2, viewport.getCenter(), false);
             this._lastZoomTime = now;
         } 
-        else if (rawRZ < -300 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
+        else if (rawRZ < -200 && (now - this._lastZoomTime) > this._zoomRepeatDelay) {
             // Twist LEFT - zoom OUT (0.5x)
             console.log('SpaceMouse SNAP ZOOM: 0.5x (out), rawRZ:', rawRZ.toFixed(0));
             viewport.zoomBy(0.5, viewport.getCenter(), false);
