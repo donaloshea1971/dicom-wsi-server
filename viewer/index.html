@@ -2133,14 +2133,13 @@
             return `
                 <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''} ${ownershipType === 'shared' ? 'shared-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
                     <div class="study-header">
-                        <div class="study-id">${study.ID.substring(0, 8)}... ${studyDate ? '• ' + studyDate : ''} ${badge} ${stainBadge}</div>
+                        <div class="study-uid">${uid} ${badge}</div>
                         <div class="card-actions">
                             ${editBtn}
                             ${shareBtn}
                         </div>
                     </div>
-                    <div class="study-uid">${uid}</div>
-                    <div class="study-slide-info">${slideInfo}</div>
+                    <div class="study-slide-info">${slideInfo} ${stainBadge}</div>
                     <div class="study-meta">${bottomInfo}</div>
                 </div>
             `;
