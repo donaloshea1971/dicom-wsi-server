@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.8.1';
+const SPACEMOUSE_VERSION = '1.8.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -319,8 +319,23 @@ class SpaceNavigatorController {
             }
         }
         
-        // Button handling - Report ID 3 with short data, or dedicated button reports
-        // Also check for button data in various report formats
+        // Button handling - SpaceMouse Wireless sends buttons on Report 3 with 12 bytes
+        // where byte[0] is button state and rest are zeros
+        // Detect: if Report 3, length 12, and bytes 1-11 are all zero, it's a button report
+        if (reportId === 3 && length === 12) {
+            let isButtonReport = true;
+            for (let i = 1; i < 12; i++) {
+                if (bytes[i] !== 0) {
+                    isButtonReport = false;
+                    break;
+                }
+            }
+            if (isButtonReport && bytes[0] <= 3) {  // Button values: 0, 1, 2, or 3 (both)
+                this.handleButtons(bytes[0]);
+            }
+        }
+        
+        // Short button reports (other models)
         if ((reportId === 3 && length < 12) || reportId === 0) {
             this.handleButtons(bytes[0]);
         }
