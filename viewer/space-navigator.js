@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.4';
+const SPACEMOUSE_VERSION = '1.9.5';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -742,6 +742,17 @@ class SpaceNavigatorController {
         // Re-disable scroll-to-zoom on new viewer
         if (this.connected && this.viewer && this.viewer.innerTracker) {
             this.viewer.innerTracker.scrollHandler = false;
+        }
+        
+        // Re-attach crosshair to new viewer if it was visible
+        if (this._crosshairVisible && this.connected) {
+            // Remove old crosshair (it was attached to old viewer element)
+            if (this._crosshair) {
+                this._crosshair.remove();
+                this._crosshair = null;
+            }
+            // Re-create in new viewer
+            this.showCrosshair();
         }
     }
     
