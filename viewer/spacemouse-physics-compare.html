@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceMouse Physics Comparison</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        h1 { color: #6366f1; margin-bottom: 8px; font-size: 24px; }
+        .subtitle { color: #64748b; margin-bottom: 20px; font-size: 14px; }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .panel {
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .panel h2 {
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .panel .desc {
+            color: #64748b;
+            font-size: 11px;
+            margin-bottom: 16px;
+        }
+        
+        .panel.raw h2 { color: #ef4444; }
+        .panel.friend h2 { color: #f59e0b; }
+        .panel.ours h2 { color: #10b981; }
+        
+        .visualizer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .puck-container {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+        
+        .puck {
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle at 30% 30%, #374151, #1f2937);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+        }
+        
+        .puck-indicator {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: none;
+        }
+        
+        .panel.raw .puck-indicator { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+        .panel.friend .puck-indicator { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; }
+        .panel.ours .puck-indicator { background: #10b981; box-shadow: 0 0 10px #10b981; }
+        
+        .trail {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            opacity: 0.3;
+        }
+        .panel.raw .trail { background: #ef4444; }
+        .panel.friend .trail { background: #f59e0b; }
+        .panel.ours .trail { background: #10b981; }
+        
+        .zoom-bar {
+            width: 24px;
+            height: 120px;
+            background: #1f2937;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .zoom-fill {
+            position: absolute;
+            left: 0;
+            right: 0;
+            background: currentColor;
+        }
+        
+        .panel.raw .zoom-fill { background: #ef4444; }
+        .panel.friend .zoom-fill { background: #f59e0b; }
+        .panel.ours .zoom-fill { background: #10b981; }
+        
+        .values {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        
+        .value-item {
+            background: #1f2937;
+            padding: 6px 8px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .value-label {
+            color: #64748b;
+            font-size: 9px;
+        }
+        
+        .value-num {
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 12px;
+            background: #1f2937;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .status.connected { border: 1px solid #10b981; }
+        .status.waiting { border: 1px solid #f59e0b; }
+        
+        .controls {
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .controls h3 {
+            color: #94a3b8;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+        
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        
+        .control-row label {
+            flex: 0 0 120px;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+        
+        .control-row input[type="range"] {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #1f2937;
+            border-radius: 3px;
+        }
+        
+        .control-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #6366f1;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .control-row span {
+            flex: 0 0 50px;
+            text-align: right;
+            font-family: monospace;
+            color: #6366f1;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .metric {
+            background: #1f2937;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .metric-label {
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+        
+        .metric-value {
+            font-size: 20px;
+            font-weight: bold;
+            font-family: monospace;
+        }
+        
+        .metric.raw .metric-value { color: #ef4444; }
+        .metric.friend .metric-value { color: #f59e0b; }
+        .metric.ours .metric-value { color: #10b981; }
+    </style>
+</head>
+<body>
+    <h1>🎮 SpaceMouse Physics Comparison</h1>
+    <p class="subtitle">Compare raw input vs friend's physics vs our physics. Move SpaceMouse to see differences.</p>
+    
+    <div class="status waiting" id="status">
+        <strong>Waiting for SpaceMouse...</strong> Move the device to detect it.
+    </div>
+    
+    <div class="container">
+        <!-- Raw Input -->
+        <div class="panel raw">
+            <h2>🔴 Raw Input</h2>
+            <p class="desc">Direct gamepad values, no processing</p>
+            <div class="visualizer">
+                <div class="puck-container">
+                    <div class="puck">
+                        <div class="puck-indicator" id="puck-raw"></div>
+                    </div>
+                </div>
+                <div class="zoom-bar">
+                    <div class="zoom-fill" id="zoom-raw"></div>
+                </div>
+            </div>
+            <div class="values" id="values-raw">
+                <div class="value-item"><div class="value-label">X</div><div class="value-num" id="raw-x">0.00</div></div>
+                <div class="value-item"><div class="value-label">Y</div><div class="value-num" id="raw-y">0.00</div></div>
+                <div class="value-item"><div class="value-label">Z</div><div class="value-num" id="raw-z">0.00</div></div>
+                <div class="value-item"><div class="value-label">RX</div><div class="value-num" id="raw-rx">0.00</div></div>
+                <div class="value-item"><div class="value-label">RY</div><div class="value-num" id="raw-ry">0.00</div></div>
+                <div class="value-item"><div class="value-label">RZ</div><div class="value-num" id="raw-rz">0.00</div></div>
+            </div>
+        </div>
+        
+        <!-- Friend's Physics -->
+        <div class="panel friend">
+            <h2>🟡 Friend's Physics</h2>
+            <p class="desc">Simple pass-through with threshold</p>
+            <div class="visualizer">
+                <div class="puck-container">
+                    <div class="puck">
+                        <div class="puck-indicator" id="puck-friend"></div>
+                    </div>
+                </div>
+                <div class="zoom-bar">
+                    <div class="zoom-fill" id="zoom-friend"></div>
+                </div>
+            </div>
+            <div class="values">
+                <div class="value-item"><div class="value-label">X</div><div class="value-num" id="friend-x">0.00</div></div>
+                <div class="value-item"><div class="value-label">Y</div><div class="value-num" id="friend-y">0.00</div></div>
+                <div class="value-item"><div class="value-label">Z</div><div class="value-num" id="friend-z">0.00</div></div>
+                <div class="value-item"><div class="value-label">RX</div><div class="value-num" id="friend-rx">0.00</div></div>
+                <div class="value-item"><div class="value-label">RY</div><div class="value-num" id="friend-ry">0.00</div></div>
+                <div class="value-item"><div class="value-label">RZ</div><div class="value-num" id="friend-rz">0.00</div></div>
+            </div>
+        </div>
+        
+        <!-- Our Physics -->
+        <div class="panel ours">
+            <h2>🟢 Our Physics</h2>
+            <p class="desc">Deadzone + curve + smoothing + momentum</p>
+            <div class="visualizer">
+                <div class="puck-container">
+                    <div class="puck">
+                        <div class="puck-indicator" id="puck-ours"></div>
+                    </div>
+                </div>
+                <div class="zoom-bar">
+                    <div class="zoom-fill" id="zoom-ours"></div>
+                </div>
+            </div>
+            <div class="values">
+                <div class="value-item"><div class="value-label">X</div><div class="value-num" id="ours-x">0.00</div></div>
+                <div class="value-item"><div class="value-label">Y</div><div class="value-num" id="ours-y">0.00</div></div>
+                <div class="value-item"><div class="value-label">Z</div><div class="value-num" id="ours-z">0.00</div></div>
+                <div class="value-item"><div class="value-label">RX</div><div class="value-num" id="ours-rx">0.00</div></div>
+                <div class="value-item"><div class="value-label">RY</div><div class="value-num" id="ours-ry">0.00</div></div>
+                <div class="value-item"><div class="value-label">RZ</div><div class="value-num" id="ours-rz">0.00</div></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Physics Controls -->
+    <div class="controls">
+        <h3>Our Physics Parameters (adjust to compare)</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <div class="control-row">
+                    <label>Deadzone</label>
+                    <input type="range" id="ctrl-deadzone" min="0" max="0.5" step="0.01" value="0.08">
+                    <span id="val-deadzone">0.08</span>
+                </div>
+                <div class="control-row">
+                    <label>Curve Power</label>
+                    <input type="range" id="ctrl-curve" min="1" max="3" step="0.1" value="1.2">
+                    <span id="val-curve">1.2</span>
+                </div>
+                <div class="control-row">
+                    <label>Smoothing</label>
+                    <input type="range" id="ctrl-smooth" min="0.05" max="1" step="0.05" value="0.15">
+                    <span id="val-smooth">0.15</span>
+                </div>
+            </div>
+            <div>
+                <div class="control-row">
+                    <label>History Size</label>
+                    <input type="range" id="ctrl-history" min="1" max="50" step="1" value="25">
+                    <span id="val-history">25</span>
+                </div>
+                <div class="control-row">
+                    <label>Momentum</label>
+                    <input type="range" id="ctrl-momentum" min="0" max="0.98" step="0.02" value="0.96">
+                    <span id="val-momentum">0.96</span>
+                </div>
+                <div class="control-row">
+                    <label>Friend Threshold</label>
+                    <input type="range" id="ctrl-friend-thresh" min="0" max="0.1" step="0.005" value="0.01">
+                    <span id="val-friend-thresh">0.01</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Metrics -->
+    <div class="metrics">
+        <div class="metric raw">
+            <div class="metric-label">Raw Jitter (std dev)</div>
+            <div class="metric-value" id="metric-raw-jitter">0.000</div>
+        </div>
+        <div class="metric friend">
+            <div class="metric-label">Friend Jitter</div>
+            <div class="metric-value" id="metric-friend-jitter">0.000</div>
+        </div>
+        <div class="metric ours">
+            <div class="metric-label">Our Jitter</div>
+            <div class="metric-value" id="metric-ours-jitter">0.000</div>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================
+        // CONFIGURATION
+        // =====================================================
+        const config = {
+            // Our physics
+            deadzone: 0.08,
+            curvePower: 1.2,
+            smoothing: 0.15,
+            historySize: 25,
+            momentum: 0.96,
+            
+            // Friend's physics (simple threshold)
+            friendThreshold: 0.01
+        };
+        
+        // =====================================================
+        // STATE
+        // =====================================================
+        let gamepadIndex = null;
+        
+        // Raw input
+        const raw = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+        
+        // Friend's processed output
+        const friend = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+        
+        // Our processed output
+        const ours = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+        const oursSmoothed = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
+        const oursVelocity = { x: 0, y: 0 };
+        const oursHistory = [];
+        
+        // Jitter tracking
+        const jitterHistory = { raw: [], friend: [], ours: [] };
+        const JITTER_SAMPLES = 60;
+        
+        // =====================================================
+        // FRIEND'S PHYSICS (from React hook)
+        // Simple pass-through with threshold
+        // =====================================================
+        function applyFriendPhysics(rawValue) {
+            // Friend's approach: just check if above threshold
+            if (Math.abs(rawValue) > config.friendThreshold) {
+                return rawValue;
+            }
+            return 0;
+        }
+        
+        // =====================================================
+        // OUR PHYSICS (from space-navigator.js)
+        // Deadzone + exponential curve + history smoothing + momentum
+        // =====================================================
+        function applyOurDeadzone(value) {
+            const threshold = config.deadzone;
+            
+            if (Math.abs(value) < threshold) {
+                return 0;
+            }
+            
+            // Normalize to 0-1 range after removing deadzone
+            const sign = value > 0 ? 1 : -1;
+            const absValue = Math.abs(value);
+            const normalized = (absValue - threshold) / (1 - threshold);
+            
+            // Apply exponential curve
+            const curved = Math.pow(normalized, config.curvePower);
+            
+            return sign * curved;
+        }
+        
+        function updateOursWithSmoothing() {
+            // Add to history
+            oursHistory.push({ x: ours.x, y: ours.y });
+            if (oursHistory.length > config.historySize) {
+                oursHistory.shift();
+            }
+            
+            // Moving average
+            let avgX = 0, avgY = 0;
+            for (const sample of oursHistory) {
+                avgX += sample.x;
+                avgY += sample.y;
+            }
+            avgX /= oursHistory.length;
+            avgY /= oursHistory.length;
+            
+            // Check for active input
+            const hasInput = Math.abs(ours.x) > 0.001 || Math.abs(ours.y) > 0.001;
+            
+            if (hasInput) {
+                // Active input: smooth towards target
+                oursSmoothed.x = oursSmoothed.x * (1 - config.smoothing) + avgX * config.smoothing;
+                oursSmoothed.y = oursSmoothed.y * (1 - config.smoothing) + avgY * config.smoothing;
+                oursVelocity.x = oursSmoothed.x;
+                oursVelocity.y = oursSmoothed.y;
+            } else {
+                // No input: apply momentum decay
+                oursVelocity.x *= config.momentum;
+                oursVelocity.y *= config.momentum;
+                oursSmoothed.x = oursVelocity.x;
+                oursSmoothed.y = oursVelocity.y;
+                
+                // Stop when negligible
+                if (Math.abs(oursVelocity.x) < 0.0001) oursVelocity.x = 0;
+                if (Math.abs(oursVelocity.y) < 0.0001) oursVelocity.y = 0;
+            }
+            
+            // For Z and rotations, just use deadzone without smoothing
+            oursSmoothed.z = ours.z;
+            oursSmoothed.rx = ours.rx;
+            oursSmoothed.ry = ours.ry;
+            oursSmoothed.rz = ours.rz;
+        }
+        
+        // =====================================================
+        // GAMEPAD DETECTION (from friend's code)
+        // =====================================================
+        function isSpaceMouse(gamepad) {
+            const id = gamepad.id.toLowerCase();
+            // Prefer 256f (3Dconnexion) with 6 axes
+            if (id.includes('256f') && gamepad.axes.length === 6) return true;
+            if (id.includes('spacemouse')) return true;
+            if (id.includes('3dconnexion')) return true;
+            if ((id.includes('046d') || id.includes('256f')) && gamepad.axes.length >= 6) return true;
+            return false;
+        }
+        
+        function findSpaceMouse() {
+            const gamepads = navigator.getGamepads();
+            let best = null;
+            let bestScore = 0;
+            
+            for (const gp of gamepads) {
+                if (!gp) continue;
+                let score = 0;
+                const id = gp.id.toLowerCase();
+                
+                if (id.includes('256f')) score += 100;
+                if (id.includes('spacemouse')) score += 80;
+                if (gp.axes.length === 6) score += 40;
+                if (id.includes('beef')) score -= 30;
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = gp;
+                }
+            }
+            
+            return best;
+        }
+        
+        // =====================================================
+        // JITTER CALCULATION
+        // =====================================================
+        function calculateJitter(history) {
+            if (history.length < 2) return 0;
+            
+            // Calculate standard deviation
+            const mean = history.reduce((a, b) => a + b, 0) / history.length;
+            const squaredDiffs = history.map(v => Math.pow(v - mean, 2));
+            const variance = squaredDiffs.reduce((a, b) => a + b, 0) / history.length;
+            return Math.sqrt(variance);
+        }
+        
+        function updateJitter() {
+            // Track magnitude for jitter calculation
+            const rawMag = Math.sqrt(raw.x * raw.x + raw.y * raw.y);
+            const friendMag = Math.sqrt(friend.x * friend.x + friend.y * friend.y);
+            const oursMag = Math.sqrt(oursSmoothed.x * oursSmoothed.x + oursSmoothed.y * oursSmoothed.y);
+            
+            jitterHistory.raw.push(rawMag);
+            jitterHistory.friend.push(friendMag);
+            jitterHistory.ours.push(oursMag);
+            
+            if (jitterHistory.raw.length > JITTER_SAMPLES) {
+                jitterHistory.raw.shift();
+                jitterHistory.friend.shift();
+                jitterHistory.ours.shift();
+            }
+            
+            document.getElementById('metric-raw-jitter').textContent = calculateJitter(jitterHistory.raw).toFixed(4);
+            document.getElementById('metric-friend-jitter').textContent = calculateJitter(jitterHistory.friend).toFixed(4);
+            document.getElementById('metric-ours-jitter').textContent = calculateJitter(jitterHistory.ours).toFixed(4);
+        }
+        
+        // =====================================================
+        // UI UPDATE
+        // =====================================================
+        function updateUI() {
+            const maxOffset = 45;
+            
+            // Raw
+            document.getElementById('puck-raw').style.transform = 
+                `translate(calc(-50% + ${raw.x * maxOffset}px), calc(-50% + ${raw.y * maxOffset}px))`;
+            updateZoomBar('zoom-raw', raw.rz);
+            document.getElementById('raw-x').textContent = raw.x.toFixed(2);
+            document.getElementById('raw-y').textContent = raw.y.toFixed(2);
+            document.getElementById('raw-z').textContent = raw.z.toFixed(2);
+            document.getElementById('raw-rx').textContent = raw.rx.toFixed(2);
+            document.getElementById('raw-ry').textContent = raw.ry.toFixed(2);
+            document.getElementById('raw-rz').textContent = raw.rz.toFixed(2);
+            
+            // Friend
+            document.getElementById('puck-friend').style.transform = 
+                `translate(calc(-50% + ${friend.x * maxOffset}px), calc(-50% + ${friend.y * maxOffset}px))`;
+            updateZoomBar('zoom-friend', friend.rz);
+            document.getElementById('friend-x').textContent = friend.x.toFixed(2);
+            document.getElementById('friend-y').textContent = friend.y.toFixed(2);
+            document.getElementById('friend-z').textContent = friend.z.toFixed(2);
+            document.getElementById('friend-rx').textContent = friend.rx.toFixed(2);
+            document.getElementById('friend-ry').textContent = friend.ry.toFixed(2);
+            document.getElementById('friend-rz').textContent = friend.rz.toFixed(2);
+            
+            // Ours (smoothed)
+            document.getElementById('puck-ours').style.transform = 
+                `translate(calc(-50% + ${oursSmoothed.x * maxOffset}px), calc(-50% + ${oursSmoothed.y * maxOffset}px))`;
+            updateZoomBar('zoom-ours', oursSmoothed.rz);
+            document.getElementById('ours-x').textContent = oursSmoothed.x.toFixed(2);
+            document.getElementById('ours-y').textContent = oursSmoothed.y.toFixed(2);
+            document.getElementById('ours-z').textContent = oursSmoothed.z.toFixed(2);
+            document.getElementById('ours-rx').textContent = oursSmoothed.rx.toFixed(2);
+            document.getElementById('ours-ry').textContent = oursSmoothed.ry.toFixed(2);
+            document.getElementById('ours-rz').textContent = oursSmoothed.rz.toFixed(2);
+        }
+        
+        function updateZoomBar(id, value) {
+            const bar = document.getElementById(id);
+            const height = Math.abs(value) * 50;
+            if (value > 0) {
+                bar.style.bottom = '50%';
+                bar.style.height = height + '%';
+            } else {
+                bar.style.bottom = (50 - height) + '%';
+                bar.style.height = height + '%';
+            }
+        }
+        
+        // =====================================================
+        // MAIN LOOP
+        // =====================================================
+        function pollGamepad() {
+            const gp = findSpaceMouse();
+            
+            if (gp) {
+                if (gamepadIndex === null) {
+                    gamepadIndex = gp.index;
+                    document.getElementById('status').className = 'status connected';
+                    document.getElementById('status').innerHTML = 
+                        `<strong>✓ Connected:</strong> ${gp.id} (${gp.axes.length} axes)`;
+                }
+                
+                // Read raw values
+                raw.x = gp.axes[0] || 0;
+                raw.y = gp.axes[1] || 0;
+                raw.z = gp.axes[2] || 0;
+                raw.rx = gp.axes[3] || 0;
+                raw.ry = gp.axes[4] || 0;
+                raw.rz = gp.axes[5] || 0;
+                
+                // Apply friend's physics
+                friend.x = applyFriendPhysics(raw.x);
+                friend.y = applyFriendPhysics(raw.y);
+                friend.z = applyFriendPhysics(raw.z);
+                friend.rx = applyFriendPhysics(raw.rx);
+                friend.ry = applyFriendPhysics(raw.ry);
+                friend.rz = applyFriendPhysics(raw.rz);
+                
+                // Apply our physics (deadzone + curve)
+                ours.x = applyOurDeadzone(raw.x);
+                ours.y = applyOurDeadzone(raw.y);
+                ours.z = applyOurDeadzone(raw.z);
+                ours.rx = applyOurDeadzone(raw.rx);
+                ours.ry = applyOurDeadzone(raw.ry);
+                ours.rz = applyOurDeadzone(raw.rz);
+                
+                // Apply smoothing + momentum
+                updateOursWithSmoothing();
+                
+                // Update jitter metrics
+                updateJitter();
+            }
+            
+            updateUI();
+            requestAnimationFrame(pollGamepad);
+        }
+        
+        // =====================================================
+        // CONTROL BINDINGS
+        // =====================================================
+        function setupControls() {
+            const controls = [
+                { id: 'deadzone', key: 'deadzone' },
+                { id: 'curve', key: 'curvePower' },
+                { id: 'smooth', key: 'smoothing' },
+                { id: 'history', key: 'historySize' },
+                { id: 'momentum', key: 'momentum' },
+                { id: 'friend-thresh', key: 'friendThreshold' }
+            ];
+            
+            controls.forEach(({ id, key }) => {
+                const input = document.getElementById(`ctrl-${id}`);
+                const display = document.getElementById(`val-${id}`);
+                
+                input.addEventListener('input', () => {
+                    config[key] = parseFloat(input.value);
+                    display.textContent = input.value;
+                    
+                    // Clear history when params change
+                    if (key === 'historySize') {
+                        oursHistory.length = 0;
+                    }
+                });
+            });
+        }
+        
+        // =====================================================
+        // INIT
+        // =====================================================
+        setupControls();
+        pollGamepad();
+        
+        console.log('SpaceMouse Physics Comparison loaded');
+        console.log('Move your SpaceMouse to compare physics implementations');
+    </script>
+</body>
+</html>
