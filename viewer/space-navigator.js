@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.4.0';
+const SPACEMOUSE_VERSION = '1.4.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -420,9 +420,10 @@ class SpaceNavigatorController {
         
         // Use ONLY translation axes - RX/RY are tilt that accompanies translation
         // and causes unwanted diagonal movement
-        let panX = raw.tx;   // Horizontal puck movement
-        let panY = raw.ty;   // Forward/back puck movement
-        const zoom = raw.rz; // Twist ONLY
+        // Inverted so push = move in that direction (natural mapping)
+        let panX = -raw.tx;   // Horizontal puck movement (inverted)
+        let panY = -raw.ty;   // Forward/back puck movement (inverted)
+        const zoom = raw.rz;  // Twist ONLY
         
         // Apply polarity from calibration if available
         if (this.calibration && this.calibration.mappings) {
