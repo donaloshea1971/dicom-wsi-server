@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.6.0';
+const SPACEMOUSE_VERSION = '1.6.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -622,25 +622,40 @@ class SpaceNavigatorController {
                 #spacemouse-config-panel {
                     position: fixed;
                     top: 80px;
-                    right: 20px;
-                    background: rgba(15, 23, 42, 0.95);
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(15, 23, 42, 0.97);
                     border: 1px solid #334155;
                     border-radius: 12px;
-                    padding: 16px;
-                    width: 320px;
+                    padding: 0;
+                    width: 340px;
                     font-family: system-ui, sans-serif;
                     font-size: 13px;
                     color: #e2e8f0;
                     z-index: 10000;
                     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+                    resize: both;
+                    overflow: hidden;
                 }
-                #spacemouse-config-panel h3 {
-                    margin: 0 0 16px 0;
-                    color: #10b981;
-                    font-size: 14px;
+                #spacemouse-config-panel .drag-handle {
+                    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+                    padding: 12px 16px;
+                    cursor: move;
+                    user-select: none;
+                    border-bottom: 1px solid #334155;
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
+                }
+                #spacemouse-config-panel .drag-handle h3 {
+                    margin: 0;
+                    color: #10b981;
+                    font-size: 14px;
+                }
+                #spacemouse-config-panel .panel-body {
+                    padding: 16px;
+                    max-height: 70vh;
+                    overflow-y: auto;
                 }
                 #spacemouse-config-panel .close-btn {
                     background: none;
@@ -702,8 +717,11 @@ class SpaceNavigatorController {
                 }
                 #spacemouse-config-panel .export-btn:hover { background: #059669; }
             </style>
-            <h3>🎮 SpaceMouse Config <button class="close-btn" onclick="this.closest('#spacemouse-config-panel').remove()">×</button></h3>
-            
+            <div class="drag-handle" id="cfg-drag-handle">
+                <h3>🎮 SpaceMouse Config</h3>
+                <button class="close-btn" onclick="this.closest('#spacemouse-config-panel').remove()">×</button>
+            </div>
+            <div class="panel-body">
             <div class="param">
                 <label>Pan Sensitivity <span id="cfg-pan-val">${this.sensitivity.pan}</span></label>
                 <input type="range" id="cfg-pan" min="0.1" max="2.0" step="0.1" value="${this.sensitivity.pan}">
@@ -742,9 +760,34 @@ class SpaceNavigatorController {
             </div>
             
             <button class="export-btn" id="cfg-export">📋 Copy Settings to Console</button>
+            </div>
         `;
         
         document.body.appendChild(panel);
+        
+        // Make panel draggable
+        const dragHandle = document.getElementById('cfg-drag-handle');
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        
+        dragHandle.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            panel.style.transform = 'none';  // Remove center transform once dragging
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panel.style.left = (e.clientX - dragOffsetX) + 'px';
+            panel.style.top = (e.clientY - dragOffsetY) + 'px';
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
         
         // Initialize curve power if not set
         if (!this._curvePower) this._curvePower = 3.0;
