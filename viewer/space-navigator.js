@@ -2,10 +2,10 @@
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
  * Supports: WebHID API (preferred), 3DxWare WebSocket SDK, and Gamepad API (fallback)
- * @version 1.11.0
+ * @version 1.12.0
  */
 
-const SPACEMOUSE_VERSION = '1.11.0';
+const SPACEMOUSE_VERSION = '1.12.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Log API support on load
@@ -14,25 +14,30 @@ const _gamepadSupport = 'getGamepads' in navigator;
 console.log(`%c   APIs: WebHID ${_webhidSupport ? '✓' : '✗'} | 3DxWare (checking...) | Gamepad ${_gamepadSupport ? '✓' : '✗'}`, 
     'color: #888');
 
-// 3DxWare WebSocket ports to try (3Dconnexion driver runs a local WebSocket server)
-const TDXWARE_PORTS = [8181, 8182, 8080];
+// 3DxWare WebSocket endpoints to try (3Dconnexion driver runs a local WebSocket server)
+const TDXWARE_ENDPOINTS = [
+    'wss://127.51.68.120:8181', // Official 3Dconnexion NL Server (WebSocket proxy)
+    'ws://localhost:8181',
+    'ws://localhost:8182',
+    'ws://localhost:8080'
+];
 let _3dxwareAvailable = false;
-let _3dxwarePort = null;
+let _3dxwareUrl = null;
 
 // Check for 3DxWare on load
 (async function check3DxWare() {
-    for (const port of TDXWARE_PORTS) {
+    for (const url of TDXWARE_ENDPOINTS) {
         try {
             const available = await new Promise((resolve) => {
-                const ws = new WebSocket(`ws://localhost:${port}`);
-                const timeout = setTimeout(() => { ws.close(); resolve(false); }, 500);
-                ws.onopen = () => { clearTimeout(timeout); ws.close(); resolve(true); };
+                const ws = new WebSocket(url);
+                const timeout = setTimeout(() => { try { ws.close(); } catch(e) {} resolve(false); }, 800);
+                ws.onopen = () => { clearTimeout(timeout); try { ws.close(); } catch(e) {} resolve(true); };
                 ws.onerror = () => { clearTimeout(timeout); resolve(false); };
             });
             if (available) {
                 _3dxwareAvailable = true;
-                _3dxwarePort = port;
-                console.log(`%c   3DxWare: ✓ (port ${port})`, 'color: #10b981');
+                _3dxwareUrl = url;
+                console.log(`%c   3DxWare: ✓ (at ${url})`, 'color: #10b981');
                 return;
             }
         } catch (e) {}
@@ -151,10 +156,10 @@ class SpaceNavigatorController {
     }
     
     /**
-     * Get 3DxWare port (if available)
+     * Get 3DxWare URL (if available)
      */
-    static get3DxWarePort() {
-        return _3dxwarePort;
+    static get3DxWareUrl() {
+        return _3dxwareUrl;
     }
     
     /**
@@ -297,21 +302,21 @@ class SpaceNavigatorController {
      * Works in all browsers when 3Dconnexion driver is running
      */
     async _connectVia3DxWare() {
-        if (!_3dxwareAvailable || !_3dxwarePort) {
+        if (!_3dxwareAvailable || !_3dxwareUrl) {
             console.log('3DxWare not available');
             return false;
         }
         
         return new Promise((resolve) => {
-            console.log(`%c🎮 SpaceMouse connecting via 3DxWare (port ${_3dxwarePort})...`, 'color: #8b5cf6');
+            console.log(`%c🎮 SpaceMouse connecting via 3DxWare (${_3dxwareUrl})...`, 'color: #8b5cf6');
             
             try {
-                this._3dxWebSocket = new WebSocket(`ws://localhost:${_3dxwarePort}`);
+                this._3dxWebSocket = new WebSocket(_3dxwareUrl);
                 
                 // Connection timeout
                 const timeout = setTimeout(() => {
                     console.log('3DxWare connection timeout');
-                    this._3dxWebSocket.close();
+                    try { this._3dxWebSocket.close(); } catch(e) {}
                     resolve(false);
                 }, 3000);
                 
@@ -1351,7 +1356,7 @@ class SpaceNavigatorController {
         return {
             webHID: SpaceNavigatorController.isWebHIDSupported(),
             tdxware: SpaceNavigatorController.is3DxWareAvailable(),
-            tdxwarePort: SpaceNavigatorController.get3DxWarePort(),
+            tdxwareUrl: SpaceNavigatorController.get3DxWareUrl(),
             gamepad: SpaceNavigatorController.isGamepadSupported(),
             recommended: SpaceNavigatorController.isWebHIDSupported() ? 'WebHID' : 
                          SpaceNavigatorController.is3DxWareAvailable() ? '3DxWare' :
