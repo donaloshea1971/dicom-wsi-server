@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.7.1';
+const SPACEMOUSE_VERSION = '1.8.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -25,6 +25,11 @@ class SpaceNavigatorController {
         this._historySize = 15;  // Configurable: average last N samples
         // Smoothed output values
         this._smoothedPan = { x: 0, y: 0 };
+        
+        // Momentum/inertia for smooth deceleration
+        this._velocity = { x: 0, y: 0 };
+        this._momentumDecay = 0.92;  // Decay factor per frame (~60fps = ~1 second to stop)
+        this._hasActiveInput = false;
         
         // Configurable parameters (can be adjusted via config panel)
         this._curvePower = 2.0;   // Exponential curve power
@@ -427,36 +432,48 @@ class SpaceNavigatorController {
             }
         }
         
-        // Check if any MAPPED input is active (after exponential curve)
-        const hasInput = Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0 || 
-                         Math.abs(mapped.zoom) > 0;
+        // Check if any PAN input is active (after exponential curve)
+        const hasPanInput = Math.abs(mapped.panX) > 0.001 || Math.abs(mapped.panY) > 0.001;
         
-        if (!hasInput) return;
+        // Pan with momentum - scale by zoom level for consistent apparent speed
+        const currentZoom = viewport.getZoom();
+        const panFactor = this.sensitivity.pan / currentZoom;
         
-        // Pan - scale by zoom level for consistent apparent speed
-        if (Math.abs(mapped.panX) > 0 || Math.abs(mapped.panY) > 0) {
-            const currentZoom = viewport.getZoom();
-            // Divide by zoom so panning feels the same at all magnifications
-            const panFactor = this.sensitivity.pan / currentZoom;
-            
-            // Calculate target pan values
+        if (hasPanInput) {
+            // Active input: calculate target and smooth
             const targetX = mapped.panX * panFactor;
             const targetY = mapped.panY * panFactor;
             
             // Apply smoothing (exponential moving average) for fluid diagonal motion
-            // smoothing = 0.3 means 30% new value, 70% old value per frame
             this._smoothedPan.x = this._smoothedPan.x * (1 - this.smoothing) + targetX * this.smoothing;
             this._smoothedPan.y = this._smoothedPan.y * (1 - this.smoothing) + targetY * this.smoothing;
             
-            const delta = new OpenSeadragon.Point(
-                this._smoothedPan.x,
-                this._smoothedPan.y
-            );
+            // Store velocity for momentum
+            this._velocity.x = this._smoothedPan.x;
+            this._velocity.y = this._smoothedPan.y;
+            this._hasActiveInput = true;
+            
+        } else if (this._hasActiveInput || Math.abs(this._velocity.x) > 0.0001 || Math.abs(this._velocity.y) > 0.0001) {
+            // No input but we have momentum - apply decay
+            this._velocity.x *= this._momentumDecay;
+            this._velocity.y *= this._momentumDecay;
+            this._smoothedPan.x = this._velocity.x;
+            this._smoothedPan.y = this._velocity.y;
+            this._hasActiveInput = false;
+            
+            // Stop when velocity is negligible
+            if (Math.abs(this._velocity.x) < 0.0001 && Math.abs(this._velocity.y) < 0.0001) {
+                this._velocity.x = 0;
+                this._velocity.y = 0;
+                this._smoothedPan.x = 0;
+                this._smoothedPan.y = 0;
+            }
+        }
+        
+        // Apply pan if there's any motion
+        if (Math.abs(this._smoothedPan.x) > 0.00001 || Math.abs(this._smoothedPan.y) > 0.00001) {
+            const delta = new OpenSeadragon.Point(this._smoothedPan.x, this._smoothedPan.y);
             viewport.panBy(delta, false);
-        } else {
-            // Decay smoothed values when no input (prevents drift)
-            this._smoothedPan.x *= 0.8;
-            this._smoothedPan.y *= 0.8;
         }
         
         // Zoom - SNAP mode using RAW RZ value
@@ -819,6 +836,11 @@ class SpaceNavigatorController {
             </div>
             
             <div class="param">
+                <label>Momentum (0=off, 0.95=long) <span id="cfg-momentum-val">${this._momentumDecay}</span></label>
+                <input type="range" id="cfg-momentum" min="0" max="0.96" step="0.02" value="${this._momentumDecay}">
+            </div>
+            
+            <div class="param">
                 <label>Invert X <input type="checkbox" id="cfg-invert-x" ${this._invertX ? 'checked' : ''}></label>
             </div>
             
@@ -898,6 +920,11 @@ class SpaceNavigatorController {
             document.getElementById('cfg-smooth-val').textContent = this.value;
         };
         
+        document.getElementById('cfg-momentum').oninput = function() {
+            self._momentumDecay = parseFloat(this.value);
+            document.getElementById('cfg-momentum-val').textContent = this.value;
+        };
+        
         document.getElementById('cfg-invert-x').onchange = function() {
             self._invertX = this.checked;
         };
@@ -921,6 +948,7 @@ class SpaceNavigatorController {
                 curvePower: self._curvePower,
                 historySize: self._historySize,
                 smoothing: self.smoothing,
+                momentum: self._momentumDecay,
                 invertX: self._invertX,
                 invertY: self._invertY
             };
@@ -965,10 +993,13 @@ class SpaceNavigatorController {
      */
     showCrosshair() {
         if (this._crosshair) {
-            this._crosshair.style.display = 'block';
+            this._crosshair.style.display = 'flex';
             this._crosshairVisible = true;
             return;
         }
+        
+        // Find the viewer container - attach to it so crosshair stays centered in fullscreen
+        const viewerContainer = this.viewer?.element || document.getElementById('viewer') || document.body;
         
         // Create crosshair element
         const crosshair = document.createElement('div');
@@ -976,10 +1007,14 @@ class SpaceNavigatorController {
         crosshair.innerHTML = `
             <style>
                 #spacemouse-crosshair {
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                     pointer-events: none;
                     z-index: 9999;
                 }
@@ -1003,7 +1038,15 @@ class SpaceNavigatorController {
             </svg>
         `;
         
-        document.body.appendChild(crosshair);
+        // Make sure viewer container has position relative for absolute positioning
+        if (viewerContainer !== document.body) {
+            const style = window.getComputedStyle(viewerContainer);
+            if (style.position === 'static') {
+                viewerContainer.style.position = 'relative';
+            }
+        }
+        
+        viewerContainer.appendChild(crosshair);
         this._crosshair = crosshair;
         this._crosshairVisible = true;
         
