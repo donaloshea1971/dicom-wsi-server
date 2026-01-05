@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.8.2';
+const SPACEMOUSE_VERSION = '1.9.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -363,10 +363,9 @@ class SpaceNavigatorController {
                 this.onButtonPress({ button: 'left', pressed: leftPressed });
             }
             
-            // Default action: Fit to screen on left button press
-            if (leftPressed && this.viewer) {
-                this.viewer.viewport.goHome();
-                console.log('🏠 Fit to screen');
+            // Default action: Previous study on left button press
+            if (leftPressed && typeof window.previousStudy === 'function') {
+                window.previousStudy();
             }
         }
         
@@ -379,9 +378,9 @@ class SpaceNavigatorController {
                 this.onButtonPress({ button: 'right', pressed: rightPressed });
             }
             
-            // Default action: Toggle crosshair on right button press
-            if (rightPressed) {
-                this.toggleCrosshair();
+            // Default action: Next study on right button press
+            if (rightPressed && typeof window.nextStudy === 'function') {
+                window.nextStudy();
             }
         }
         

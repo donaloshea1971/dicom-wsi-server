@@ -1124,7 +1124,7 @@
     <script src="dicomweb-tilesource.js"></script>
     <script src="color-correction.js"></script>
     <script src="annotations.js"></script>
-    <script src="space-navigator.js?v=1.8.2"></script>
+    <script src="space-navigator.js?v=1.9.0"></script>
     <script>
         // Auth0 Configuration
         const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
@@ -1141,6 +1141,7 @@
 
         let viewer = null;
         let currentStudy = null;
+        let studyList = [];  // Store list of study IDs for navigation
 
         // Initialize Auth0 and check authentication
         async function initAuth() {
@@ -1367,6 +1368,9 @@
                     // Separate owned and sample studies
                     const ownedStudies = studies.filter(s => ownership[s.ID] === 'owned');
                     const sampleStudies = studies.filter(s => ownership[s.ID] === 'sample');
+                    
+                    // Store study list for navigation (owned first, then samples)
+                    studyList = [...ownedStudies.map(s => s.ID), ...sampleStudies.map(s => s.ID)];
                     
                     let html = '';
                     
@@ -2264,6 +2268,36 @@
         function openSpaceMouseCalibration(event) {
             event.preventDefault();
             window.open('/spacemouse-calibration.html', '_blank');
+        }
+        
+        // Navigate to next study in the list (exposed globally for SpaceMouse)
+        window.nextStudy = function nextStudy() {
+            if (!studyList || studyList.length === 0) {
+                console.log('No studies loaded');
+                return;
+            }
+            
+            const currentIndex = studyList.indexOf(currentStudy);
+            const nextIndex = (currentIndex + 1) % studyList.length;
+            const nextId = studyList[nextIndex];
+            
+            console.log(`📖 Next study: ${nextIndex + 1}/${studyList.length}`);
+            loadStudy(nextId);
+        }
+        
+        // Navigate to previous study in the list (exposed globally for SpaceMouse)
+        window.previousStudy = function previousStudy() {
+            if (!studyList || studyList.length === 0) {
+                console.log('No studies loaded');
+                return;
+            }
+            
+            const currentIndex = studyList.indexOf(currentStudy);
+            const prevIndex = currentIndex <= 0 ? studyList.length - 1 : currentIndex - 1;
+            const prevId = studyList[prevIndex];
+            
+            console.log(`📖 Previous study: ${prevIndex + 1}/${studyList.length}`);
+            loadStudy(prevId);
         }
         
         // Update SpaceMouse badge appearance
