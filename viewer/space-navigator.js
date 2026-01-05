@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.7.0';
+const SPACEMOUSE_VERSION = '1.7.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -64,6 +64,10 @@ class SpaceNavigatorController {
         
         // Status callback
         this.onStatusChange = null;
+        
+        // Crosshair element
+        this._crosshair = null;
+        this._crosshairVisible = true;  // Show by default when connected
     }
 
     /**
@@ -112,6 +116,9 @@ class SpaceNavigatorController {
                 if (this.viewer) {
                     this.viewer.mouseNavEnabled = false;
                 }
+                
+                // Show crosshair
+                this.showCrosshair();
                 
                 console.log('%c🎮 SpaceMouse auto-connected!', 'color: #10b981; font-weight: bold');
                 console.log(`Device: ${this.device.productName}`);
@@ -168,6 +175,9 @@ class SpaceNavigatorController {
             console.log(`   Vendor: 0x${this.device.vendorId.toString(16)} Product: 0x${this.device.productId.toString(16)}`);
             console.log('%c   💡 Type: spaceNavController.toggleDebug() to see live input values', 'color: #888');
             
+            // Show crosshair
+            this.showCrosshair();
+            
             // DISABLE OpenSeadragon scroll-to-zoom to prevent 3Dconnexion driver conflict
             if (this.viewer && this.viewer.innerTracker) {
                 this._savedScrollHandler = this.viewer.innerTracker.scrollHandler;
@@ -188,6 +198,9 @@ class SpaceNavigatorController {
      */
     async disconnect() {
         this.stopAnimationLoop();
+        
+        // Hide crosshair
+        this.hideCrosshair();
         
         // RE-ENABLE OpenSeadragon scroll-to-zoom
         if (this.viewer && this.viewer.innerTracker && this._savedScrollHandler !== undefined) {
@@ -813,6 +826,10 @@ class SpaceNavigatorController {
                 <label>Invert Y <input type="checkbox" id="cfg-invert-y" ${this._invertY ? 'checked' : ''}></label>
             </div>
             
+            <div class="param">
+                <label>Show Crosshair <input type="checkbox" id="cfg-crosshair" ${this._crosshairVisible ? 'checked' : ''}></label>
+            </div>
+            
             <div class="live-values" id="cfg-live">
                 TX: 0 | TY: 0 | panX: 0 | panY: 0
             </div>
@@ -889,6 +906,14 @@ class SpaceNavigatorController {
             self._invertY = this.checked;
         };
         
+        document.getElementById('cfg-crosshair').onchange = function() {
+            if (this.checked) {
+                self.showCrosshair();
+            } else {
+                self.hideCrosshair();
+            }
+        };
+        
         document.getElementById('cfg-export').onclick = function() {
             const settings = {
                 pan: self.sensitivity.pan,
@@ -933,6 +958,79 @@ class SpaceNavigatorController {
             clearInterval(this._configPanelInterval);
             this._configPanelInterval = null;
         }
+    }
+    
+    /**
+     * Show crosshair in center of viewer
+     */
+    showCrosshair() {
+        if (this._crosshair) {
+            this._crosshair.style.display = 'block';
+            this._crosshairVisible = true;
+            return;
+        }
+        
+        // Create crosshair element
+        const crosshair = document.createElement('div');
+        crosshair.id = 'spacemouse-crosshair';
+        crosshair.innerHTML = `
+            <style>
+                #spacemouse-crosshair {
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    pointer-events: none;
+                    z-index: 9999;
+                }
+                #spacemouse-crosshair svg {
+                    width: 32px;
+                    height: 32px;
+                    filter: drop-shadow(0 0 2px rgba(0,0,0,0.8));
+                }
+            </style>
+            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- Outer circle -->
+                <circle cx="16" cy="16" r="12" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.7"/>
+                <!-- Horizontal line -->
+                <line x1="0" y1="16" x2="10" y2="16" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.9"/>
+                <line x1="22" y1="16" x2="32" y2="16" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.9"/>
+                <!-- Vertical line -->
+                <line x1="16" y1="0" x2="16" y2="10" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.9"/>
+                <line x1="16" y1="22" x2="16" y2="32" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.9"/>
+                <!-- Center dot -->
+                <circle cx="16" cy="16" r="2" fill="#10b981"/>
+            </svg>
+        `;
+        
+        document.body.appendChild(crosshair);
+        this._crosshair = crosshair;
+        this._crosshairVisible = true;
+        
+        console.log('🎯 Crosshair enabled');
+    }
+    
+    /**
+     * Hide crosshair
+     */
+    hideCrosshair() {
+        if (this._crosshair) {
+            this._crosshair.style.display = 'none';
+            this._crosshairVisible = false;
+            console.log('🎯 Crosshair hidden');
+        }
+    }
+    
+    /**
+     * Toggle crosshair visibility
+     */
+    toggleCrosshair() {
+        if (this._crosshairVisible) {
+            this.hideCrosshair();
+        } else {
+            this.showCrosshair();
+        }
+        return this._crosshairVisible;
     }
 }
 
