@@ -514,6 +514,106 @@
             background: #000;
         }
         
+        /* OpenSeadragon Navigator (minimap) styling */
+        .navigator {
+            background: var(--bg-secondary) !important;
+            border: 2px solid var(--border) !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+            margin: 12px !important;
+            width: 180px !important;
+            height: 140px !important;
+        }
+        
+        .navigator .displayregion {
+            border: 2px solid var(--accent) !important;
+            background: rgba(0, 212, 170, 0.15) !important;
+        }
+        
+        /* Keyboard shortcuts help overlay */
+        .keyboard-help {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        
+        .keyboard-help-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        
+        .keyboard-help-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .keyboard-help-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+        
+        .keyboard-help-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        
+        @media (max-width: 600px) {
+            .keyboard-help-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .keyboard-section h4 {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 12px 0;
+        }
+        
+        .shortcut {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        
+        kbd {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-primary);
+            min-width: 20px;
+            text-align: center;
+        }
+        
         /* Gamma correction for Hamamatsu NDPI images (linear to sRGB) */
         #osd-viewer.gamma-correct {
             filter: url(#gamma-correction);
@@ -1119,12 +1219,53 @@
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="space-nav-badge" style="cursor: pointer; background: var(--bg-tertiary); color: var(--text-muted);" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click to connect SpaceMouse">🎮</div>
             <div class="status-badge" id="color-badge" style="display: none; cursor: pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
+            <div class="status-badge" id="help-badge" style="cursor: pointer; background: var(--bg-tertiary); color: var(--text-muted);" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
             <!-- Hidden badges - shown only on hover or in debug mode -->
             <div class="status-badge debug-only" id="viewer-version" style="display: none;" title="Viewer version">v1.0.10</div>
             <div class="status-badge debug-only" id="server-status" style="display: none;">Orthanc</div>
             <div class="status-badge debug-only" id="cache-badge" style="display: none;" title="Tile cache status">⚡ Cache</div>
             <div class="status-badge debug-only" id="gamma-badge" style="display: none;" title="Gamma correction">γ</div>
             <div class="status-badge debug-only" id="icc-badge" style="display: none;" title="ICC Profile">ICC</div>
+        </div>
+        
+        <!-- Keyboard shortcuts help overlay -->
+        <div id="keyboard-help" class="keyboard-help" style="display: none;">
+            <div class="keyboard-help-content">
+                <div class="keyboard-help-header">
+                    <h3>⌨️ Keyboard Shortcuts</h3>
+                    <button onclick="toggleKeyboardHelp()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 20px;">&times;</button>
+                </div>
+                <div class="keyboard-help-grid">
+                    <div class="keyboard-section">
+                        <h4>Navigation</h4>
+                        <div class="shortcut"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Pan</div>
+                        <div class="shortcut"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> Pan</div>
+                        <div class="shortcut"><kbd>+</kbd> / <kbd>-</kbd> Zoom in/out</div>
+                        <div class="shortcut"><kbd>Home</kbd> Fit to screen</div>
+                        <div class="shortcut"><kbd>F</kbd> Fullscreen</div>
+                        <div class="shortcut"><kbd>[</kbd> / <kbd>]</kbd> Prev/Next study</div>
+                    </div>
+                    <div class="keyboard-section">
+                        <h4>Zoom Levels</h4>
+                        <div class="shortcut"><kbd>1</kbd> Overview (fit)</div>
+                        <div class="shortcut"><kbd>2</kbd> 2x zoom</div>
+                        <div class="shortcut"><kbd>3</kbd> 5x zoom</div>
+                        <div class="shortcut"><kbd>4</kbd> 10x zoom</div>
+                        <div class="shortcut"><kbd>5</kbd> 20x zoom</div>
+                        <div class="shortcut"><kbd>6</kbd> 40x zoom</div>
+                    </div>
+                    <div class="keyboard-section">
+                        <h4>Annotation Tools</h4>
+                        <div class="shortcut"><kbd>P</kbd> Pan mode</div>
+                        <div class="shortcut"><kbd>L</kbd> Line/Distance</div>
+                        <div class="shortcut"><kbd>R</kbd> Rectangle/Area</div>
+                        <div class="shortcut"><kbd>G</kbd> Polygon</div>
+                        <div class="shortcut"><kbd>M</kbd> Point marker</div>
+                        <div class="shortcut"><kbd>Shift</kbd>+<kbd>A</kbd> Arrow</div>
+                        <div class="shortcut"><kbd>Esc</kbd> Cancel/Pan</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Annotation Toolbar (left side) -->
@@ -1188,7 +1329,12 @@
         <div class="annotations-panel" id="annotations-panel">
             <div class="annotations-panel-header">
                 <h3>📐 Annotations</h3>
-                <button class="modal-close" onclick="toggleAnnotationsPanel()" style="font-size: 18px;">&times;</button>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button class="btn-icon" onclick="exportAnnotations('json')" title="Export JSON" style="padding: 4px 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">
+                        📥 Export
+                    </button>
+                    <button class="modal-close" onclick="toggleAnnotationsPanel()" style="font-size: 18px;">&times;</button>
+                </div>
             </div>
             <div class="calibration-badge" id="calibration-info">
                 <strong>Calibration:</strong> <span id="calibration-value">Loading...</span>
@@ -3168,6 +3314,55 @@
             }
         }
         
+        async function exportAnnotations(format = 'json') {
+            if (!currentStudy) {
+                alert('No study loaded');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/studies/${currentStudy}/annotations/export?format=${format}`);
+                if (!response.ok) throw new Error('Export failed');
+                
+                const data = await response.json();
+                
+                // Create downloadable file
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `annotations_${currentStudy.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.${format === 'geojson' ? 'geojson' : 'json'}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                console.log(`Exported ${data.count || data.features?.length || 0} annotations as ${format}`);
+            } catch (e) {
+                console.error('Export error:', e);
+                alert('Failed to export annotations: ' + e.message);
+            }
+        }
+        
+        function toggleKeyboardHelp() {
+            const help = document.getElementById('keyboard-help');
+            if (help.style.display === 'none') {
+                help.style.display = 'flex';
+            } else {
+                help.style.display = 'none';
+            }
+        }
+        
+        // Also toggle help with '?' key
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+                toggleKeyboardHelp();
+                e.preventDefault();
+            }
+        });
+        
         function updateAnnotationsList() {
             const list = document.getElementById('annotations-list');
             
@@ -3390,23 +3585,147 @@
             }
         }
         
-        // Keyboard shortcuts for annotation tools
+        // Keyboard shortcuts - navigation and annotation tools
         document.addEventListener('keydown', (e) => {
-            // Don't trigger if typing in an input or no viewer open
+            // Don't trigger if typing in an input
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (!annotationManager) return;
             
-            switch (e.key.toLowerCase()) {
-                case 'p': setAnnotationTool(null); break;  // Pan
-                case 'l': setAnnotationTool('line'); break;
-                case 'r': setAnnotationTool('rectangle'); break;
-                case 'g': setAnnotationTool('polygon'); break;
-                case 'm': setAnnotationTool('point'); break;
-                case 'a': setAnnotationTool('arrow'); break;
-                case 'escape': 
-                    setAnnotationTool(null);
-                    closeMetadataModal();
-                    break;
+            const key = e.key.toLowerCase();
+            
+            // Navigation shortcuts (work even without annotation manager)
+            if (viewer) {
+                const panAmount = 0.1; // Pan 10% of viewport
+                const viewport = viewer.viewport;
+                const center = viewport.getCenter();
+                
+                switch (key) {
+                    // WASD navigation
+                    case 'w':
+                        viewport.panTo(new OpenSeadragon.Point(center.x, center.y - panAmount));
+                        e.preventDefault();
+                        return;
+                    case 's':
+                        viewport.panTo(new OpenSeadragon.Point(center.x, center.y + panAmount));
+                        e.preventDefault();
+                        return;
+                    case 'a':
+                        if (!e.ctrlKey && !e.metaKey) {
+                            viewport.panTo(new OpenSeadragon.Point(center.x - panAmount, center.y));
+                            e.preventDefault();
+                            return;
+                        }
+                        break; // Allow Ctrl+A
+                    case 'd':
+                        viewport.panTo(new OpenSeadragon.Point(center.x + panAmount, center.y));
+                        e.preventDefault();
+                        return;
+                        
+                    // Arrow key navigation
+                    case 'arrowup':
+                        viewport.panTo(new OpenSeadragon.Point(center.x, center.y - panAmount));
+                        e.preventDefault();
+                        return;
+                    case 'arrowdown':
+                        viewport.panTo(new OpenSeadragon.Point(center.x, center.y + panAmount));
+                        e.preventDefault();
+                        return;
+                    case 'arrowleft':
+                        viewport.panTo(new OpenSeadragon.Point(center.x - panAmount, center.y));
+                        e.preventDefault();
+                        return;
+                    case 'arrowright':
+                        viewport.panTo(new OpenSeadragon.Point(center.x + panAmount, center.y));
+                        e.preventDefault();
+                        return;
+                        
+                    // Zoom level shortcuts (1-5 = common microscope objectives)
+                    case '1': // Overview (fit to screen)
+                        viewport.fitBounds(viewport.getHomeBounds());
+                        e.preventDefault();
+                        return;
+                    case '2': // 2x
+                        viewport.zoomTo(2);
+                        e.preventDefault();
+                        return;
+                    case '3': // 5x
+                        viewport.zoomTo(5);
+                        e.preventDefault();
+                        return;
+                    case '4': // 10x
+                        viewport.zoomTo(10);
+                        e.preventDefault();
+                        return;
+                    case '5': // 20x
+                        viewport.zoomTo(20);
+                        e.preventDefault();
+                        return;
+                    case '6': // 40x
+                        viewport.zoomTo(40);
+                        e.preventDefault();
+                        return;
+                        
+                    // Zoom in/out
+                    case '+':
+                    case '=':
+                        viewport.zoomBy(1.5);
+                        e.preventDefault();
+                        return;
+                    case '-':
+                    case '_':
+                        viewport.zoomBy(0.67);
+                        e.preventDefault();
+                        return;
+                        
+                    // Home = fit to screen
+                    case 'home':
+                        viewport.goHome();
+                        e.preventDefault();
+                        return;
+                        
+                    // Fullscreen
+                    case 'f':
+                        if (!e.ctrlKey && !e.metaKey) {
+                            toggleFullscreen();
+                            e.preventDefault();
+                            return;
+                        }
+                        break;
+                        
+                    // Study navigation
+                    case '[':
+                        previousStudy();
+                        e.preventDefault();
+                        return;
+                    case ']':
+                        nextStudy();
+                        e.preventDefault();
+                        return;
+                }
+            }
+            
+            // Annotation tool shortcuts (only when annotation manager is ready)
+            if (annotationManager) {
+                switch (key) {
+                    case 'p': setAnnotationTool(null); break;  // Pan
+                    case 'l': setAnnotationTool('line'); break;
+                    case 'r': setAnnotationTool('rectangle'); break;
+                    case 'g': setAnnotationTool('polygon'); break;
+                    case 'm': setAnnotationTool('point'); break;
+                    // 'a' is used for pan left, use shift+a for arrow
+                    case 'escape': 
+                        setAnnotationTool(null);
+                        closeMetadataModal();
+                        break;
+                }
+            }
+        });
+        
+        // Shift+A for arrow annotation (since A is pan left)
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.shiftKey && e.key.toLowerCase() === 'a' && annotationManager) {
+                setAnnotationTool('arrow');
+                e.preventDefault();
             }
         });
 

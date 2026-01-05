@@ -40,6 +40,24 @@ CREATE INDEX IF NOT EXISTS idx_study_shares_shared_with ON study_shares(shared_w
 CREATE INDEX IF NOT EXISTS idx_users_auth0 ON users(auth0_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+-- Annotations table - persistent storage for study annotations
+CREATE TABLE IF NOT EXISTS annotations (
+    id VARCHAR(32) PRIMARY KEY,  -- Short UUID
+    study_id VARCHAR(255) NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    type VARCHAR(50) NOT NULL,  -- measurement, marker, region, text
+    tool VARCHAR(50) NOT NULL,  -- line, polygon, rectangle, point, arrow, text
+    geometry JSONB NOT NULL,    -- GeoJSON geometry
+    properties JSONB DEFAULT '{}',  -- color, label, measurement, etc.
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for annotation queries
+CREATE INDEX IF NOT EXISTS idx_annotations_study ON annotations(study_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_user ON annotations(user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_type ON annotations(type);
+
 -- Function to get studies visible to a user (owned + shared)
 CREATE OR REPLACE FUNCTION get_user_studies(p_user_id INTEGER)
 RETURNS TABLE(study_id VARCHAR(255), permission VARCHAR(50)) AS $$

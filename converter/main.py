@@ -7,6 +7,7 @@ import os
 import uuid
 import shutil
 import asyncio
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -105,9 +106,8 @@ class AnnotationUpdate(BaseModel):
     geometry: Optional[AnnotationGeometry] = None
     properties: Optional[dict] = None
 
-# In-memory annotation storage (would use PostgreSQL in production)
-# Structure: { study_id: { annotation_id: Annotation } }
-annotations_store: dict = {}
+# Annotation storage is now in PostgreSQL - see annotations table in user_schema.sql
+# The old in-memory store has been removed to prevent data loss
 
 
 # =============================================================================
@@ -269,101 +269,283 @@ app.add_middleware(
 
 
 # =============================================================================
-# Annotation Endpoints
+# Annotation Endpoints (PostgreSQL-backed)
 # =============================================================================
 
 @app.get("/studies/{study_id}/annotations")
 async def get_annotations(study_id: str):
     """Get all annotations for a study"""
-    if study_id not in annotations_store:
-        return {"annotations": [], "count": 0}
+    pool = await get_db_pool()
+    if pool is None:
+        return {"annotations": [], "count": 0, "error": "Database unavailable"}
     
-    annotations = list(annotations_store[study_id].values())
-    return {
-        "annotations": [a.model_dump() for a in annotations],
-        "count": len(annotations)
-    }
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, study_id, type, tool, geometry, properties, 
+                   created_at, updated_at
+            FROM annotations
+            WHERE study_id = $1
+            ORDER BY created_at ASC
+            """,
+            study_id
+        )
+        
+        annotations = [
+            {
+                "id": row["id"],
+                "study_id": row["study_id"],
+                "type": row["type"],
+                "tool": row["tool"],
+                "geometry": row["geometry"],
+                "properties": row["properties"] or {},
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+            }
+            for row in rows
+        ]
+        
+        return {"annotations": annotations, "count": len(annotations)}
 
 
 @app.post("/studies/{study_id}/annotations")
-async def create_annotation(study_id: str, annotation: AnnotationCreate):
-    """Create a new annotation for a study"""
-    # Initialize study storage if needed
-    if study_id not in annotations_store:
-        annotations_store[study_id] = {}
+async def create_annotation(
+    study_id: str, 
+    annotation: AnnotationCreate,
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Create a new annotation for a study (persisted to PostgreSQL)"""
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
     # Generate annotation ID
     annotation_id = str(uuid.uuid4())[:8]
-    
-    # Create annotation object
     now = datetime.utcnow()
-    new_annotation = Annotation(
-        id=annotation_id,
-        study_id=study_id,
-        type=annotation.type,
-        tool=annotation.tool,
-        geometry=annotation.geometry,
-        properties=annotation.properties,
-        created_by=annotation.created_by,
-        created_at=now,
-        updated_at=now
-    )
+    user_id = current_user.id if current_user else None
     
-    # Store annotation
-    annotations_store[study_id][annotation_id] = new_annotation
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO annotations (id, study_id, user_id, type, tool, geometry, properties, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """,
+            annotation_id,
+            study_id,
+            user_id,
+            annotation.type,
+            annotation.tool,
+            json.dumps(annotation.geometry.model_dump()),
+            json.dumps(annotation.properties),
+            now,
+            now
+        )
     
-    logger.info(f"Created annotation {annotation_id} for study {study_id}")
-    return new_annotation.model_dump()
+    logger.info(f"Created annotation {annotation_id} for study {study_id} (user: {user_id})")
+    
+    return {
+        "id": annotation_id,
+        "study_id": study_id,
+        "type": annotation.type,
+        "tool": annotation.tool,
+        "geometry": annotation.geometry.model_dump(),
+        "properties": annotation.properties,
+        "created_at": now.isoformat(),
+        "updated_at": now.isoformat()
+    }
 
 
 @app.get("/studies/{study_id}/annotations/{annotation_id}")
 async def get_annotation(study_id: str, annotation_id: str):
     """Get a specific annotation"""
-    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
-        raise HTTPException(status_code=404, detail="Annotation not found")
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
-    return annotations_store[study_id][annotation_id].model_dump()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, study_id, type, tool, geometry, properties, created_at, updated_at
+            FROM annotations
+            WHERE id = $1 AND study_id = $2
+            """,
+            annotation_id,
+            study_id
+        )
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        
+        return {
+            "id": row["id"],
+            "study_id": row["study_id"],
+            "type": row["type"],
+            "tool": row["tool"],
+            "geometry": row["geometry"],
+            "properties": row["properties"] or {},
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+        }
 
 
 @app.put("/studies/{study_id}/annotations/{annotation_id}")
 async def update_annotation(study_id: str, annotation_id: str, update: AnnotationUpdate):
     """Update an existing annotation"""
-    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
-        raise HTTPException(status_code=404, detail="Annotation not found")
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
-    annotation = annotations_store[study_id][annotation_id]
-    
-    if update.geometry:
-        annotation.geometry = update.geometry
-    if update.properties:
-        annotation.properties.update(update.properties)
-    
-    annotation.updated_at = datetime.utcnow()
-    
-    logger.info(f"Updated annotation {annotation_id}")
-    return annotation.model_dump()
+    async with pool.acquire() as conn:
+        # Check if annotation exists
+        existing = await conn.fetchrow(
+            "SELECT id, geometry, properties FROM annotations WHERE id = $1 AND study_id = $2",
+            annotation_id, study_id
+        )
+        
+        if not existing:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        
+        # Build update
+        new_geometry = json.dumps(update.geometry.model_dump()) if update.geometry else existing["geometry"]
+        new_properties = existing["properties"] or {}
+        if update.properties:
+            if isinstance(new_properties, str):
+                new_properties = json.loads(new_properties)
+            new_properties.update(update.properties)
+        
+        now = datetime.utcnow()
+        
+        await conn.execute(
+            """
+            UPDATE annotations 
+            SET geometry = $1, properties = $2, updated_at = $3
+            WHERE id = $4 AND study_id = $5
+            """,
+            new_geometry if isinstance(new_geometry, str) else json.dumps(new_geometry),
+            json.dumps(new_properties),
+            now,
+            annotation_id,
+            study_id
+        )
+        
+        logger.info(f"Updated annotation {annotation_id}")
+        
+        # Fetch and return updated annotation
+        return await get_annotation(study_id, annotation_id)
 
 
 @app.delete("/studies/{study_id}/annotations/{annotation_id}")
 async def delete_annotation(study_id: str, annotation_id: str):
     """Delete an annotation"""
-    if study_id not in annotations_store or annotation_id not in annotations_store[study_id]:
-        raise HTTPException(status_code=404, detail="Annotation not found")
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     
-    del annotations_store[study_id][annotation_id]
-    logger.info(f"Deleted annotation {annotation_id}")
-    return {"message": "Annotation deleted"}
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM annotations WHERE id = $1 AND study_id = $2",
+            annotation_id,
+            study_id
+        )
+        
+        # Check if deletion happened
+        if "DELETE 0" in result:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        
+        logger.info(f"Deleted annotation {annotation_id}")
+        return {"message": "Annotation deleted"}
 
 
 @app.delete("/studies/{study_id}/annotations")
 async def clear_annotations(study_id: str):
     """Delete all annotations for a study"""
-    if study_id in annotations_store:
-        count = len(annotations_store[study_id])
-        annotations_store[study_id] = {}
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM annotations WHERE study_id = $1",
+            study_id
+        )
+        
+        # Extract count from result like "DELETE 5"
+        count = int(result.split()[-1]) if result else 0
         logger.info(f"Cleared {count} annotations for study {study_id}")
-        return {"message": f"Deleted {count} annotations"}
-    return {"message": "No annotations to delete"}
+        return {"message": f"Deleted {count} annotations", "count": count}
+
+
+@app.get("/studies/{study_id}/annotations/export")
+async def export_annotations(study_id: str, format: str = "json"):
+    """Export annotations as JSON or GeoJSON"""
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, study_id, type, tool, geometry, properties, created_at, updated_at
+            FROM annotations
+            WHERE study_id = $1
+            ORDER BY created_at ASC
+            """,
+            study_id
+        )
+        
+        if format == "geojson":
+            # Export as GeoJSON FeatureCollection
+            features = []
+            for row in rows:
+                geom = row["geometry"]
+                if isinstance(geom, str):
+                    geom = json.loads(geom)
+                
+                feature = {
+                    "type": "Feature",
+                    "id": row["id"],
+                    "geometry": geom,
+                    "properties": {
+                        **(row["properties"] or {}),
+                        "tool": row["tool"],
+                        "annotation_type": row["type"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                    }
+                }
+                features.append(feature)
+            
+            return {
+                "type": "FeatureCollection",
+                "features": features,
+                "properties": {
+                    "study_id": study_id,
+                    "count": len(features),
+                    "exported_at": datetime.utcnow().isoformat()
+                }
+            }
+        else:
+            # Export as PathView Pro JSON format
+            annotations = [
+                {
+                    "id": row["id"],
+                    "study_id": row["study_id"],
+                    "type": row["type"],
+                    "tool": row["tool"],
+                    "geometry": row["geometry"],
+                    "properties": row["properties"] or {},
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+                }
+                for row in rows
+            ]
+            
+            return {
+                "version": "1.0",
+                "study_id": study_id,
+                "count": len(annotations),
+                "exported_at": datetime.utcnow().isoformat(),
+                "annotations": annotations
+            }
 
 
 @app.get("/studies/{study_id}/calibration")
