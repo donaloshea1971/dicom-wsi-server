@@ -1526,6 +1526,98 @@ async def get_studies_ownership(current_user: Optional[User] = Depends(get_curre
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
 
+@app.get("/debug/studies")
+async def debug_studies(current_user: Optional[User] = Depends(get_current_user)):
+    """Debug endpoint to diagnose study visibility issues"""
+    debug_info = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "user": None,
+        "database": {"status": "unknown"},
+        "orthanc": {"status": "unknown"},
+        "studies": {"total": 0, "owned_by_user": 0, "owned_by_others": 0, "unowned": 0},
+        "ownership_table": []
+    }
+    
+    # User info
+    if current_user:
+        debug_info["user"] = {
+            "id": current_user.id,
+            "email": current_user.email,
+            "role": current_user.role,
+            "auth0_id": current_user.auth0_id[:20] + "..." if current_user.auth0_id else None
+        }
+    else:
+        debug_info["user"] = {"status": "not_authenticated"}
+    
+    # Database check
+    pool = await get_db_pool()
+    if pool is None:
+        debug_info["database"] = {"status": "pool_unavailable", "error": "Could not create connection pool"}
+    else:
+        try:
+            async with pool.acquire() as conn:
+                # Test connection
+                result = await conn.fetchval("SELECT 1")
+                debug_info["database"]["status"] = "connected"
+                
+                # Get all ownership records
+                owners = await conn.fetch("""
+                    SELECT so.study_id, so.user_id, u.email 
+                    FROM study_owners so 
+                    LEFT JOIN users u ON so.user_id = u.id
+                """)
+                debug_info["ownership_table"] = [
+                    {"study_id": r["study_id"], "user_id": r["user_id"], "email": r["email"]} 
+                    for r in owners
+                ]
+                
+                # Get user count
+                user_count = await conn.fetchval("SELECT COUNT(*) FROM users")
+                debug_info["database"]["user_count"] = user_count
+                
+        except Exception as e:
+            debug_info["database"] = {"status": "error", "error": str(e)}
+    
+    # Orthanc check
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/studies",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=10.0
+            )
+            response.raise_for_status()
+            all_studies = response.json()
+            
+            debug_info["orthanc"]["status"] = "connected"
+            debug_info["studies"]["total"] = len(all_studies)
+            
+            # Categorize studies
+            owned_study_ids = {r["study_id"] for r in debug_info["ownership_table"]}
+            user_study_ids = set()
+            
+            if current_user and current_user.id:
+                user_study_ids = {
+                    r["study_id"] for r in debug_info["ownership_table"] 
+                    if r["user_id"] == current_user.id
+                }
+            
+            for study_id in all_studies:
+                if study_id in user_study_ids:
+                    debug_info["studies"]["owned_by_user"] += 1
+                elif study_id in owned_study_ids:
+                    debug_info["studies"]["owned_by_others"] += 1
+                else:
+                    debug_info["studies"]["unowned"] += 1
+            
+            debug_info["orthanc"]["all_study_ids"] = all_studies[:20]  # First 20
+            
+    except Exception as e:
+        debug_info["orthanc"] = {"status": "error", "error": str(e)}
+    
+    return debug_info
+
+
 # =============================================================================
 # User Endpoints
 # =============================================================================
