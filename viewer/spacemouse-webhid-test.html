@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceMouse WebHID Test (Chrome)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 40px;
+        }
+        h1 { color: #4ade80; margin-bottom: 10px; }
+        .subtitle { color: #64748b; margin-bottom: 30px; }
+        .card {
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card h2 { color: #94a3b8; font-size: 14px; text-transform: uppercase; margin-bottom: 16px; }
+        .status { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+        .status-dot {
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #ef4444;
+        }
+        .status-dot.connected { background: #4ade80; }
+        .status-dot.supported { background: #f59e0b; }
+        button {
+            background: #4ade80; color: #0f172a; border: none;
+            padding: 14px 28px; border-radius: 8px; font-size: 16px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        button:hover { background: #22c55e; transform: translateY(-2px); }
+        button:disabled { background: #475569; cursor: not-allowed; transform: none; }
+        .axes-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+        }
+        .axis { text-align: center; }
+        .axis-label { color: #64748b; font-size: 12px; margin-bottom: 8px; }
+        .axis-value { font-family: monospace; font-size: 32px; font-weight: bold; color: #4ade80; }
+        .log {
+            background: #0f172a; border-radius: 8px; padding: 16px;
+            font-family: monospace; font-size: 12px; max-height: 200px;
+            overflow-y: auto; margin-top: 16px;
+        }
+        .log-entry { margin-bottom: 4px; }
+        .log-entry.success { color: #4ade80; }
+        .log-entry.error { color: #ef4444; }
+        .log-entry.warn { color: #f59e0b; }
+        .warning-box {
+            background: #422006; border: 1px solid #f59e0b; border-radius: 8px;
+            padding: 16px; margin-bottom: 20px;
+        }
+        .warning-box h3 { color: #f59e0b; margin-bottom: 8px; }
+        .visualizer { display: flex; justify-content: center; gap: 40px; padding: 20px; }
+        .puck {
+            width: 150px; height: 150px;
+            background: radial-gradient(circle at 30% 30%, #475569, #1e293b);
+            border-radius: 50%; position: relative;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .puck-indicator {
+            position: absolute; width: 20px; height: 20px;
+            background: #4ade80; border-radius: 50%;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            box-shadow: 0 0 20px #4ade80;
+        }
+    </style>
+</head>
+<body>
+    <h1>SpaceMouse WebHID Test</h1>
+    <p class="subtitle">Direct hardware access via WebHID API (Chrome/Edge only)</p>
+    
+    <div class="warning-box" id="browserWarning" style="display: none;">
+        <h3>Browser Not Supported</h3>
+        <p>WebHID requires Chrome or Edge. You're currently using a browser that doesn't support WebHID.</p>
+        <p style="margin-top: 8px;">Please open this page in <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong>.</p>
+    </div>
+    
+    <div class="card">
+        <h2>Connection Status</h2>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Checking WebHID support...</span>
+        </div>
+        <div style="margin-top: 20px;">
+            <button id="connectBtn" onclick="connect()" disabled>Connect SpaceMouse</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Live Input (move SpaceMouse to see values)</h2>
+        <div class="visualizer">
+            <div class="puck">
+                <div class="puck-indicator" id="puckIndicator"></div>
+            </div>
+        </div>
+        <div class="axes-grid" style="margin-top: 20px;">
+            <div class="axis">
+                <div class="axis-label">TX (Left/Right)</div>
+                <div class="axis-value" id="tx">0</div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">TY (Forward/Back)</div>
+                <div class="axis-value" id="ty">0</div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">TZ (Up/Down)</div>
+                <div class="axis-value" id="tz">0</div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RX (Pitch)</div>
+                <div class="axis-value" id="rx">0</div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RY (Roll)</div>
+                <div class="axis-value" id="ry">0</div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RZ (Yaw/Twist)</div>
+                <div class="axis-value" id="rz">0</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Log</h2>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let device = null;
+        const vendorIds = [0x046d, 0x256f]; // Logitech/3Dconnexion
+        
+        function log(msg, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(msg);
+        }
+        
+        function updateStatus(connected, text) {
+            document.getElementById('statusDot').className = 'status-dot' + (connected ? ' connected' : '');
+            document.getElementById('statusText').textContent = text;
+        }
+        
+        function updateAxes(tx, ty, tz, rx, ry, rz) {
+            document.getElementById('tx').textContent = tx;
+            document.getElementById('ty').textContent = ty;
+            document.getElementById('tz').textContent = tz;
+            document.getElementById('rx').textContent = rx;
+            document.getElementById('ry').textContent = ry;
+            document.getElementById('rz').textContent = rz;
+            
+            // Update puck
+            const puck = document.getElementById('puckIndicator');
+            const maxOffset = 50;
+            const puckX = Math.max(-maxOffset, Math.min(maxOffset, tx / 7));
+            const puckY = Math.max(-maxOffset, Math.min(maxOffset, ty / 7));
+            puck.style.transform = `translate(calc(-50% + ${puckX}px), calc(-50% + ${puckY}px))`;
+        }
+        
+        function readInt16LE(bytes, offset) {
+            let value = bytes[offset] | (bytes[offset + 1] << 8);
+            if (value > 32767) value -= 65536;
+            return value;
+        }
+        
+        function handleInput(event) {
+            const bytes = new Uint8Array(event.data.buffer);
+            const reportId = event.reportId;
+            
+            let tx = 0, ty = 0, tz = 0, rx = 0, ry = 0, rz = 0;
+            
+            if (bytes.length >= 12 && reportId === 1) {
+                // SpaceMouse Wireless format
+                tx = readInt16LE(bytes, 0);
+                ty = readInt16LE(bytes, 2);
+                tz = readInt16LE(bytes, 4);
+                rx = readInt16LE(bytes, 6);
+                ry = readInt16LE(bytes, 8);
+                rz = readInt16LE(bytes, 10);
+            } else if (bytes.length >= 7) {
+                // Older format
+                if (reportId === 1) {
+                    tx = readInt16LE(bytes, 1);
+                    ty = readInt16LE(bytes, 3);
+                    tz = readInt16LE(bytes, 5);
+                } else if (reportId === 2) {
+                    rx = readInt16LE(bytes, 1);
+                    ry = readInt16LE(bytes, 3);
+                    rz = readInt16LE(bytes, 5);
+                }
+            }
+            
+            updateAxes(tx, ty, tz, rx, ry, rz);
+        }
+        
+        async function connect() {
+            log('Requesting SpaceMouse device...');
+            
+            try {
+                const filters = vendorIds.map(vendorId => ({ vendorId }));
+                const devices = await navigator.hid.requestDevice({ filters });
+                
+                if (devices.length === 0) {
+                    log('No device selected', 'warn');
+                    return;
+                }
+                
+                device = devices[0];
+                log(`Device selected: ${device.productName}`, 'success');
+                log(`Vendor: 0x${device.vendorId.toString(16)}, Product: 0x${device.productId.toString(16)}`);
+                
+                if (!device.opened) {
+                    await device.open();
+                    log('Device opened', 'success');
+                }
+                
+                device.addEventListener('inputreport', handleInput);
+                
+                updateStatus(true, `Connected: ${device.productName}`);
+                document.getElementById('connectBtn').textContent = 'Connected!';
+                document.getElementById('connectBtn').disabled = true;
+                
+                log('Move the SpaceMouse to see input values!', 'success');
+                
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Check WebHID support on load
+        if ('hid' in navigator) {
+            log('WebHID is supported!', 'success');
+            updateStatus(false, 'WebHID supported - Click Connect');
+            document.getElementById('connectBtn').disabled = false;
+            
+            // Try auto-connect to previously paired device
+            navigator.hid.getDevices().then(devices => {
+                const spaceMouse = devices.find(d => vendorIds.includes(d.vendorId));
+                if (spaceMouse) {
+                    log(`Found previously paired device: ${spaceMouse.productName}`);
+                    log('Click Connect to use it');
+                }
+            });
+        } else {
+            log('WebHID is NOT supported in this browser', 'error');
+            updateStatus(false, 'WebHID not supported');
+            document.getElementById('browserWarning').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

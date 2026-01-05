@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceMouse Gamepad API Test (Firefox Compatible)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 40px;
+        }
+        h1 { color: #f59e0b; margin-bottom: 10px; }
+        .subtitle { color: #64748b; margin-bottom: 30px; }
+        .card {
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card h2 { color: #94a3b8; font-size: 14px; text-transform: uppercase; margin-bottom: 16px; }
+        .status { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+        .status-dot {
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.connected { background: #f59e0b; animation: none; }
+        .status-dot.active { background: #10b981; animation: none; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .instruction {
+            background: #422006; border: 1px solid #f59e0b; border-radius: 8px;
+            padding: 16px; margin-bottom: 20px;
+        }
+        .instruction h3 { color: #f59e0b; margin-bottom: 8px; }
+        .axes-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+        }
+        .axis { text-align: center; }
+        .axis-label { color: #64748b; font-size: 12px; margin-bottom: 8px; }
+        .axis-value { font-family: monospace; font-size: 32px; font-weight: bold; color: #f59e0b; }
+        .axis-bar {
+            height: 8px; background: #1e293b; border-radius: 4px; margin-top: 8px; overflow: hidden;
+        }
+        .axis-bar-fill {
+            height: 100%; background: #f59e0b; width: 50%; transition: all 0.05s;
+        }
+        .visualizer { display: flex; justify-content: center; gap: 40px; padding: 20px; }
+        .puck {
+            width: 150px; height: 150px;
+            background: radial-gradient(circle at 30% 30%, #475569, #1e293b);
+            border-radius: 50%; position: relative;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .puck-indicator {
+            position: absolute; width: 20px; height: 20px;
+            background: #f59e0b; border-radius: 50%;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            box-shadow: 0 0 20px #f59e0b;
+            transition: all 0.05s;
+        }
+        .gamepads-list {
+            background: #0f172a; border-radius: 8px; padding: 16px;
+            font-family: monospace; font-size: 12px;
+        }
+        .gamepad-item {
+            padding: 8px; margin-bottom: 8px;
+            background: #1e293b; border-radius: 4px;
+        }
+        .gamepad-item.spacemouse { border: 2px solid #f59e0b; }
+        .log {
+            background: #0f172a; border-radius: 8px; padding: 16px;
+            font-family: monospace; font-size: 12px; max-height: 150px;
+            overflow-y: auto;
+        }
+        .log-entry { margin-bottom: 4px; }
+        .log-entry.success { color: #10b981; }
+        .log-entry.warn { color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <h1>🎮 SpaceMouse Gamepad API Test</h1>
+    <p class="subtitle">Works in Firefox! Uses the Gamepad API to detect SpaceMouse.</p>
+    
+    <div class="instruction">
+        <h3>⚠️ Important: Move your SpaceMouse!</h3>
+        <p>The Gamepad API requires user interaction to detect devices.</p>
+        <p><strong>Push, pull, or twist the SpaceMouse</strong> to let the browser detect it.</p>
+    </div>
+    
+    <div class="card">
+        <h2>Connection Status</h2>
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Waiting for SpaceMouse input...</span>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Detected Gamepads</h2>
+        <div class="gamepads-list" id="gamepadsList">
+            <div style="color: #64748b;">No gamepads detected yet. Move your SpaceMouse!</div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Live Input</h2>
+        <div class="visualizer">
+            <div class="puck">
+                <div class="puck-indicator" id="puckIndicator"></div>
+            </div>
+        </div>
+        <div class="axes-grid" style="margin-top: 20px;">
+            <div class="axis">
+                <div class="axis-label">X (Left/Right)</div>
+                <div class="axis-value" id="axisX">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barX"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">Y (Forward/Back)</div>
+                <div class="axis-value" id="axisY">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barY"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">Z (Up/Down)</div>
+                <div class="axis-value" id="axisZ">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barZ"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RX (Pitch)</div>
+                <div class="axis-value" id="axisRX">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barRX"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RY (Yaw)</div>
+                <div class="axis-value" id="axisRY">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barRY"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RZ (Roll)</div>
+                <div class="axis-value" id="axisRZ">0.00</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="barRZ"></div></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Event Log</h2>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        // SpaceMouse detection patterns
+        const SPACE_MOUSE_PATTERNS = [
+            '3dconnexion',
+            'spacemouse',
+            'spacenavigator', 
+            'space mouse',
+            'space navigator',
+            '046d',  // Logitech vendor ID
+            '256f',  // 3Dconnexion vendor ID
+        ];
+        
+        let spaceMouseGamepad = null;
+        let hasMovement = false;
+        
+        function log(msg, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.insertBefore(entry, logEl.firstChild);
+            if (logEl.children.length > 50) logEl.removeChild(logEl.lastChild);
+            console.log(msg);
+        }
+        
+        function isSpaceMouse(gamepad) {
+            const id = gamepad.id.toLowerCase();
+            return SPACE_MOUSE_PATTERNS.some(pattern => id.includes(pattern));
+        }
+        
+        function updateStatus(connected, active, text) {
+            const dot = document.getElementById('statusDot');
+            dot.className = 'status-dot' + (active ? ' active' : connected ? ' connected' : '');
+            document.getElementById('statusText').textContent = text;
+        }
+        
+        function updateGamepadsList() {
+            const gamepads = navigator.getGamepads();
+            const list = document.getElementById('gamepadsList');
+            let html = '';
+            let found = false;
+            
+            for (const gp of gamepads) {
+                if (gp) {
+                    const isSM = isSpaceMouse(gp);
+                    if (isSM) found = true;
+                    html += `<div class="gamepad-item ${isSM ? 'spacemouse' : ''}">
+                        <strong>${isSM ? '🎮 SPACEMOUSE: ' : ''}${gp.id}</strong><br>
+                        Index: ${gp.index} | Axes: ${gp.axes.length} | Buttons: ${gp.buttons.length}
+                    </div>`;
+                }
+            }
+            
+            if (!html) {
+                html = '<div style="color: #64748b;">No gamepads detected. Move your SpaceMouse!</div>';
+            }
+            
+            list.innerHTML = html;
+            return found;
+        }
+        
+        function updateAxes(axes) {
+            const axisIds = ['X', 'Y', 'Z', 'RX', 'RY', 'RZ'];
+            axisIds.forEach((id, i) => {
+                const val = axes[i] || 0;
+                document.getElementById('axis' + id).textContent = val.toFixed(2);
+                const bar = document.getElementById('bar' + id);
+                bar.style.width = (50 + val * 50) + '%';
+            });
+            
+            // Update puck
+            const puck = document.getElementById('puckIndicator');
+            const x = (axes[0] || 0) * 50;
+            const y = (axes[1] || 0) * 50;
+            puck.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+        }
+        
+        function pollGamepads() {
+            const gamepads = navigator.getGamepads();
+            
+            // Find the best SpaceMouse candidate (prefer 6 axes, vendor 256f)
+            let bestGamepad = null;
+            for (const gamepad of gamepads) {
+                if (gamepad && isSpaceMouse(gamepad)) {
+                    // Prefer devices with exactly 6 axes (standard SpaceMouse)
+                    // or those with vendor ID 256f (3Dconnexion)
+                    const is6Axis = gamepad.axes.length === 6;
+                    const is3Dconnexion = gamepad.id.includes('256f');
+                    
+                    if (!bestGamepad) {
+                        bestGamepad = gamepad;
+                    } else if (is3Dconnexion || is6Axis) {
+                        bestGamepad = gamepad;
+                    }
+                }
+            }
+            
+            if (bestGamepad) {
+                if (!spaceMouseGamepad || spaceMouseGamepad.index !== bestGamepad.index) {
+                    spaceMouseGamepad = bestGamepad;
+                    log(`Using SpaceMouse: ${bestGamepad.id} (${bestGamepad.axes.length} axes)`, 'success');
+                }
+                
+                // Check for movement
+                const movement = bestGamepad.axes.some(a => Math.abs(a) > 0.01);
+                
+                if (movement) {
+                    if (!hasMovement) {
+                        hasMovement = true;
+                        log('SpaceMouse is sending data!', 'success');
+                    }
+                    updateStatus(true, true, `Active: ${bestGamepad.id}`);
+                } else {
+                    updateStatus(true, false, `Connected: ${bestGamepad.id}`);
+                }
+                
+                updateAxes(bestGamepad.axes);
+            }
+            
+            updateGamepadsList();
+            requestAnimationFrame(pollGamepads);
+        }
+        
+        // Gamepad events
+        window.addEventListener('gamepadconnected', (e) => {
+            log(`Gamepad connected: ${e.gamepad.id}`, isSpaceMouse(e.gamepad) ? 'success' : 'warn');
+            updateGamepadsList();
+        });
+        
+        window.addEventListener('gamepaddisconnected', (e) => {
+            log(`Gamepad disconnected: ${e.gamepad.id}`, 'warn');
+            if (spaceMouseGamepad && e.gamepad.index === spaceMouseGamepad.index) {
+                spaceMouseGamepad = null;
+                hasMovement = false;
+                updateStatus(false, false, 'SpaceMouse disconnected');
+            }
+            updateGamepadsList();
+        });
+        
+        // Start
+        log('Gamepad API test started');
+        log('Move your SpaceMouse to detect it...');
+        pollGamepads();
+    </script>
+</body>
+</html>

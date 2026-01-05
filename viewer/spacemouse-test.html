@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceMouse Connection Test</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 40px;
+        }
+        h1 {
+            color: #10b981;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            color: #94a3b8;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+        }
+        .status-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.connected { background: #10b981; }
+        .status-dot.trying { background: #f59e0b; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .endpoints {
+            display: grid;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .endpoint {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: #0f172a;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .endpoint .status-icon { font-size: 16px; }
+        .axes-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .axis {
+            text-align: center;
+        }
+        .axis-label {
+            color: #64748b;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .axis-value {
+            font-family: monospace;
+            font-size: 32px;
+            font-weight: bold;
+            color: #10b981;
+        }
+        .axis-bar {
+            height: 8px;
+            background: #1e293b;
+            border-radius: 4px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .axis-bar-fill {
+            height: 100%;
+            background: #10b981;
+            width: 50%;
+            transition: all 0.05s;
+        }
+        .visualizer {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            padding: 20px;
+        }
+        .puck {
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle at 30% 30%, #475569, #1e293b);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .puck-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #10b981;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.05s;
+            box-shadow: 0 0 20px #10b981;
+        }
+        .zoom-bar {
+            width: 30px;
+            height: 150px;
+            background: #1e293b;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+        }
+        .zoom-fill {
+            position: absolute;
+            bottom: 50%;
+            left: 0;
+            right: 0;
+            background: #10b981;
+            transition: all 0.05s;
+        }
+        .zoom-label {
+            text-align: center;
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 12px;
+        }
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover { background: #059669; transform: translateY(-2px); }
+        button:disabled { background: #475569; cursor: not-allowed; transform: none; }
+        .btn-secondary {
+            background: #334155;
+        }
+        .btn-secondary:hover { background: #475569; }
+        .buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .log {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 16px;
+        }
+        .log-entry { margin-bottom: 4px; }
+        .log-entry.success { color: #10b981; }
+        .log-entry.error { color: #ef4444; }
+        .log-entry.info { color: #64748b; }
+        .row { display: flex; gap: 20px; }
+        .row > .card { flex: 1; }
+    </style>
+</head>
+<body>
+    <h1>🎮 SpaceMouse Connection Test</h1>
+    <p class="subtitle">Test 3DxNLServer WebSocket connection from localhost</p>
+    
+    <div class="row">
+        <div class="card">
+            <h2>Connection Status</h2>
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Not Connected</span>
+            </div>
+            <div class="endpoints" id="endpoints">
+                <div class="endpoint">
+                    <span>wss://127.51.68.120:8181</span>
+                    <span class="status-icon" id="ep1">⏳</span>
+                </div>
+                <div class="endpoint">
+                    <span>ws://localhost:8181</span>
+                    <span class="status-icon" id="ep2">⏳</span>
+                </div>
+                <div class="endpoint">
+                    <span>ws://localhost:8182</span>
+                    <span class="status-icon" id="ep3">⏳</span>
+                </div>
+            </div>
+            <div class="buttons">
+                <button id="connectBtn" onclick="testConnection()">Test Connection</button>
+                <button class="btn-secondary" onclick="clearLog()">Clear Log</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Live Visualization</h2>
+            <div class="visualizer">
+                <div>
+                    <div class="puck">
+                        <div class="puck-indicator" id="puckIndicator"></div>
+                    </div>
+                    <div class="zoom-label">Pan (TX/TY)</div>
+                </div>
+                <div>
+                    <div class="zoom-bar">
+                        <div class="zoom-fill" id="zoomFill"></div>
+                    </div>
+                    <div class="zoom-label">Zoom (RZ)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Axis Values</h2>
+        <div class="axes-grid">
+            <div class="axis">
+                <div class="axis-label">TX (Left/Right)</div>
+                <div class="axis-value" id="tx">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="txBar"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">TY (Forward/Back)</div>
+                <div class="axis-value" id="ty">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="tyBar"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">TZ (Up/Down)</div>
+                <div class="axis-value" id="tz">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="tzBar"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RX (Pitch)</div>
+                <div class="axis-value" id="rx">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="rxBar"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RY (Roll)</div>
+                <div class="axis-value" id="ry">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="ryBar"></div></div>
+            </div>
+            <div class="axis">
+                <div class="axis-label">RZ (Yaw/Twist)</div>
+                <div class="axis-value" id="rz">0</div>
+                <div class="axis-bar"><div class="axis-bar-fill" id="rzBar"></div></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Connection Log</h2>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let connected = false;
+        
+        const endpoints = [
+            'wss://127.51.68.120:8181',
+            'ws://localhost:8181',
+            'ws://localhost:8182'
+        ];
+        
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function updateStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            const textEl = document.getElementById('statusText');
+            dot.className = 'status-dot ' + status;
+            textEl.textContent = text;
+        }
+        
+        function updateEndpointStatus(index, status) {
+            const icons = ['ep1', 'ep2', 'ep3'];
+            const icon = document.getElementById(icons[index]);
+            if (status === 'success') icon.textContent = '✅';
+            else if (status === 'error') icon.textContent = '❌';
+            else icon.textContent = '⏳';
+        }
+        
+        function updateAxes(data) {
+            const axes = ['tx', 'ty', 'tz', 'rx', 'ry', 'rz'];
+            axes.forEach(axis => {
+                const value = data[axis] || 0;
+                document.getElementById(axis).textContent = Math.round(value);
+                const bar = document.getElementById(axis + 'Bar');
+                const percent = 50 + (value / 700) * 50; // Assuming max ~350
+                bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+            });
+            
+            // Update puck indicator
+            const puck = document.getElementById('puckIndicator');
+            const maxOffset = 50;
+            const tx = Math.max(-maxOffset, Math.min(maxOffset, (data.tx || 0) / 7));
+            const ty = Math.max(-maxOffset, Math.min(maxOffset, (data.ty || 0) / 7));
+            puck.style.transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`;
+            
+            // Update zoom bar
+            const zoomFill = document.getElementById('zoomFill');
+            const rz = (data.rz || 0) / 350 * 50;
+            if (rz > 0) {
+                zoomFill.style.bottom = '50%';
+                zoomFill.style.height = rz + '%';
+            } else {
+                zoomFill.style.bottom = (50 + rz) + '%';
+                zoomFill.style.height = (-rz) + '%';
+            }
+        }
+        
+        async function testConnection() {
+            const btn = document.getElementById('connectBtn');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            
+            // Reset endpoint status
+            for (let i = 0; i < 3; i++) updateEndpointStatus(i, 'pending');
+            
+            for (let i = 0; i < endpoints.length; i++) {
+                const url = endpoints[i];
+                log(`Trying ${url}...`);
+                updateStatus('trying', `Trying ${url}...`);
+                
+                const result = await tryConnect(url, i);
+                if (result) {
+                    log(`Connected to ${url}!`, 'success');
+                    updateStatus('connected', `Connected via ${url}`);
+                    updateEndpointStatus(i, 'success');
+                    btn.textContent = 'Connected!';
+                    return;
+                } else {
+                    updateEndpointStatus(i, 'error');
+                }
+            }
+            
+            log('All connection attempts failed', 'error');
+            updateStatus('', 'Connection Failed');
+            btn.disabled = false;
+            btn.textContent = 'Retry Connection';
+        }
+        
+        function tryConnect(url, index) {
+            return new Promise((resolve) => {
+                try {
+                    const testWs = new WebSocket(url);
+                    const timeout = setTimeout(() => {
+                        log(`Timeout connecting to ${url}`, 'error');
+                        try { testWs.close(); } catch(e) {}
+                        resolve(false);
+                    }, 2000);
+                    
+                    testWs.onopen = () => {
+                        clearTimeout(timeout);
+                        log(`WebSocket opened to ${url}`, 'success');
+                        ws = testWs;
+                        connected = true;
+                        
+                        // Send registration message
+                        ws.send(JSON.stringify({
+                            type: 'register',
+                            clientId: 'spacemouse_test_' + Date.now(),
+                            appName: 'SpaceMouse Test'
+                        }));
+                        
+                        ws.onmessage = handleMessage;
+                        ws.onclose = () => {
+                            log('WebSocket closed', 'info');
+                            connected = false;
+                            updateStatus('', 'Disconnected');
+                            document.getElementById('connectBtn').disabled = false;
+                            document.getElementById('connectBtn').textContent = 'Reconnect';
+                        };
+                        
+                        resolve(true);
+                    };
+                    
+                    testWs.onerror = (e) => {
+                        clearTimeout(timeout);
+                        log(`Error connecting to ${url}: ${e.type}`, 'error');
+                        resolve(false);
+                    };
+                } catch (e) {
+                    log(`Exception: ${e.message}`, 'error');
+                    resolve(false);
+                }
+            });
+        }
+        
+        function handleMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'motion' || data.motion) {
+                    const m = data.motion || data;
+                    const scaled = {
+                        tx: (m.x || m.tx || 0) * 350,
+                        ty: (m.y || m.ty || 0) * 350,
+                        tz: (m.z || m.tz || 0) * 350,
+                        rx: (m.rx || m.pitch || 0) * 350,
+                        ry: (m.ry || m.roll || 0) * 350,
+                        rz: (m.rz || m.yaw || 0) * 350
+                    };
+                    updateAxes(scaled);
+                }
+                
+                if (data.type === 'button' || data.buttons !== undefined) {
+                    log(`Button event: ${JSON.stringify(data)}`, 'info');
+                }
+                
+            } catch (e) {
+                // Non-JSON message
+                log(`Raw message: ${event.data.substring(0, 100)}`, 'info');
+            }
+        }
+        
+        // Auto-test on load
+        log('SpaceMouse Test Page loaded');
+        log('Click "Test Connection" to start');
+    </script>
+</body>
+</html>

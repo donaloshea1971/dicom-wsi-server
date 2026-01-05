@@ -1,11 +1,11 @@
 /**
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
- * Supports: WebHID API (preferred), 3DxWare WebSocket SDK, and Gamepad API (fallback)
- * @version 1.12.0
+ * Supports: WebHID API (Chrome/Edge preferred), Gamepad API (Chrome fallback)
+ * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.12.0';
+const SPACEMOUSE_VERSION = '1.13.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Log API support on load
@@ -199,28 +199,35 @@ class SpaceNavigatorController {
 
     /**
      * Try to auto-connect to a previously paired SpaceMouse
-     * Tries WebHID first, then 3DxWare, then falls back to Gamepad API
+     * Tries WebHID first (Chrome/Edge), then Gamepad API (Chrome)
      * Returns true if connected, false if no device found
      */
     async autoConnect() {
+        console.log('%c🎮 SpaceMouse auto-connect starting...', 'color: #6366f1');
+        
         // Try WebHID first (preferred - full control, Chromium only)
         if (SpaceNavigatorController.isWebHIDSupported()) {
+            console.log('   Trying WebHID...');
             const webhidResult = await this._autoConnectWebHID();
-            if (webhidResult) return true;
+            if (webhidResult) {
+                console.log('%c   ✓ Connected via WebHID', 'color: #10b981');
+                return true;
+            }
         }
         
-        // Try 3DxWare WebSocket (works in all browsers with driver)
-        if (SpaceNavigatorController.is3DxWareAvailable()) {
-            const tdxResult = await this._connectVia3DxWare();
-            if (tdxResult) return true;
-        }
-        
-        // Fall back to Gamepad API
+        // Fall back to Gamepad API (works in Chrome, may work in other browsers)
         if (SpaceNavigatorController.isGamepadSupported()) {
+            console.log('   Trying Gamepad API...');
             const gamepadResult = this._autoConnectGamepad();
-            if (gamepadResult) return true;
+            if (gamepadResult) {
+                console.log('%c   ✓ Connected via Gamepad API', 'color: #f59e0b');
+                return true;
+            }
+            // Set up listener for future gamepad connections
+            this._setupGamepadListeners();
         }
         
+        console.log('%c   No SpaceMouse found. Move the device to detect it.', 'color: #888');
         return false;
     }
     
@@ -447,45 +454,65 @@ class SpaceNavigatorController {
     
     /**
      * Find SpaceMouse in gamepad list
+     * Prefers: 1) Vendor 256f (3Dconnexion), 2) 6 axes, 3) SpaceMouse in name
      */
     _findSpaceMouseGamepad() {
         const gamepads = navigator.getGamepads();
+        let bestCandidate = null;
+        let bestScore = 0;
         
         for (const gp of gamepads) {
-            if (gp && this._isSpaceMouseGamepad(gp)) {
-                return gp;
+            if (!gp) continue;
+            
+            const score = this._scoreSpaceMouseGamepad(gp);
+            if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = gp;
             }
         }
         
-        return null;
+        return bestCandidate;
+    }
+    
+    /**
+     * Score a gamepad on how likely it is to be a SpaceMouse
+     * Higher score = more likely to be the correct device
+     */
+    _scoreSpaceMouseGamepad(gamepad) {
+        const id = gamepad.id.toLowerCase();
+        let score = 0;
+        
+        // Vendor 256f is definitely 3Dconnexion
+        if (id.includes('256f')) score += 100;
+        
+        // Vendor 046d is Logitech (owns 3Dconnexion)
+        if (id.includes('046d')) score += 50;
+        
+        // Explicit SpaceMouse naming
+        if (id.includes('spacemouse')) score += 80;
+        if (id.includes('spacenavigator')) score += 80;
+        if (id.includes('3dconnexion')) score += 70;
+        if (id.includes('space mouse')) score += 60;
+        if (id.includes('space navigator')) score += 60;
+        
+        // Exactly 6 axes is ideal for SpaceMouse
+        if (gamepad.axes.length === 6) score += 40;
+        else if (gamepad.axes.length >= 6) score += 20;
+        
+        // 2 buttons is typical for SpaceMouse
+        if (gamepad.buttons.length === 2) score += 10;
+        
+        // Exclude generic gamepads with 'beef' vendor (virtual devices)
+        if (id.includes('beef') && !id.includes('spacemouse')) score -= 30;
+        
+        return score > 0 ? score : 0;
     }
     
     /**
      * Check if a gamepad looks like a SpaceMouse
      */
     _isSpaceMouseGamepad(gamepad) {
-        const id = gamepad.id.toLowerCase();
-        
-        // Check for explicit 3Dconnexion naming
-        if (id.includes('3dconnexion') || 
-            id.includes('spacemouse') || 
-            id.includes('spacenavigator') ||
-            id.includes('space mouse') ||
-            id.includes('space navigator')) {
-            return true;
-        }
-        
-        // Check for vendor IDs in the gamepad ID string
-        // 046d = Logitech (3Dconnexion), 256f = 3Dconnexion direct
-        // Firefox format: "beef-046d-Unknown Gamepad"
-        if (id.includes('046d') || id.includes('256f')) {
-            // Likely a 3Dconnexion device - check for enough axes
-            if (gamepad.axes.length >= 6) {
-                return true;
-            }
-        }
-        
-        return false;
+        return this._scoreSpaceMouseGamepad(gamepad) > 0;
     }
     
     /**
@@ -614,26 +641,23 @@ class SpaceNavigatorController {
 
     /**
      * Connect to Space Navigator device (with user gesture/picker)
-     * Tries WebHID first, then 3DxWare, then falls back to Gamepad API
+     * Tries WebHID first (with picker), then Gamepad API
      */
     async connect() {
-        // Try WebHID first (preferred - Chromium only)
+        console.log('%c🎮 SpaceMouse connect requested...', 'color: #6366f1');
+        
+        // Try WebHID first (preferred - Chromium only, shows device picker)
         if (SpaceNavigatorController.isWebHIDSupported()) {
+            console.log('   Opening WebHID device picker...');
             const result = await this._connectViaWebHID();
             if (result) return true;
-        }
-        
-        // Try 3DxWare WebSocket (works in all browsers with driver)
-        if (SpaceNavigatorController.is3DxWareAvailable()) {
-            const result = await this._connectVia3DxWare();
-            if (result) return true;
+            // User may have cancelled picker, try Gamepad API
         }
         
         // Fall back to Gamepad API
         if (SpaceNavigatorController.isGamepadSupported()) {
-            // For Gamepad API, we need to prompt user to interact with the device
-            console.log('%c🎮 WebHID/3DxWare unavailable, trying Gamepad API...', 'color: #f59e0b');
-            console.log('%c   Please move your SpaceMouse to let the browser detect it', 'color: #f59e0b');
+            console.log('%c🎮 Trying Gamepad API...', 'color: #f59e0b');
+            console.log('%c   Move your SpaceMouse to let the browser detect it', 'color: #f59e0b');
             
             // Give user a moment to interact with device
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -646,14 +670,47 @@ class SpaceNavigatorController {
             // Set up listener for future gamepad connections
             this._setupGamepadListeners();
             
-            console.log('%c   No SpaceMouse detected via Gamepad API. Move the device and try again.', 'color: #f59e0b');
-            this.updateStatus('not_found');
+            // Start polling for gamepad (some browsers need this)
+            this._startGamepadPolling();
+            
+            console.log('%c   No SpaceMouse detected yet. Keep moving it...', 'color: #f59e0b');
+            this.updateStatus('waiting');
             return false;
         }
         
         console.warn('No SpaceMouse connection method available in this browser');
         this.updateStatus('unsupported');
         return false;
+    }
+    
+    /**
+     * Start polling for gamepad connections (for browsers that need it)
+     */
+    _startGamepadPolling() {
+        if (this._gamepadPollInterval) return;
+        
+        this._gamepadPollInterval = setInterval(() => {
+            if (this.connected) {
+                clearInterval(this._gamepadPollInterval);
+                this._gamepadPollInterval = null;
+                return;
+            }
+            
+            const gamepad = this._findSpaceMouseGamepad();
+            if (gamepad) {
+                clearInterval(this._gamepadPollInterval);
+                this._gamepadPollInterval = null;
+                this._connectViaGamepad(gamepad);
+            }
+        }, 500);
+        
+        // Stop polling after 30 seconds
+        setTimeout(() => {
+            if (this._gamepadPollInterval) {
+                clearInterval(this._gamepadPollInterval);
+                this._gamepadPollInterval = null;
+            }
+        }, 30000);
     }
     
     /**
@@ -1353,14 +1410,23 @@ class SpaceNavigatorController {
      * Get a summary of API support in this browser
      */
     static getAPISupport() {
+        const webHID = SpaceNavigatorController.isWebHIDSupported();
+        const gamepad = SpaceNavigatorController.isGamepadSupported();
+        
+        let recommended = 'None';
+        if (webHID) recommended = 'WebHID';
+        else if (gamepad) recommended = 'Gamepad API';
+        
         return {
-            webHID: SpaceNavigatorController.isWebHIDSupported(),
-            tdxware: SpaceNavigatorController.is3DxWareAvailable(),
-            tdxwareUrl: SpaceNavigatorController.get3DxWareUrl(),
-            gamepad: SpaceNavigatorController.isGamepadSupported(),
-            recommended: SpaceNavigatorController.isWebHIDSupported() ? 'WebHID' : 
-                         SpaceNavigatorController.is3DxWareAvailable() ? '3DxWare' :
-                         SpaceNavigatorController.isGamepadSupported() ? 'Gamepad API' : 'None'
+            webHID,
+            gamepad,
+            recommended,
+            browser: navigator.userAgent.includes('Chrome') ? 'Chrome' :
+                     navigator.userAgent.includes('Firefox') ? 'Firefox' :
+                     navigator.userAgent.includes('Edge') ? 'Edge' : 'Other',
+            note: webHID ? 'Full 6DOF support via WebHID' :
+                  gamepad ? 'Gamepad API available (may need device interaction)' :
+                  'No SpaceMouse support in this browser'
         };
     }
     
