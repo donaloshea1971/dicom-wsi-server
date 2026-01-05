@@ -1,18 +1,44 @@
 /**
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
- * Supports both WebHID API (preferred) and Gamepad API (fallback)
- * @version 1.10.0
+ * Supports: WebHID API (preferred), 3DxWare WebSocket SDK, and Gamepad API (fallback)
+ * @version 1.11.0
  */
 
-const SPACEMOUSE_VERSION = '1.10.0';
+const SPACEMOUSE_VERSION = '1.11.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Log API support on load
 const _webhidSupport = 'hid' in navigator;
 const _gamepadSupport = 'getGamepads' in navigator;
-console.log(`%c   APIs: WebHID ${_webhidSupport ? '✓' : '✗'} | Gamepad ${_gamepadSupport ? '✓' : '✗'}`, 
+console.log(`%c   APIs: WebHID ${_webhidSupport ? '✓' : '✗'} | 3DxWare (checking...) | Gamepad ${_gamepadSupport ? '✓' : '✗'}`, 
     'color: #888');
+
+// 3DxWare WebSocket ports to try (3Dconnexion driver runs a local WebSocket server)
+const TDXWARE_PORTS = [8181, 8182, 8080];
+let _3dxwareAvailable = false;
+let _3dxwarePort = null;
+
+// Check for 3DxWare on load
+(async function check3DxWare() {
+    for (const port of TDXWARE_PORTS) {
+        try {
+            const available = await new Promise((resolve) => {
+                const ws = new WebSocket(`ws://localhost:${port}`);
+                const timeout = setTimeout(() => { ws.close(); resolve(false); }, 500);
+                ws.onopen = () => { clearTimeout(timeout); ws.close(); resolve(true); };
+                ws.onerror = () => { clearTimeout(timeout); resolve(false); };
+            });
+            if (available) {
+                _3dxwareAvailable = true;
+                _3dxwarePort = port;
+                console.log(`%c   3DxWare: ✓ (port ${port})`, 'color: #10b981');
+                return;
+            }
+        } catch (e) {}
+    }
+    console.log(`%c   3DxWare: ✗ (driver not running or WebSocket disabled)`, 'color: #888');
+})();
 
 class SpaceNavigatorController {
     constructor(viewer) {
@@ -22,10 +48,14 @@ class SpaceNavigatorController {
         this.connected = false;
         this.animationFrame = null;
         
-        // Connection mode: 'webhid' | 'gamepad' | null
+        // Connection mode: 'webhid' | '3dxware' | 'gamepad' | null
         this._connectionMode = null;
         this._gamepadIndex = null;
         this._gamepadAxesMapping = null;  // Will be detected on connection
+        
+        // 3DxWare WebSocket connection
+        this._3dxWebSocket = null;
+        this._3dxClientId = null;
         
         // Accumulated input values (after deadzone/curve)
         this.input = { tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
@@ -114,6 +144,20 @@ class SpaceNavigatorController {
     }
     
     /**
+     * Check if 3DxWare WebSocket is available
+     */
+    static is3DxWareAvailable() {
+        return _3dxwareAvailable;
+    }
+    
+    /**
+     * Get 3DxWare port (if available)
+     */
+    static get3DxWarePort() {
+        return _3dxwarePort;
+    }
+    
+    /**
      * Check if Gamepad API is supported
      */
     static isGamepadSupported() {
@@ -124,7 +168,9 @@ class SpaceNavigatorController {
      * Legacy alias for WebHID check
      */
     static isSupported() {
-        return SpaceNavigatorController.isWebHIDSupported() || SpaceNavigatorController.isGamepadSupported();
+        return SpaceNavigatorController.isWebHIDSupported() || 
+               SpaceNavigatorController.is3DxWareAvailable() ||
+               SpaceNavigatorController.isGamepadSupported();
     }
     
     /**
@@ -140,6 +186,7 @@ class SpaceNavigatorController {
     getConnectionModeDisplay() {
         switch (this._connectionMode) {
             case 'webhid': return 'WebHID';
+            case '3dxware': return '3DxWare';
             case 'gamepad': return 'Gamepad API';
             default: return 'Not Connected';
         }
@@ -147,14 +194,20 @@ class SpaceNavigatorController {
 
     /**
      * Try to auto-connect to a previously paired SpaceMouse
-     * Tries WebHID first, then falls back to Gamepad API
+     * Tries WebHID first, then 3DxWare, then falls back to Gamepad API
      * Returns true if connected, false if no device found
      */
     async autoConnect() {
-        // Try WebHID first (preferred - full control)
+        // Try WebHID first (preferred - full control, Chromium only)
         if (SpaceNavigatorController.isWebHIDSupported()) {
             const webhidResult = await this._autoConnectWebHID();
             if (webhidResult) return true;
+        }
+        
+        // Try 3DxWare WebSocket (works in all browsers with driver)
+        if (SpaceNavigatorController.is3DxWareAvailable()) {
+            const tdxResult = await this._connectVia3DxWare();
+            if (tdxResult) return true;
         }
         
         // Fall back to Gamepad API
@@ -240,6 +293,154 @@ class SpaceNavigatorController {
     }
     
     /**
+     * Connect via 3DxWare WebSocket SDK
+     * Works in all browsers when 3Dconnexion driver is running
+     */
+    async _connectVia3DxWare() {
+        if (!_3dxwareAvailable || !_3dxwarePort) {
+            console.log('3DxWare not available');
+            return false;
+        }
+        
+        return new Promise((resolve) => {
+            console.log(`%c🎮 SpaceMouse connecting via 3DxWare (port ${_3dxwarePort})...`, 'color: #8b5cf6');
+            
+            try {
+                this._3dxWebSocket = new WebSocket(`ws://localhost:${_3dxwarePort}`);
+                
+                // Connection timeout
+                const timeout = setTimeout(() => {
+                    console.log('3DxWare connection timeout');
+                    this._3dxWebSocket.close();
+                    resolve(false);
+                }, 3000);
+                
+                this._3dxWebSocket.onopen = () => {
+                    clearTimeout(timeout);
+                    console.log('%c🎮 3DxWare WebSocket connected!', 'color: #8b5cf6; font-weight: bold');
+                    
+                    // Register as a client
+                    this._3dxClientId = 'pathviewpro_' + Date.now();
+                    this._3dxWebSocket.send(JSON.stringify({
+                        type: 'register',
+                        clientId: this._3dxClientId,
+                        appName: 'PathView Pro'
+                    }));
+                    
+                    this._connectionMode = '3dxware';
+                    this.device = { productName: '3DxWare WebSocket' };
+                    this.connected = true;
+                    
+                    // Start animation loop
+                    this.startAnimationLoop();
+                    
+                    this.updateStatus('connected');
+                    this.showCrosshair();
+                    this.enableEventSuppression();
+                    
+                    resolve(true);
+                };
+                
+                this._3dxWebSocket.onmessage = (event) => {
+                    this._handle3DxWareMessage(event.data);
+                };
+                
+                this._3dxWebSocket.onerror = (error) => {
+                    clearTimeout(timeout);
+                    console.log('3DxWare WebSocket error:', error);
+                    resolve(false);
+                };
+                
+                this._3dxWebSocket.onclose = () => {
+                    if (this._connectionMode === '3dxware' && this.connected) {
+                        console.log('%c🎮 3DxWare WebSocket disconnected', 'color: #ef4444');
+                        this.disconnect();
+                    }
+                };
+                
+            } catch (error) {
+                console.error('3DxWare connection failed:', error);
+                resolve(false);
+            }
+        });
+    }
+    
+    /**
+     * Handle messages from 3DxWare WebSocket
+     * Parses motion and button data from the driver
+     */
+    _handle3DxWareMessage(data) {
+        try {
+            const msg = JSON.parse(data);
+            
+            // Handle different message types from 3DxWare
+            if (msg.type === 'motion' || msg.motion) {
+                const m = msg.motion || msg;
+                
+                // 3DxWare typically sends values in range -1 to 1 or similar
+                // Scale to match our raw input range (~-350 to 350)
+                const scale = 350;
+                
+                this._rawInput.tx = (m.x || m.tx || 0) * scale;
+                this._rawInput.ty = (m.y || m.ty || 0) * scale;
+                this._rawInput.tz = (m.z || m.tz || 0) * scale;
+                this._rawInput.rx = (m.rx || m.pitch || 0) * scale;
+                this._rawInput.ry = (m.ry || m.roll || 0) * scale;
+                this._rawInput.rz = (m.rz || m.yaw || 0) * scale;
+                
+                // Apply deadzone processing (same as WebHID path)
+                this.input.tx = this.applyDeadzone(this._rawInput.tx);
+                this.input.ty = this.applyDeadzone(this._rawInput.ty);
+                this.input.tz = this.applyDeadzone(this._rawInput.tz);
+                this.input.rx = this.applyDeadzone(this._rawInput.rx);
+                this.input.ry = this.applyDeadzone(this._rawInput.ry);
+                this.input.rz = this.applyDeadzone(this._rawInput.rz);
+            }
+            
+            if (msg.type === 'button' || msg.buttons !== undefined) {
+                const buttons = msg.buttons || msg;
+                const leftPressed = !!(buttons.left || buttons[0] || buttons.button0);
+                const rightPressed = !!(buttons.right || buttons[1] || buttons.button1);
+                
+                if (leftPressed !== this.buttons.left) {
+                    this.buttons.left = leftPressed;
+                    console.log(`%c🎮 SpaceMouse LEFT button ${leftPressed ? 'PRESSED' : 'released'}`, 
+                                leftPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
+                    if (this.onButtonPress) {
+                        this.onButtonPress({ button: 'left', pressed: leftPressed });
+                    }
+                    if (leftPressed && typeof window.previousStudy === 'function') {
+                        window.previousStudy();
+                    }
+                }
+                
+                if (rightPressed !== this.buttons.right) {
+                    this.buttons.right = rightPressed;
+                    console.log(`%c🎮 SpaceMouse RIGHT button ${rightPressed ? 'PRESSED' : 'released'}`, 
+                                rightPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
+                    if (this.onButtonPress) {
+                        this.onButtonPress({ button: 'right', pressed: rightPressed });
+                    }
+                    if (rightPressed && typeof window.nextStudy === 'function') {
+                        window.nextStudy();
+                    }
+                }
+            }
+            
+            // Debug logging
+            if (this.debugMode && (msg.type === 'motion' || msg.motion)) {
+                console.log('3DxWare:', msg);
+            }
+            
+        } catch (e) {
+            // Not JSON or parse error - might be binary or other format
+            if (this.debugMode) {
+                console.log('3DxWare raw message:', data);
+            }
+        }
+    }
+    
+    /**
      * Find SpaceMouse in gamepad list
      */
     _findSpaceMouseGamepad() {
@@ -259,13 +460,27 @@ class SpaceNavigatorController {
      */
     _isSpaceMouseGamepad(gamepad) {
         const id = gamepad.id.toLowerCase();
-        return id.includes('3dconnexion') || 
-               id.includes('spacemouse') || 
-               id.includes('spacenavigator') ||
-               id.includes('space mouse') ||
-               id.includes('space navigator') ||
-               // Also check for generic 6-axis devices that might be SpaceMouse
-               (gamepad.axes.length >= 6 && (id.includes('046d') || id.includes('256f')));
+        
+        // Check for explicit 3Dconnexion naming
+        if (id.includes('3dconnexion') || 
+            id.includes('spacemouse') || 
+            id.includes('spacenavigator') ||
+            id.includes('space mouse') ||
+            id.includes('space navigator')) {
+            return true;
+        }
+        
+        // Check for vendor IDs in the gamepad ID string
+        // 046d = Logitech (3Dconnexion), 256f = 3Dconnexion direct
+        // Firefox format: "beef-046d-Unknown Gamepad"
+        if (id.includes('046d') || id.includes('256f')) {
+            // Likely a 3Dconnexion device - check for enough axes
+            if (gamepad.axes.length >= 6) {
+                return true;
+            }
+        }
+        
+        return false;
     }
     
     /**
@@ -394,19 +609,25 @@ class SpaceNavigatorController {
 
     /**
      * Connect to Space Navigator device (with user gesture/picker)
-     * Tries WebHID first, then falls back to Gamepad API
+     * Tries WebHID first, then 3DxWare, then falls back to Gamepad API
      */
     async connect() {
-        // Try WebHID first (preferred)
+        // Try WebHID first (preferred - Chromium only)
         if (SpaceNavigatorController.isWebHIDSupported()) {
             const result = await this._connectViaWebHID();
+            if (result) return true;
+        }
+        
+        // Try 3DxWare WebSocket (works in all browsers with driver)
+        if (SpaceNavigatorController.is3DxWareAvailable()) {
+            const result = await this._connectVia3DxWare();
             if (result) return true;
         }
         
         // Fall back to Gamepad API
         if (SpaceNavigatorController.isGamepadSupported()) {
             // For Gamepad API, we need to prompt user to interact with the device
-            console.log('%c🎮 WebHID unavailable, trying Gamepad API...', 'color: #f59e0b');
+            console.log('%c🎮 WebHID/3DxWare unavailable, trying Gamepad API...', 'color: #f59e0b');
             console.log('%c   Please move your SpaceMouse to let the browser detect it', 'color: #f59e0b');
             
             // Give user a moment to interact with device
@@ -425,7 +646,7 @@ class SpaceNavigatorController {
             return false;
         }
         
-        console.warn('Neither WebHID nor Gamepad API supported in this browser');
+        console.warn('No SpaceMouse connection method available in this browser');
         this.updateStatus('unsupported');
         return false;
     }
@@ -534,6 +755,17 @@ class SpaceNavigatorController {
             } catch (e) {
                 console.warn('Error closing WebHID device:', e);
             }
+        }
+        
+        // Close 3DxWare WebSocket if applicable
+        if (this._connectionMode === '3dxware' && this._3dxWebSocket) {
+            try {
+                this._3dxWebSocket.close();
+            } catch (e) {
+                console.warn('Error closing 3DxWare WebSocket:', e);
+            }
+            this._3dxWebSocket = null;
+            this._3dxClientId = null;
         }
         
         // Reset state
@@ -1118,8 +1350,11 @@ class SpaceNavigatorController {
     static getAPISupport() {
         return {
             webHID: SpaceNavigatorController.isWebHIDSupported(),
+            tdxware: SpaceNavigatorController.is3DxWareAvailable(),
+            tdxwarePort: SpaceNavigatorController.get3DxWarePort(),
             gamepad: SpaceNavigatorController.isGamepadSupported(),
             recommended: SpaceNavigatorController.isWebHIDSupported() ? 'WebHID' : 
+                         SpaceNavigatorController.is3DxWareAvailable() ? '3DxWare' :
                          SpaceNavigatorController.isGamepadSupported() ? 'Gamepad API' : 'None'
         };
     }
