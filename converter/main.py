@@ -1216,10 +1216,15 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         # Set study owner if user was authenticated during upload
         if study_uid and job.owner_id:
             try:
-                await set_study_owner(study_uid, job.owner_id)
-                logger.info(f"Set owner of study {study_uid} to user {job.owner_id}")
+                success = await set_study_owner(study_uid, job.owner_id)
+                if success:
+                    logger.info(f"✅ Set owner of study {study_uid} to user {job.owner_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to set study owner - set_study_owner returned False")
             except Exception as e:
-                logger.warning(f"Failed to set study owner: {e}")
+                logger.warning(f"❌ Failed to set study owner: {e}")
+        else:
+            logger.warning(f"⚠️ Study ownership NOT set - study_uid={study_uid}, owner_id={job.owner_id}")
         
         # Move original to completed
         completed_path = Path(settings.watch_folder) / "completed" / file_path.name
@@ -1316,7 +1321,10 @@ async def upload_wsi(
     )
     conversion_jobs[job_id] = job
     
-    logger.info(f"Upload from user {current_user.email if current_user else 'anonymous'}, owner_id={owner_id}")
+    if current_user:
+        logger.info(f"📤 Upload from authenticated user: {current_user.email}, user.id={current_user.id}, owner_id={owner_id}")
+    else:
+        logger.warning(f"📤 Upload from ANONYMOUS user (no auth token) - study will NOT be owned")
     
     # Start conversion in background
     background_tasks.add_task(convert_wsi_to_dicom, job_id, file_path)

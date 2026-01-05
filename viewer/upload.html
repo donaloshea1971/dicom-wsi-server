@@ -410,6 +410,7 @@
     <div class="container">
         <h1>Upload Whole Slide Images</h1>
         <p class="subtitle">Drag and drop files or folders. DICOM files use C-STORE, other formats are converted automatically.</p>
+        <p id="auth-badge" style="margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">Checking authentication...</p>
 
         <!-- Drop Zone -->
         <div class="drop-zone" id="drop-zone">
@@ -473,6 +474,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
     <script>
         // Configuration
         const CONFIG = {
@@ -481,6 +483,68 @@
             cstorePort: 4243,
             orthancUrl: '/api'
         };
+        
+        // Auth0 Configuration
+        const AUTH0_CONFIG = {
+            domain: 'dev-diagnexia.eu.auth0.com',
+            clientId: 'oORvvnuGhZ9365zxTrZNY33jnoSm9wr3',
+            audience: 'https://pathviewpro.com/api'
+        };
+        
+        let auth0Client = null;
+        let currentUser = null;
+        
+        // Initialize Auth0
+        async function initAuth() {
+            try {
+                auth0Client = await auth0.createAuth0Client({
+                    domain: AUTH0_CONFIG.domain,
+                    clientId: AUTH0_CONFIG.clientId,
+                    authorizationParams: {
+                        audience: AUTH0_CONFIG.audience
+                    },
+                    cacheLocation: 'localstorage'
+                });
+                
+                const isAuthenticated = await auth0Client.isAuthenticated();
+                if (isAuthenticated) {
+                    currentUser = await auth0Client.getUser();
+                    console.log('Authenticated as:', currentUser.email);
+                    updateAuthUI(true);
+                } else {
+                    console.log('Not authenticated - uploads will be anonymous');
+                    updateAuthUI(false);
+                }
+            } catch (e) {
+                console.error('Auth init failed:', e);
+            }
+        }
+        
+        function updateAuthUI(authenticated) {
+            const authBadge = document.getElementById('auth-badge');
+            if (authBadge) {
+                if (authenticated) {
+                    authBadge.innerHTML = `✓ Logged in as ${currentUser.email}`;
+                    authBadge.style.color = 'var(--success)';
+                } else {
+                    authBadge.innerHTML = '⚠ Not logged in - <a href="/" style="color: var(--accent);">Login first</a> to own uploads';
+                    authBadge.style.color = 'var(--warning)';
+                }
+            }
+        }
+        
+        // Get auth token for API calls
+        async function getAuthToken() {
+            if (!auth0Client) return null;
+            try {
+                return await auth0Client.getTokenSilently();
+            } catch (e) {
+                return null;
+            }
+        }
+        
+        // Initialize on page load
+        initAuth();
 
         // File type detection
         const DICOM_EXTENSIONS = ['.dcm', '.dicom'];
@@ -779,20 +843,26 @@
 
         // Upload DICOM group via REST API
         async function uploadDicomGroup(items) {
+            const token = await getAuthToken();
+            
             for (const item of items) {
                 item.status = 'uploading';
                 updateQueueUI();
                 
                 try {
-                    const formData = new FormData();
-                    formData.append('file', item.file);
+                    const headers = {
+                        'Content-Type': 'application/dicom'
+                    };
+                    
+                    // Add auth token if available
+                    if (token) {
+                        headers['Authorization'] = `Bearer ${token}`;
+                    }
                     
                     const response = await fetch('/api/instances', {
                         method: 'POST',
                         body: item.file,
-                        headers: {
-                            'Content-Type': 'application/dicom'
-                        }
+                        headers: headers
                     });
                     
                     if (response.ok) {
@@ -821,6 +891,9 @@
                 const formData = new FormData();
                 formData.append('file', item.file);
                 
+                // Get auth token
+                const token = await getAuthToken();
+                
                 // Start upload with progress tracking
                 const xhr = new XMLHttpRequest();
                 
@@ -845,6 +918,12 @@
                     
                     xhr.open('POST', '/api/upload');
                     xhr.timeout = 600000; // 10 minute timeout
+                    
+                    // Add auth token if available
+                    if (token) {
+                        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    }
+                    
                     xhr.send(formData);
                 });
                 
