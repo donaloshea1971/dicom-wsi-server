@@ -1972,11 +1972,14 @@ async def get_categorized_studies(
         
         # Get slide metadata for all relevant studies
         all_relevant_ids = list(owned_ids | shared_with_me_ids)
+        logger.info(f"Fetching metadata for IDs: {all_relevant_ids[:3]}...")  # Log first 3 IDs
         try:
             slide_metadata = await get_slides_metadata_bulk(all_relevant_ids)
             logger.info(f"Slide metadata for {len(all_relevant_ids)} studies: {len(slide_metadata)} found")
+            if len(slide_metadata) == 0 and len(all_relevant_ids) > 0:
+                logger.warning(f"No metadata returned despite {len(all_relevant_ids)} IDs - checking first ID directly")
         except Exception as e:
-            logger.error(f"Failed to get slide metadata: {e}")
+            logger.error(f"Failed to get slide metadata: {e}", exc_info=True)
             slide_metadata = {}
         
         # Categorize

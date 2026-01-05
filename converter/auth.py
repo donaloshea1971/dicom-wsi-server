@@ -749,15 +749,16 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
 async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
     """Get slide metadata for multiple Orthanc study IDs at once.
     Returns dict mapping orthanc_id -> metadata"""
-    logger.info(f"get_slides_metadata_bulk called with {len(orthanc_ids) if orthanc_ids else 0} IDs")
+    print(f"[AUTH] get_slides_metadata_bulk called with {len(orthanc_ids) if orthanc_ids else 0} IDs")
+    print(f"[AUTH] First few IDs: {orthanc_ids[:3] if orthanc_ids else []}")
     
     if not orthanc_ids:
-        logger.info("get_slides_metadata_bulk: empty orthanc_ids, returning {}")
+        print("[AUTH] empty orthanc_ids, returning {}")
         return {}
     
     pool = await get_db_pool()
     if pool is None:
-        logger.error("get_slides_metadata_bulk: no database pool!")
+        print("[AUTH] no database pool!")
         return {}
     
     try:
@@ -778,7 +779,9 @@ async def get_slides_metadata_bulk(orthanc_ids: list[str]) -> dict:
                 orthanc_ids
             )
             
-            logger.info(f"get_slides_metadata_bulk: query returned {len(rows)} rows")
+            print(f"[AUTH] query returned {len(rows)} rows")
+            if rows:
+                print(f"[AUTH] First row: {dict(rows[0])}")
             result = {
                 row["orthanc_study_id"]: {
                     "display_name": row["display_name"],
