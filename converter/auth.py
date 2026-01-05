@@ -452,18 +452,34 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
 
 
 async def get_owned_study_ids(user_id: int) -> set[str]:
-    """Get study IDs owned by a user (from slides table)"""
+    """Get study IDs owned by a user (from slides table, with fallback to study_owners)"""
     pool = await get_db_pool()
     if pool is None:
         return set()
     
     try:
         async with pool.acquire() as conn:
+            # Try new slides table first
             rows = await conn.fetch(
                 "SELECT orthanc_study_id FROM slides WHERE owner_id = $1",
                 user_id
             )
-            return set(row["orthanc_study_id"] for row in rows)
+            result = set(row["orthanc_study_id"] for row in rows)
+            
+            # If empty, try legacy study_owners table
+            if not result:
+                try:
+                    legacy_rows = await conn.fetch(
+                        "SELECT study_id FROM study_owners WHERE user_id = $1",
+                        user_id
+                    )
+                    result = set(row["study_id"] for row in legacy_rows)
+                    if result:
+                        logger.info(f"Using legacy study_owners for user {user_id}: {len(result)} studies")
+                except Exception:
+                    pass  # Table might not exist
+            
+            return result
     except Exception as e:
         logger.error(f"get_owned_study_ids error: {e}")
         return set()
