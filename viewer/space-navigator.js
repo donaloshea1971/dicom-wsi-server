@@ -5,7 +5,7 @@
  * @version 1.1.0
  */
 
-const SPACEMOUSE_VERSION = '1.9.0';
+const SPACEMOUSE_VERSION = '1.9.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 class SpaceNavigatorController {
@@ -83,6 +83,9 @@ class SpaceNavigatorController {
         
         // Button callbacks
         this.onButtonPress = null;   // Called with { button: 'left'|'right', pressed: true|false }
+        
+        // Event suppression handlers (to block 3Dconnexion driver popups)
+        this._suppressHandlers = null;
     }
 
     /**
@@ -134,6 +137,9 @@ class SpaceNavigatorController {
                 
                 // Show crosshair
                 this.showCrosshair();
+                
+                // Suppress 3Dconnexion driver default actions
+                this.enableEventSuppression();
                 
                 console.log('%c🎮 SpaceMouse auto-connected!', 'color: #10b981; font-weight: bold');
                 console.log(`Device: ${this.device.productName}`);
@@ -200,6 +206,9 @@ class SpaceNavigatorController {
                 console.log('SpaceMouse: Disabled OSD scroll-to-zoom');
             }
             
+            // Suppress 3Dconnexion driver default actions (menus, shortcuts)
+            this.enableEventSuppression();
+            
             return true;
         } catch (error) {
             console.error('Space Navigator connection failed:', error);
@@ -216,6 +225,9 @@ class SpaceNavigatorController {
         
         // Hide crosshair
         this.hideCrosshair();
+        
+        // Remove event suppression
+        this.disableEventSuppression();
         
         // RE-ENABLE OpenSeadragon scroll-to-zoom
         if (this.viewer && this.viewer.innerTracker && this._savedScrollHandler !== undefined) {
@@ -1148,6 +1160,66 @@ class SpaceNavigatorController {
             this.showCrosshair();
         }
         return this._crosshairVisible;
+    }
+    
+    /**
+     * Enable event suppression to block 3Dconnexion driver menus/shortcuts
+     */
+    enableEventSuppression() {
+        if (this._suppressHandlers) return;  // Already enabled
+        
+        // Block context menu (right-click menu that driver might trigger)
+        const contextHandler = (e) => {
+            // Only suppress if SpaceMouse button was just pressed
+            if (this.buttons.left || this.buttons.right) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        };
+        
+        // Block certain keyboard shortcuts the driver might send
+        const keyHandler = (e) => {
+            // 3Dconnexion driver often sends F-keys or other shortcuts
+            // Block if a SpaceMouse button is currently pressed
+            if (this.buttons.left || this.buttons.right) {
+                // Allow essential keys
+                if (['F5', 'F12', 'Escape'].includes(e.key)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        };
+        
+        // Block auxclick (middle mouse button that driver might trigger)
+        const auxHandler = (e) => {
+            if (this.buttons.left || this.buttons.right) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        };
+        
+        document.addEventListener('contextmenu', contextHandler, true);
+        document.addEventListener('keydown', keyHandler, true);
+        document.addEventListener('auxclick', auxHandler, true);
+        
+        this._suppressHandlers = { contextHandler, keyHandler, auxHandler };
+        console.log('SpaceMouse: Event suppression enabled (blocking driver menus)');
+    }
+    
+    /**
+     * Disable event suppression
+     */
+    disableEventSuppression() {
+        if (!this._suppressHandlers) return;
+        
+        document.removeEventListener('contextmenu', this._suppressHandlers.contextHandler, true);
+        document.removeEventListener('keydown', this._suppressHandlers.keyHandler, true);
+        document.removeEventListener('auxclick', this._suppressHandlers.auxHandler, true);
+        
+        this._suppressHandlers = null;
+        console.log('SpaceMouse: Event suppression disabled');
     }
 }
 
