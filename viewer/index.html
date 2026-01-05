@@ -3121,14 +3121,32 @@
         
         // Quick create new patient
         async function showNewPatientForm() {
-            const name = prompt('Enter Patient Name:\n(or MRN if no name)');
+            const name = prompt('Enter Patient Name:');
             if (!name) return;
+            
+            const mrn = prompt('Enter MRN (optional):');
+            const dobStr = prompt('Enter Date of Birth (YYYY-MM-DD, optional):');
+            
+            // Validate DOB format if provided
+            let dob = null;
+            if (dobStr) {
+                const dobMatch = dobStr.match(/^\d{4}-\d{2}-\d{2}$/);
+                if (dobMatch) {
+                    dob = dobStr;
+                } else {
+                    alert('Invalid date format. Use YYYY-MM-DD. Patient will be created without DOB.');
+                }
+            }
             
             try {
                 const response = await authFetch('/api/patients', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name.trim() })
+                    body: JSON.stringify({ 
+                        name: name.trim(),
+                        mrn: mrn?.trim() || null,
+                        dob: dob
+                    })
                 });
                 
                 if (response.ok) {
@@ -3136,7 +3154,7 @@
                     const select = document.getElementById('slide-edit-patient');
                     const opt = document.createElement('option');
                     opt.value = result.patient_id;
-                    opt.textContent = name.trim();
+                    opt.textContent = name.trim() + (dob ? ` (${dob})` : '');
                     opt.selected = true;
                     select.appendChild(opt);
                 } else {

@@ -2255,7 +2255,7 @@ class PatientCreate(BaseModel):
     """Request model for creating a patient"""
     name: Optional[str] = None
     mrn: Optional[str] = None
-    date_of_birth: Optional[str] = None
+    dob: Optional[str] = None  # YYYY-MM-DD format
     sex: Optional[str] = None
 
 
@@ -2269,7 +2269,8 @@ async def create_new_patient(patient_data: PatientCreate, user: User = Depends(r
     patient_id = await create_patient(
         owner_id=user.id,
         name=patient_data.name,
-        mrn=patient_data.mrn
+        mrn=patient_data.mrn,
+        dob=patient_data.dob
     )
     
     if patient_id:

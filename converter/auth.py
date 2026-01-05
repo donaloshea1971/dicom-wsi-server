@@ -1153,22 +1153,32 @@ async def get_user_patients(user_id: int) -> list[dict]:
 async def create_patient(
     owner_id: int,
     name: Optional[str] = None,
-    mrn: Optional[str] = None
+    mrn: Optional[str] = None,
+    dob: Optional[str] = None  # YYYY-MM-DD format
 ) -> Optional[int]:
     """Create a new patient, returns patient ID"""
     pool = await get_db_pool()
     if pool is None:
         return None
     
+    # Parse dob string to date if provided
+    dob_date = None
+    if dob:
+        try:
+            from datetime import datetime
+            dob_date = datetime.strptime(dob, "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning(f"Invalid DOB format: {dob}")
+    
     try:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                INSERT INTO patients (owner_id, name, mrn)
-                VALUES ($1, $2, $3)
+                INSERT INTO patients (owner_id, name, mrn, dob)
+                VALUES ($1, $2, $3, $4)
                 RETURNING id
                 """,
-                owner_id, name, mrn
+                owner_id, name, mrn, dob_date
             )
             return row["id"] if row else None
     except Exception as e:
