@@ -589,6 +589,22 @@
         .study-meta {
             font-size: 12px;
             color: var(--text-secondary);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        
+        .meta-patient {
+            color: var(--accent);
+            font-weight: 500;
+        }
+        
+        .meta-case {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 11px;
         }
 
         .empty-state {
@@ -2134,7 +2150,9 @@
                     </div>
                     <div class="study-desc">${displayName}</div>
                     <div class="study-meta">
-                        ${subtitle} • ${study.Series?.length || 0} series
+                        ${patientInfo ? `<span class="meta-patient">${patientInfo}</span>` : ''}
+                        ${caseInfo ? `<span class="meta-case">${caseInfo}</span>` : ''}
+                        ${!patientInfo && !caseInfo ? (dicomPatientName || 'Unknown Patient') : ''}
                     </div>
                 </div>
             `;
