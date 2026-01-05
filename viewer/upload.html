@@ -853,11 +853,16 @@
             // Render queue items
             listEl.innerHTML = uploadQueue.map(item => `
                 <div class="queue-item ${item.status}" data-id="${item.id}">
-                    <div class="queue-item-icon ${item.type}">
+                    <div class="queue-item-icon ${item.type} ${item.status === 'uploading' || item.status === 'converting' ? 'spinning' : ''}">
                         ${item.type === 'dicom' ? `
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="3" y="3" width="18" height="18" rx="2"/>
                                 <path d="M9 9h6v6H9z"/>
+                            </svg>
+                        ` : item.status === 'uploading' || item.status === 'converting' ? `
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 6v6l4 2"/>
                             </svg>
                         ` : `
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -870,24 +875,33 @@
                         <div class="queue-item-name">${escapeHtml(item.name)}</div>
                         <div class="queue-item-meta">
                             <span>${formatSize(item.size)}</span>
-                            <span>${item.type === 'dicom' ? 'Native DICOM → C-STORE' : 'Convert → API'}</span>
+                            <span>${item.type === 'dicom' ? 'DICOM' : getFormatName(item.name)}</span>
+                            ${item.chunksUploaded && item.totalChunks ? `<span>Chunks: ${item.chunksUploaded}/${item.totalChunks}</span>` : ''}
                         </div>
                         ${item.status === 'uploading' || item.status === 'converting' ? `
                             <div class="queue-item-progress">
                                 <div class="queue-item-progress-bar" style="width: ${item.progress}%"></div>
                             </div>
+                            ${item.message ? `<div style="color: var(--text-secondary); font-size: 11px; margin-top: 4px;">${escapeHtml(item.message)}</div>` : ''}
                         ` : ''}
-                        ${item.error ? `<div style="color: var(--danger); font-size: 12px; margin-top: 4px;">${escapeHtml(item.error)}</div>` : ''}
+                        ${item.error ? `
+                            <div style="color: var(--danger); font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                                <span>${escapeHtml(item.error)}</span>
+                                <button onclick="retryUpload('${item.id}')" style="background: var(--danger); color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">
+                                    Retry
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
                     <span class="queue-item-status ${item.status}">
                         ${item.status === 'pending' ? 'Pending' : ''}
-                        ${item.status === 'uploading' ? 'Uploading...' : ''}
-                        ${item.status === 'converting' ? 'Converting...' : ''}
+                        ${item.status === 'uploading' ? `${item.progress}%` : ''}
+                        ${item.status === 'converting' ? `${item.progress}%` : ''}
                         ${item.status === 'complete' ? '✓ Done' : ''}
                         ${item.status === 'error' ? '✗ Failed' : ''}
                     </span>
-                    ${item.status === 'pending' ? `
-                        <button class="queue-item-remove" onclick="removeFromQueue('${item.id}')">
+                    ${item.status === 'pending' || item.status === 'error' ? `
+                        <button class="queue-item-remove" onclick="removeFromQueue('${item.id}')" title="Remove">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <line x1="18" y1="6" x2="6" y2="18"/>
                                 <line x1="6" y1="6" x2="18" y2="18"/>
@@ -966,114 +980,485 @@
             return Array.from(groups.values());
         }
 
-        // Upload DICOM group via REST API
+        // Upload DICOM group via REST API with retry
         async function uploadDicomGroup(items) {
             const token = await getAuthToken();
             
             for (const item of items) {
                 item.status = 'uploading';
+                item.progress = 0;
+                item.error = null;
                 updateQueueUI();
                 
-                try {
-                    const headers = {
-                        'Content-Type': 'application/dicom'
-                    };
-                    
-                    // Add auth token if available
-                    if (token) {
-                        headers['Authorization'] = `Bearer ${token}`;
+                let success = false;
+                let lastError = null;
+                
+                for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+                    try {
+                        item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
+                        updateQueueUI();
+                        
+                        const headers = {
+                            'Content-Type': 'application/dicom'
+                        };
+                        
+                        if (token) {
+                            headers['Authorization'] = `Bearer ${token}`;
+                        }
+                        
+                        const response = await fetch('/api/instances', {
+                            method: 'POST',
+                            body: item.file,
+                            headers: headers
+                        });
+                        
+                        if (response.ok) {
+                            item.status = 'complete';
+                            item.progress = 100;
+                            item.message = '';
+                            success = true;
+                        } else {
+                            const text = await response.text();
+                            throw new Error(`HTTP ${response.status}: ${text}`);
+                        }
+                    } catch (e) {
+                        lastError = e;
+                        console.warn(`DICOM upload attempt ${attempt} failed:`, e.message);
+                        
+                        if (attempt < MAX_RETRIES) {
+                            item.message = `Retry in ${RETRY_DELAY_MS/1000}s...`;
+                            updateQueueUI();
+                            await sleep(RETRY_DELAY_MS * attempt);
+                        }
                     }
-                    
-                    const response = await fetch('/api/instances', {
-                        method: 'POST',
-                        body: item.file,
-                        headers: headers
-                    });
-                    
-                    if (response.ok) {
-                        item.status = 'complete';
-                        item.progress = 100;
-                    } else {
-                        const text = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${text}`);
-                    }
-                } catch (e) {
+                }
+                
+                if (!success) {
                     item.status = 'error';
-                    item.error = e.message;
-                    console.error('DICOM upload failed:', e);
+                    item.error = formatError(lastError);
+                    console.error('DICOM upload failed after retries:', lastError);
                 }
                 
                 updateQueueUI();
             }
         }
 
-        // Upload file for conversion
+        // =================================================================
+        // CHUNKED UPLOAD WITH RETRY
+        // =================================================================
+        
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY_MS = 2000;
+        const CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
+        
+        // Upload file for conversion using chunked upload
         async function uploadForConversion(item) {
             item.status = 'uploading';
+            item.progress = 0;
+            item.error = null;
+            item.uploadId = null;
+            item.chunksUploaded = 0;
+            item.totalChunks = 0;
             updateQueueUI();
             
+            const token = await getAuthToken();
+            
             try {
-                const formData = new FormData();
-                formData.append('file', item.file);
-                
-                // Get auth token
-                const token = await getAuthToken();
-                
-                // Start upload with progress tracking
-                const xhr = new XMLHttpRequest();
-                
-                await new Promise((resolve, reject) => {
-                    xhr.upload.onprogress = (e) => {
-                        if (e.lengthComputable) {
-                            item.progress = Math.round((e.loaded / e.total) * 50); // Upload is 50%
-                            updateQueueUI();
-                        }
-                    };
-                    
-                    xhr.onload = () => {
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                            resolve(JSON.parse(xhr.responseText));
-                        } else {
-                            reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText}`));
-                        }
-                    };
-                    
-                    xhr.onerror = () => reject(new Error('Network error'));
-                    xhr.ontimeout = () => reject(new Error('Timeout'));
-                    
-                    xhr.open('POST', '/api/upload');
-                    xhr.timeout = 600000; // 10 minute timeout
-                    
-                    // Add auth token if available
-                    if (token) {
-                        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-                    }
-                    
-                    xhr.send(formData);
-                });
-                
-                // Poll for conversion status
-                item.status = 'converting';
-                item.progress = 50;
-                updateQueueUI();
-                
-                // Simulate conversion progress (actual polling would go here)
-                for (let i = 50; i <= 100; i += 10) {
-                    await sleep(500);
-                    item.progress = i;
-                    updateQueueUI();
+                // Use chunked upload for large files (>50MB), simple upload for smaller
+                if (item.file.size > 50 * 1024 * 1024) {
+                    await uploadChunked(item, token);
+                } else {
+                    await uploadSimple(item, token);
                 }
-                
-                item.status = 'complete';
-                item.progress = 100;
-                
             } catch (e) {
                 item.status = 'error';
-                item.error = e.message;
-                console.error('Conversion upload failed:', e);
+                item.error = formatError(e);
+                console.error('Upload failed:', e);
             }
             
             updateQueueUI();
+        }
+        
+        // Simple upload for smaller files (with retry)
+        async function uploadSimple(item, token) {
+            const formData = new FormData();
+            formData.append('file', item.file);
+            
+            let lastError = null;
+            
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
+                    updateQueueUI();
+                    
+                    const response = await uploadWithProgress(
+                        '/api/upload',
+                        formData,
+                        token,
+                        (progress) => {
+                            item.progress = Math.round(progress * 50); // Upload is 0-50%
+                            updateQueueUI();
+                        }
+                    );
+                    
+                    // Success - start polling for conversion
+                    item.jobId = response.job_id;
+                    await pollConversionStatus(item, token);
+                    return;
+                    
+                } catch (e) {
+                    lastError = e;
+                    console.warn(`Upload attempt ${attempt} failed:`, e.message);
+                    
+                    if (attempt < MAX_RETRIES) {
+                        item.message = `Retry in ${RETRY_DELAY_MS/1000}s... (${e.message})`;
+                        updateQueueUI();
+                        await sleep(RETRY_DELAY_MS * attempt); // Exponential backoff
+                    }
+                }
+            }
+            
+            throw lastError || new Error('Upload failed after retries');
+        }
+        
+        // Chunked upload for large files
+        async function uploadChunked(item, token) {
+            // Initialize chunked upload
+            item.message = 'Initializing upload...';
+            updateQueueUI();
+            
+            const initResponse = await fetchWithRetry('/api/upload/init', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                },
+                body: JSON.stringify({
+                    filename: item.file.name,
+                    file_size: item.file.size,
+                    chunk_size: CHUNK_SIZE
+                })
+            });
+            
+            const { upload_id, total_chunks, chunk_size } = initResponse;
+            item.uploadId = upload_id;
+            item.totalChunks = total_chunks;
+            item.chunksUploaded = 0;
+            
+            console.log(`📦 Chunked upload started: ${upload_id}, ${total_chunks} chunks`);
+            
+            // Upload chunks with parallel uploads
+            const chunkQueue = Array.from({ length: total_chunks }, (_, i) => i);
+            const failedChunks = new Set();
+            
+            // Process chunks in parallel batches
+            while (chunkQueue.length > 0 || failedChunks.size > 0) {
+                // Get next batch of chunks
+                const batch = [];
+                while (batch.length < CONCURRENT_CHUNKS && chunkQueue.length > 0) {
+                    batch.push(chunkQueue.shift());
+                }
+                
+                // Retry failed chunks if queue is empty
+                if (batch.length === 0 && failedChunks.size > 0) {
+                    const retryChunks = Array.from(failedChunks).slice(0, CONCURRENT_CHUNKS);
+                    retryChunks.forEach(c => failedChunks.delete(c));
+                    batch.push(...retryChunks);
+                    item.message = `Retrying ${batch.length} failed chunks...`;
+                    updateQueueUI();
+                    await sleep(RETRY_DELAY_MS);
+                }
+                
+                if (batch.length === 0) break;
+                
+                // Upload batch in parallel
+                const results = await Promise.all(
+                    batch.map(chunkIndex => uploadChunk(item, upload_id, chunkIndex, chunk_size, token))
+                );
+                
+                // Track failures
+                results.forEach((success, i) => {
+                    if (success) {
+                        item.chunksUploaded++;
+                    } else {
+                        failedChunks.add(batch[i]);
+                    }
+                });
+                
+                // Update progress (upload phase is 0-50%)
+                item.progress = Math.round((item.chunksUploaded / total_chunks) * 50);
+                item.message = `Uploading ${item.chunksUploaded}/${total_chunks} chunks`;
+                updateQueueUI();
+                
+                // Check for too many failures
+                if (failedChunks.size > total_chunks * 0.3) {
+                    throw new Error(`Too many chunk failures (${failedChunks.size}/${total_chunks})`);
+                }
+            }
+            
+            // Complete the upload
+            item.message = 'Assembling file...';
+            item.progress = 50;
+            updateQueueUI();
+            
+            const completeResponse = await fetchWithRetry(`/api/upload/${upload_id}/complete`, {
+                method: 'POST',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            
+            // Poll for conversion status using chunked upload status endpoint
+            await pollChunkedUploadStatus(item, upload_id, token);
+        }
+        
+        // Upload a single chunk with retry
+        async function uploadChunk(item, uploadId, chunkIndex, chunkSize, token) {
+            const start = chunkIndex * chunkSize;
+            const end = Math.min(start + chunkSize, item.file.size);
+            const chunk = item.file.slice(start, end);
+            
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    const response = await fetch(`/api/upload/${uploadId}/chunk/${chunkIndex}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/octet-stream',
+                            ...(token && { 'Authorization': `Bearer ${token}` })
+                        },
+                        body: chunk
+                    });
+                    
+                    if (!response.ok) {
+                        const text = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${text}`);
+                    }
+                    
+                    return true; // Success
+                    
+                } catch (e) {
+                    console.warn(`Chunk ${chunkIndex} attempt ${attempt} failed:`, e.message);
+                    if (attempt < MAX_RETRIES) {
+                        await sleep(RETRY_DELAY_MS * attempt);
+                    }
+                }
+            }
+            
+            return false; // Failed after retries
+        }
+        
+        // Poll for chunked upload status
+        async function pollChunkedUploadStatus(item, uploadId, token) {
+            item.status = 'converting';
+            
+            while (true) {
+                try {
+                    const status = await fetchWithRetry(`/api/upload/${uploadId}/status`, {
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                    });
+                    
+                    item.progress = status.progress;
+                    item.message = status.message;
+                    item.jobId = status.job_id;
+                    updateQueueUI();
+                    
+                    if (status.status === 'completed') {
+                        item.status = 'complete';
+                        item.progress = 100;
+                        return;
+                    }
+                    
+                    if (status.status === 'failed') {
+                        throw new Error(status.message || 'Conversion failed');
+                    }
+                    
+                    await sleep(2000); // Poll every 2 seconds
+                    
+                } catch (e) {
+                    // Continue polling on transient errors
+                    console.warn('Status poll error:', e.message);
+                    await sleep(3000);
+                }
+            }
+        }
+        
+        // Poll for conversion job status (simple upload)
+        async function pollConversionStatus(item, token) {
+            item.status = 'converting';
+            item.progress = 50;
+            
+            while (true) {
+                try {
+                    const job = await fetchWithRetry(`/api/jobs/${item.jobId}`, {
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                    });
+                    
+                    // Map job progress (0-100) to our progress (50-100)
+                    item.progress = 50 + Math.round(job.progress * 0.5);
+                    item.message = job.message;
+                    updateQueueUI();
+                    
+                    if (job.status === 'completed') {
+                        item.status = 'complete';
+                        item.progress = 100;
+                        return;
+                    }
+                    
+                    if (job.status === 'failed') {
+                        throw new Error(job.message || 'Conversion failed');
+                    }
+                    
+                    await sleep(2000);
+                    
+                } catch (e) {
+                    console.warn('Job status poll error:', e.message);
+                    await sleep(3000);
+                }
+            }
+        }
+        
+        // Upload with progress tracking
+        function uploadWithProgress(url, formData, token, onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        onProgress(e.loaded / e.total);
+                    }
+                };
+                
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            resolve(JSON.parse(xhr.responseText));
+                        } catch {
+                            resolve({ success: true });
+                        }
+                    } else {
+                        reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText || 'Unknown error'}`));
+                    }
+                };
+                
+                xhr.onerror = () => reject(new Error('Network error - check your connection'));
+                xhr.ontimeout = () => reject(new Error('Upload timed out'));
+                
+                xhr.open('POST', url);
+                xhr.timeout = 30 * 60 * 1000; // 30 minute timeout
+                
+                if (token) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                }
+                
+                xhr.send(formData);
+            });
+        }
+        
+        // Fetch with automatic retry
+        async function fetchWithRetry(url, options = {}, retries = MAX_RETRIES) {
+            let lastError = null;
+            
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const response = await fetch(url, options);
+                    
+                    if (!response.ok) {
+                        const text = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${text}`);
+                    }
+                    
+                    return await response.json();
+                    
+                } catch (e) {
+                    lastError = e;
+                    
+                    // Don't retry on client errors (4xx)
+                    if (e.message.includes('HTTP 4')) {
+                        throw e;
+                    }
+                    
+                    if (attempt < retries) {
+                        await sleep(RETRY_DELAY_MS * attempt);
+                    }
+                }
+            }
+            
+            throw lastError;
+        }
+        
+        // Format error messages for users
+        function formatError(error) {
+            const msg = error.message || String(error);
+            
+            // Network errors
+            if (msg.includes('Network error') || msg.includes('Failed to fetch')) {
+                return 'Network error - check your internet connection';
+            }
+            
+            // Timeout
+            if (msg.includes('timeout') || msg.includes('Timeout')) {
+                return 'Upload timed out - file may be too large or connection too slow';
+            }
+            
+            // Server errors
+            if (msg.includes('HTTP 5')) {
+                return 'Server error - please try again later';
+            }
+            
+            // File format errors
+            if (msg.includes('Unsupported file format')) {
+                return msg;
+            }
+            
+            // File too large
+            if (msg.includes('too large') || msg.includes('413')) {
+                return 'File too large - maximum size is 20GB';
+            }
+            
+            // Default
+            return msg.length > 100 ? msg.substring(0, 100) + '...' : msg;
+        }
+
+        // Retry a failed upload
+        async function retryUpload(itemId) {
+            const item = uploadQueue.find(i => i.id == itemId);
+            if (!item || item.status !== 'error') return;
+            
+            // Reset item state
+            item.status = 'pending';
+            item.progress = 0;
+            item.error = null;
+            item.message = '';
+            item.uploadId = null;
+            item.chunksUploaded = 0;
+            updateQueueUI();
+            
+            // Restart upload
+            if (item.type === 'dicom') {
+                const token = await getAuthToken();
+                await uploadDicomGroup([item]);
+            } else {
+                await uploadForConversion(item);
+            }
+        }
+        
+        // Get human-readable format name
+        function getFormatName(filename) {
+            const ext = filename.toLowerCase().split('.').pop();
+            const formats = {
+                'svs': 'Aperio SVS',
+                'ndpi': 'Hamamatsu NDPI',
+                'mrxs': 'MIRAX',
+                'scn': 'Leica SCN',
+                'tiff': 'TIFF',
+                'tif': 'TIFF',
+                'vsi': 'Olympus VSI',
+                'bif': 'Ventana BIF',
+                'isyntax': 'Philips iSyntax',
+                'dcm': 'DICOM',
+                'dicom': 'DICOM',
+                'zip': 'ZIP Archive'
+            };
+            return formats[ext] || ext.toUpperCase();
         }
 
         // Utility functions

@@ -1869,6 +1869,349 @@ async def get_icc_profile_raw(study_id: str):
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
 
+# =============================================================================
+# Chunked Upload System (for large files with resume support)
+# =============================================================================
+
+class ChunkedUploadInit(BaseModel):
+    """Request to initialize a chunked upload"""
+    filename: str
+    file_size: int
+    chunk_size: int = 5 * 1024 * 1024  # 5MB default
+    content_type: str = "application/octet-stream"
+
+class ChunkedUploadStatus(BaseModel):
+    """Status of a chunked upload"""
+    upload_id: str
+    filename: str
+    file_size: int
+    chunk_size: int
+    total_chunks: int
+    uploaded_chunks: list[int]
+    bytes_uploaded: int
+    status: str  # uploading, assembling, converting, completed, failed
+    progress: int  # 0-100
+    message: str = ""
+    job_id: Optional[str] = None  # Set when conversion starts
+    created_at: datetime
+    expires_at: datetime
+
+# In-memory storage for chunked uploads (use Redis in production for persistence)
+chunked_uploads: dict[str, dict] = {}
+
+# Directory for storing chunks
+chunks_dir = Path(settings.watch_folder) / "chunks"
+chunks_dir.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/upload/init")
+async def init_chunked_upload(
+    request: ChunkedUploadInit,
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """
+    Initialize a chunked upload session.
+    Returns upload_id and chunk information for the client.
+    """
+    # Validate file format
+    source_format = detect_format(request.filename)
+    if source_format == "unknown":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format: {Path(request.filename).suffix}. "
+                   f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .bif, .mrxs, .zip, .dcm"
+        )
+    
+    # Validate file size
+    max_size = settings.max_upload_size_gb * 1024 * 1024 * 1024
+    if request.file_size > max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {settings.max_upload_size_gb}GB"
+        )
+    
+    # Generate upload ID
+    upload_id = str(uuid.uuid4())[:12]
+    
+    # Calculate chunks
+    total_chunks = (request.file_size + request.chunk_size - 1) // request.chunk_size
+    
+    # Create upload directory
+    upload_dir = chunks_dir / upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Store upload session
+    now = datetime.utcnow()
+    chunked_uploads[upload_id] = {
+        "upload_id": upload_id,
+        "filename": request.filename,
+        "file_size": request.file_size,
+        "chunk_size": request.chunk_size,
+        "total_chunks": total_chunks,
+        "uploaded_chunks": [],
+        "bytes_uploaded": 0,
+        "status": "uploading",
+        "progress": 0,
+        "message": "Ready for chunks",
+        "job_id": None,
+        "owner_id": current_user.id if current_user else None,
+        "source_format": source_format,
+        "created_at": now,
+        "expires_at": now.replace(hour=now.hour + 24),  # 24 hour expiry
+        "upload_dir": str(upload_dir)
+    }
+    
+    logger.info(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+    
+    return {
+        "upload_id": upload_id,
+        "chunk_size": request.chunk_size,
+        "total_chunks": total_chunks,
+        "message": f"Upload initialized. Send {total_chunks} chunks to /upload/{upload_id}/chunk/{{index}}"
+    }
+
+
+@app.post("/upload/{upload_id}/chunk/{chunk_index}")
+async def upload_chunk(
+    upload_id: str,
+    chunk_index: int,
+    request: Request
+):
+    """
+    Upload a single chunk. Chunks can be uploaded in any order and retried.
+    """
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+    
+    upload = chunked_uploads[upload_id]
+    
+    if upload["status"] not in ["uploading"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Upload is {upload['status']}, cannot accept more chunks"
+        )
+    
+    if chunk_index < 0 or chunk_index >= upload["total_chunks"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid chunk index. Expected 0-{upload['total_chunks']-1}"
+        )
+    
+    # Read chunk data
+    chunk_data = await request.body()
+    
+    # Validate chunk size (last chunk can be smaller)
+    expected_size = upload["chunk_size"]
+    if chunk_index == upload["total_chunks"] - 1:
+        # Last chunk
+        expected_size = upload["file_size"] - (chunk_index * upload["chunk_size"])
+    
+    if len(chunk_data) != expected_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Chunk size mismatch. Expected {expected_size}, got {len(chunk_data)}"
+        )
+    
+    # Save chunk to disk
+    chunk_path = Path(upload["upload_dir"]) / f"chunk_{chunk_index:06d}"
+    try:
+        with open(chunk_path, "wb") as f:
+            f.write(chunk_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save chunk: {str(e)}")
+    
+    # Update upload status
+    if chunk_index not in upload["uploaded_chunks"]:
+        upload["uploaded_chunks"].append(chunk_index)
+        upload["uploaded_chunks"].sort()
+        upload["bytes_uploaded"] += len(chunk_data)
+    
+    # Calculate progress (upload phase is 0-50%)
+    upload["progress"] = int((len(upload["uploaded_chunks"]) / upload["total_chunks"]) * 50)
+    upload["message"] = f"Uploaded {len(upload['uploaded_chunks'])}/{upload['total_chunks']} chunks"
+    
+    logger.debug(f"📦 Chunk {chunk_index}/{upload['total_chunks']-1} received for {upload_id}")
+    
+    return {
+        "chunk_index": chunk_index,
+        "chunks_received": len(upload["uploaded_chunks"]),
+        "total_chunks": upload["total_chunks"],
+        "progress": upload["progress"],
+        "complete": len(upload["uploaded_chunks"]) == upload["total_chunks"]
+    }
+
+
+@app.post("/upload/{upload_id}/complete")
+async def complete_chunked_upload(
+    upload_id: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Complete the chunked upload - assembles chunks and starts conversion.
+    """
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+    
+    upload = chunked_uploads[upload_id]
+    
+    if upload["status"] != "uploading":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload is {upload['status']}, cannot complete"
+        )
+    
+    # Verify all chunks received
+    missing = set(range(upload["total_chunks"])) - set(upload["uploaded_chunks"])
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing chunks: {sorted(list(missing))[:20]}{'...' if len(missing) > 20 else ''}"
+        )
+    
+    upload["status"] = "assembling"
+    upload["message"] = "Assembling chunks..."
+    upload["progress"] = 50
+    
+    # Assemble file in background and start conversion
+    background_tasks.add_task(assemble_and_convert, upload_id)
+    
+    return {
+        "upload_id": upload_id,
+        "status": "assembling",
+        "message": "All chunks received. Assembling file and starting conversion."
+    }
+
+
+async def assemble_and_convert(upload_id: str):
+    """Background task to assemble chunks and start conversion"""
+    upload = chunked_uploads.get(upload_id)
+    if not upload:
+        return
+    
+    try:
+        upload_dir = Path(upload["upload_dir"])
+        incoming_dir = Path(settings.watch_folder) / "incoming"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate job ID and final path
+        job_id = str(uuid.uuid4())[:8]
+        final_path = incoming_dir / f"{job_id}_{upload['filename']}"
+        
+        # Assemble chunks
+        logger.info(f"📦 Assembling {upload['total_chunks']} chunks for {upload_id}")
+        
+        with open(final_path, "wb") as outfile:
+            for i in range(upload["total_chunks"]):
+                chunk_path = upload_dir / f"chunk_{i:06d}"
+                with open(chunk_path, "rb") as chunk_file:
+                    outfile.write(chunk_file.read())
+                
+                # Update progress (assembling is 50-60%)
+                upload["progress"] = 50 + int((i / upload["total_chunks"]) * 10)
+        
+        # Verify file size
+        actual_size = final_path.stat().st_size
+        if actual_size != upload["file_size"]:
+            raise Exception(f"Assembled file size mismatch: expected {upload['file_size']}, got {actual_size}")
+        
+        # Clean up chunks
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        
+        upload["status"] = "converting"
+        upload["message"] = "Starting conversion..."
+        upload["progress"] = 60
+        upload["job_id"] = job_id
+        
+        logger.info(f"📦 Assembly complete for {upload_id}, starting conversion job {job_id}")
+        
+        # Create conversion job
+        owner_id = upload.get("owner_id")
+        job = ConversionJob(
+            job_id=job_id,
+            filename=upload["filename"],
+            status="pending",
+            message=f"Queued for conversion (format: {upload['source_format']})",
+            owner_id=owner_id,
+            created_at=datetime.utcnow()
+        )
+        conversion_jobs[job_id] = job
+        
+        # Start conversion
+        await convert_wsi_to_dicom(job_id, final_path)
+        
+        # Update upload status from job
+        job = conversion_jobs.get(job_id)
+        if job:
+            upload["status"] = "completed" if job.status == "completed" else "failed"
+            upload["progress"] = 100 if job.status == "completed" else upload["progress"]
+            upload["message"] = job.message
+        
+    except Exception as e:
+        logger.error(f"❌ Chunked upload assembly failed for {upload_id}: {e}")
+        upload["status"] = "failed"
+        upload["message"] = str(e)
+        # Clean up
+        shutil.rmtree(Path(upload["upload_dir"]), ignore_errors=True)
+
+
+@app.get("/upload/{upload_id}/status")
+async def get_chunked_upload_status(upload_id: str):
+    """
+    Get the status of a chunked upload, including conversion progress.
+    """
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+    
+    upload = chunked_uploads[upload_id]
+    
+    # If converting, sync progress from conversion job
+    if upload["status"] == "converting" and upload["job_id"]:
+        job = conversion_jobs.get(upload["job_id"])
+        if job:
+            # Conversion progress is 60-100%
+            upload["progress"] = 60 + int(job.progress * 0.4)
+            upload["message"] = job.message
+            if job.status == "completed":
+                upload["status"] = "completed"
+                upload["progress"] = 100
+            elif job.status == "failed":
+                upload["status"] = "failed"
+    
+    return {
+        "upload_id": upload["upload_id"],
+        "filename": upload["filename"],
+        "file_size": upload["file_size"],
+        "total_chunks": upload["total_chunks"],
+        "uploaded_chunks": len(upload["uploaded_chunks"]),
+        "missing_chunks": sorted(list(set(range(upload["total_chunks"])) - set(upload["uploaded_chunks"])))[:50],
+        "bytes_uploaded": upload["bytes_uploaded"],
+        "status": upload["status"],
+        "progress": upload["progress"],
+        "message": upload["message"],
+        "job_id": upload["job_id"],
+        "created_at": upload["created_at"].isoformat(),
+    }
+
+
+@app.delete("/upload/{upload_id}")
+async def cancel_chunked_upload(upload_id: str):
+    """Cancel and clean up a chunked upload"""
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    
+    upload = chunked_uploads[upload_id]
+    
+    # Clean up chunks
+    shutil.rmtree(Path(upload["upload_dir"]), ignore_errors=True)
+    
+    # Remove from tracking
+    del chunked_uploads[upload_id]
+    
+    logger.info(f"📦 Chunked upload {upload_id} cancelled and cleaned up")
+    
+    return {"message": "Upload cancelled", "upload_id": upload_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
