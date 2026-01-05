@@ -451,32 +451,45 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
         return True
 
 
-async def get_owned_study_ids(user_id: int) -> list[str]:
-    """Get study IDs owned by a user (not shared with them)"""
+async def get_owned_study_ids(user_id: int) -> set[str]:
+    """Get study IDs owned by a user (from slides table)"""
     pool = await get_db_pool()
     if pool is None:
-        return []
+        return set()
     
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT study_id FROM study_owners WHERE user_id = $1",
-            user_id
-        )
-        return [row["study_id"] for row in rows]
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT orthanc_study_id FROM slides WHERE owner_id = $1",
+                user_id
+            )
+            return set(row["orthanc_study_id"] for row in rows)
+    except Exception as e:
+        logger.error(f"get_owned_study_ids error: {e}")
+        return set()
 
 
-async def get_shared_with_me_study_ids(user_id: int) -> list[str]:
-    """Get study IDs shared with a user (not owned by them)"""
+async def get_shared_with_me_study_ids(user_id: int) -> set[str]:
+    """Get study IDs shared with a user (from slide_shares table)"""
     pool = await get_db_pool()
     if pool is None:
-        return []
+        return set()
     
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT study_id FROM study_shares WHERE shared_with_id = $1",
-            user_id
-        )
-        return [row["study_id"] for row in rows]
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT s.orthanc_study_id 
+                FROM slides s
+                JOIN slide_shares ss ON s.id = ss.slide_id
+                WHERE ss.shared_with_id = $1
+                """,
+                user_id
+            )
+            return set(row["orthanc_study_id"] for row in rows)
+    except Exception as e:
+        logger.error(f"get_shared_with_me_study_ids error: {e}")
+        return set()
 
 
 async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
@@ -528,18 +541,24 @@ async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
     if pool is None:
         return {}
     
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT study_id, COUNT(*) as share_count
-            FROM study_shares
-            WHERE study_id = ANY($1)
-            GROUP BY study_id
-            """,
-            study_ids
-        )
-        
-        return {row["study_id"]: row["share_count"] for row in rows}
+    try:
+        async with pool.acquire() as conn:
+            # Try slide_shares first (new schema), fall back to study_shares
+            rows = await conn.fetch(
+                """
+                SELECT s.orthanc_study_id as study_id, COUNT(ss.id) as share_count
+                FROM slides s
+                LEFT JOIN slide_shares ss ON s.id = ss.slide_id
+                WHERE s.orthanc_study_id = ANY($1)
+                GROUP BY s.orthanc_study_id
+                """,
+                study_ids
+            )
+            
+            return {row["study_id"]: row["share_count"] for row in rows}
+    except Exception as e:
+        logger.error(f"get_share_counts_for_studies error: {e}")
+        return {}
 
 
 async def search_users(query: str = None, exclude_user_id: int = None, limit: int = 50) -> list[dict]:

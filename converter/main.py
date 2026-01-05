@@ -1662,15 +1662,19 @@ def localStorage_hidden_samples(user_id: int) -> bool:
     return False
 
 
-async def get_all_owned_study_ids() -> list[str]:
-    """Get all study IDs that have owners"""
+async def get_all_owned_study_ids() -> set[str]:
+    """Get all study IDs that have owners (from slides table)"""
     pool = await get_db_pool()
     if pool is None:
-        return []
+        return set()
     
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT study_id FROM study_owners")
-        return [row["study_id"] for row in rows]
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT orthanc_study_id FROM slides WHERE owner_id IS NOT NULL")
+            return set(row["orthanc_study_id"] for row in rows)
+    except Exception as e:
+        logger.error(f"get_all_owned_study_ids error: {e}")
+        return set()
 
 
 @app.get("/studies/ownership")
@@ -1985,7 +1989,11 @@ async def get_categorized_studies(
         return result
         
     except httpx.HTTPError as e:
+        logger.error(f"Orthanc HTTP error in categorized: {e}")
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error in categorized studies: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 # =============================================================================
