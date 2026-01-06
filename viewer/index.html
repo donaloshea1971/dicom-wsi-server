@@ -524,6 +524,52 @@
             margin-top: 16px;
         }
 
+        /* Access source badges */
+        .access-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .access-badge.owner {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+        
+        .access-badge.direct-share {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .access-badge.case-share {
+            background: #8b5cf6;
+            color: white;
+        }
+        
+        .access-badge.sample {
+            background: #f59e0b;
+            color: black;
+        }
+        
+        .access-info {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .access-info-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
         .study-card {
             background: var(--bg-tertiary);
             border: 1px solid var(--border);
@@ -541,6 +587,10 @@
         
         .study-card.sample-study:hover {
             opacity: 1;
+        }
+        
+        .study-card.shared-study {
+            border-left: 3px solid #3b82f6;
         }
 
         .study-card:hover {
@@ -3202,25 +3252,72 @@
         async function openShareDialog(studyId) {
             currentShareStudyId = studyId;
             
+            // Fetch access info to show how user has access
+            let accessInfo = null;
+            try {
+                const accessResponse = await authFetch(`/api/slides/${studyId}/access-info`);
+                if (accessResponse.ok) {
+                    accessInfo = await accessResponse.json();
+                }
+            } catch (e) {
+                console.log('Could not fetch access info:', e);
+            }
+            
+            // Build access info HTML
+            let accessHtml = '';
+            if (accessInfo && accessInfo.has_access) {
+                let badgeClass = 'owner';
+                let badgeText = 'You own this slide';
+                
+                if (accessInfo.access_type === 'direct_share') {
+                    badgeClass = 'direct-share';
+                    badgeText = `Shared with you (${accessInfo.permission})`;
+                } else if (accessInfo.access_type === 'case_share') {
+                    badgeClass = 'case-share';
+                    badgeText = `Access via case share (${accessInfo.permission})`;
+                } else if (accessInfo.access_type === 'sample') {
+                    badgeClass = 'sample';
+                    badgeText = 'Sample slide (public)';
+                }
+                
+                accessHtml = `
+                    <div class="access-info">
+                        <div class="access-info-label">Your Access</div>
+                        <span class="access-badge ${badgeClass}">${badgeText}</span>
+                    </div>
+                `;
+            }
+            
+            // Only show sharing controls if user is owner
+            const isOwner = accessInfo && accessInfo.access_type === 'owner';
+            const sharingControlsHtml = isOwner ? `
+                <input type="text" class="share-search-input" id="share-search" 
+                       placeholder="Search by email or name..." 
+                       oninput="searchUsersToShare(this.value)">
+                <div class="share-results" id="share-results">
+                    <div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                        Type to search for users
+                    </div>
+                </div>
+                <div class="share-current-list" id="share-current">
+                    <h4>Currently shared with</h4>
+                    <div id="current-shares">Loading...</div>
+                </div>
+            ` : `
+                <div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                    Only the slide owner can manage sharing.
+                </div>
+            `;
+            
             // Create dialog
             const dialog = document.createElement('div');
             dialog.className = 'share-dialog';
             dialog.id = 'share-dialog';
             dialog.innerHTML = `
                 <div class="share-dialog-content">
-                    <h3>🔗 Share Slide</h3>
-                    <input type="text" class="share-search-input" id="share-search" 
-                           placeholder="Search by email or name..." 
-                           oninput="searchUsersToShare(this.value)">
-                    <div class="share-results" id="share-results">
-                        <div style="color: var(--text-muted); text-align: center; padding: 20px;">
-                            Type to search for users
-                        </div>
-                    </div>
-                    <div class="share-current-list" id="share-current">
-                        <h4>Currently shared with</h4>
-                        <div id="current-shares">Loading...</div>
-                    </div>
+                    <h3>🔗 ${isOwner ? 'Share Slide' : 'Slide Access'}</h3>
+                    ${accessHtml}
+                    ${sharingControlsHtml}
                     <div class="share-dialog-buttons">
                         <button class="btn" onclick="closeShareDialog()">Close</button>
                     </div>
@@ -3229,11 +3326,12 @@
             
             document.body.appendChild(dialog);
             
-            // Load current shares
-            loadCurrentShares(studyId);
-            
-            // Focus search input
-            document.getElementById('share-search').focus();
+            // Load current shares if owner
+            if (isOwner) {
+                loadCurrentShares(studyId);
+                // Focus search input
+                document.getElementById('share-search').focus();
+            }
             
             // Close on backdrop click
             dialog.addEventListener('click', (e) => {

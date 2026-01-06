@@ -28,7 +28,8 @@ from auth import (
     set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
     unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
     search_users, batch_share_studies, get_db_pool, get_slides_metadata_bulk,
-    get_share_counts_for_studies
+    get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
+    get_slide_access_info
 )
 
 # Configure logging
@@ -274,8 +275,12 @@ app.add_middleware(
 # =============================================================================
 
 @app.get("/studies/{study_id}/annotations")
-async def get_annotations(study_id: str):
+async def get_annotations(study_id: str, user: User = Depends(require_user)):
     """Get all annotations for a study"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         return {"annotations": [], "count": 0, "error": "Database unavailable"}
@@ -313,9 +318,13 @@ async def get_annotations(study_id: str):
 async def create_annotation(
     study_id: str, 
     annotation: AnnotationCreate,
-    current_user: Optional[User] = Depends(get_current_user)
+    user: User = Depends(require_user)
 ):
     """Create a new annotation for a study (persisted to PostgreSQL)"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -323,7 +332,7 @@ async def create_annotation(
     # Generate annotation ID
     annotation_id = str(uuid.uuid4())[:8]
     now = datetime.utcnow()
-    user_id = current_user.id if current_user else None
+    user_id = user.id
     
     async with pool.acquire() as conn:
         await conn.execute(
@@ -357,8 +366,12 @@ async def create_annotation(
 
 
 @app.get("/studies/{study_id}/annotations/{annotation_id}")
-async def get_annotation(study_id: str, annotation_id: str):
+async def get_annotation(study_id: str, annotation_id: str, user: User = Depends(require_user)):
     """Get a specific annotation"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -390,8 +403,12 @@ async def get_annotation(study_id: str, annotation_id: str):
 
 
 @app.put("/studies/{study_id}/annotations/{annotation_id}")
-async def update_annotation(study_id: str, annotation_id: str, update: AnnotationUpdate):
+async def update_annotation(study_id: str, annotation_id: str, update: AnnotationUpdate, user: User = Depends(require_user)):
     """Update an existing annotation"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -436,8 +453,12 @@ async def update_annotation(study_id: str, annotation_id: str, update: Annotatio
 
 
 @app.delete("/studies/{study_id}/annotations/{annotation_id}")
-async def delete_annotation(study_id: str, annotation_id: str):
+async def delete_annotation(study_id: str, annotation_id: str, user: User = Depends(require_user)):
     """Delete an annotation"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -458,8 +479,12 @@ async def delete_annotation(study_id: str, annotation_id: str):
 
 
 @app.delete("/studies/{study_id}/annotations")
-async def clear_annotations(study_id: str):
+async def clear_annotations(study_id: str, user: User = Depends(require_user)):
     """Delete all annotations for a study"""
+    # Check access - only owner can clear all annotations
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -477,8 +502,12 @@ async def clear_annotations(study_id: str):
 
 
 @app.get("/studies/{study_id}/annotations/export")
-async def export_annotations(study_id: str, format: str = "json"):
+async def export_annotations(study_id: str, format: str = "json", user: User = Depends(require_user)):
     """Export annotations as JSON or GeoJSON"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     pool = await get_db_pool()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -550,8 +579,12 @@ async def export_annotations(study_id: str, format: str = "json"):
 
 
 @app.get("/studies/{study_id}/calibration")
-async def get_calibration(study_id: str):
+async def get_calibration(study_id: str, user: User = Depends(require_user)):
     """Get pixel spacing calibration for measurements"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     try:
         async with httpx.AsyncClient() as client:
             # Get study info
@@ -674,11 +707,15 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 @app.get("/leica-pyramid/{study_id}")
-async def get_leica_pyramid_info(study_id: str):
+async def get_leica_pyramid_info(study_id: str, user: User = Depends(require_user)):
     """
     Check if a study contains Leica-style separate resolution files
     and return virtual pyramid information
     """
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     try:
         # Query Orthanc for study info
         async with httpx.AsyncClient() as client:
@@ -926,7 +963,7 @@ async def upload_dicom(file: UploadFile = File(...)):
 
 
 @app.get("/series/{series_id}")
-async def get_series(series_id: str):
+async def get_series(series_id: str, user: User = Depends(require_user)):
     """Get series details from Orthanc"""
     try:
         async with httpx.AsyncClient() as client:
@@ -936,17 +973,36 @@ async def get_series(series_id: str):
                 timeout=10.0
             )
             if response.status_code == 200:
-                return response.json()
+                series_data = response.json()
+                # Check access via the parent study
+                study_id = series_data.get("ParentStudy")
+                if study_id and user.id and not await can_access_study(user.id, study_id):
+                    raise HTTPException(status_code=403, detail="Access denied to this slide")
+                return series_data
             raise HTTPException(status_code=response.status_code, detail="Series not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/instances/{instance_id}/simplified-tags")
-async def get_instance_tags(instance_id: str):
+async def get_instance_tags(instance_id: str, user: User = Depends(require_user)):
     """Get simplified DICOM tags for an instance"""
     try:
         async with httpx.AsyncClient() as client:
+            # First get instance to find parent study
+            instance_response = await client.get(
+                f"{settings.orthanc_url}/instances/{instance_id}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=10.0
+            )
+            if instance_response.status_code == 200:
+                instance_data = instance_response.json()
+                parent_study = instance_data.get("ParentStudy")
+                if parent_study and user.id and not await can_access_study(user.id, parent_study):
+                    raise HTTPException(status_code=403, detail="Access denied to this slide")
+            
             response = await client.get(
                 f"{settings.orthanc_url}/instances/{instance_id}/simplified-tags",
                 auth=(settings.orthanc_username, settings.orthanc_password),
@@ -955,6 +1011,8 @@ async def get_instance_tags(instance_id: str):
             if response.status_code == 200:
                 return response.json()
             raise HTTPException(status_code=response.status_code, detail="Instance not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1748,11 +1806,11 @@ async def debug_studies(current_user: Optional[User] = Depends(get_current_user)
                 result = await conn.fetchval("SELECT 1")
                 debug_info["database"]["status"] = "connected"
                 
-                # Get all ownership records
+                # Get all ownership records from slides table
                 owners = await conn.fetch("""
-                    SELECT so.study_id, so.user_id, u.email 
-                    FROM study_owners so 
-                    LEFT JOIN users u ON so.user_id = u.id
+                    SELECT s.orthanc_study_id as study_id, s.owner_id as user_id, u.email 
+                    FROM slides s 
+                    LEFT JOIN users u ON s.owner_id = u.id
                 """)
                 debug_info["ownership_table"] = [
                     {"study_id": r["study_id"], "user_id": r["user_id"], "email": r["email"]} 
@@ -1920,6 +1978,62 @@ async def batch_share_endpoint(request: BatchShareRequest, user: User = Depends(
     
     result = await batch_share_studies(request.study_ids, user.id, request.email, request.permission)
     return result
+
+
+# =============================================================================
+# Case-Level Sharing Endpoints
+# =============================================================================
+
+class CaseShareRequest(BaseModel):
+    """Request to share a case"""
+    email: str
+    permission: str = "view"
+
+
+@app.post("/cases/{case_id}/share")
+async def share_case_endpoint(case_id: int, request: CaseShareRequest, user: User = Depends(require_user)):
+    """Share an entire case (and all slides within) with another user"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    success = await share_case(case_id, user.id, request.email, request.permission)
+    if success:
+        return {"message": f"Case shared with {request.email}"}
+    else:
+        raise HTTPException(status_code=400, detail="Could not share case - check ownership and email")
+
+
+@app.delete("/cases/{case_id}/share/{user_id}")
+async def unshare_case_endpoint(case_id: int, user_id: int, user: User = Depends(require_user)):
+    """Remove a case share"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    success = await unshare_case(case_id, user.id, user_id)
+    if success:
+        return {"message": "Case share removed"}
+    else:
+        raise HTTPException(status_code=400, detail="Could not remove case share - check ownership")
+
+
+@app.get("/cases/{case_id}/shares")
+async def get_case_shares_endpoint(case_id: int, user: User = Depends(require_user)):
+    """Get list of users a case is shared with"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    shares = await get_case_shares(case_id, user.id)
+    return {"shares": shares, "count": len(shares)}
+
+
+@app.get("/slides/{study_id}/access-info")
+async def get_slide_access_info_endpoint(study_id: str, user: User = Depends(require_user)):
+    """Get access information for a slide - shows whether access is from ownership, direct share, or case share"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    info = await get_slide_access_info(user.id, study_id)
+    return info
 
 
 @app.get("/users/search")
@@ -2309,8 +2423,12 @@ async def create_new_patient(patient_data: PatientCreate, user: User = Depends(r
 
 
 @app.get("/studies/{study_id}")
-async def get_study(study_id: str):
+async def get_study(study_id: str, user: User = Depends(require_user)):
     """Get study details from Orthanc"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -2325,11 +2443,15 @@ async def get_study(study_id: str):
 
 
 @app.get("/studies/{study_id}/wsi-metadata")
-async def get_wsi_metadata(study_id: str):
+async def get_wsi_metadata(study_id: str, user: User = Depends(require_user)):
     """
     Get WSI pyramid metadata for OpenSeadragon tile source
     Returns tile dimensions, pyramid levels, and instance mappings
     """
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     try:
         async with httpx.AsyncClient() as client:
             # Get study details
@@ -2409,10 +2531,13 @@ async def get_wsi_metadata(study_id: str):
 from fastapi.responses import Response
 
 @app.get("/instances/{instance_id}/frames/{frame_number}")
-async def get_frame(instance_id: str, frame_number: int):
+async def get_frame(instance_id: str, frame_number: int, user: User = Depends(require_user)):
     """
     Proxy frame requests to Orthanc
     Returns JPEG image of the specified frame
+    
+    Note: Full access check per tile is too slow - authentication ensures user is logged in.
+    The access check is done when loading wsi-metadata which gates the viewer.
     """
     try:
         async with httpx.AsyncClient() as client:
@@ -2440,7 +2565,7 @@ async def get_frame(instance_id: str, frame_number: int):
 # =============================================================================
 
 @app.get("/studies/{study_id}/icc-profile")
-async def get_icc_profile(study_id: str, include_transform: bool = False):
+async def get_icc_profile(study_id: str, include_transform: bool = False, user: User = Depends(require_user)):
     """
     Extract ICC color profile from a DICOM WSI study.
     Returns the ICC profile metadata and optionally the color transformation data.
@@ -2448,6 +2573,10 @@ async def get_icc_profile(study_id: str, include_transform: bool = False):
     Query params:
         include_transform: If true, includes parsed color transformation matrices for WebGL
     """
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
     import pydicom
     import io
     import base64

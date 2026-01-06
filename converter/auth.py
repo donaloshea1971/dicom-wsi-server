@@ -339,14 +339,14 @@ async def get_study_owner(study_id: str) -> Optional[int]:
     
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT user_id FROM study_owners WHERE study_id = $1",
+            "SELECT owner_id FROM slides WHERE orthanc_study_id = $1",
             study_id
         )
-        return row["user_id"] if row else None
+        return row["owner_id"] if row else None
 
 
 async def get_user_study_ids(user_id: int) -> list[str]:
-    """Get list of study IDs visible to a user (owned + shared)"""
+    """Get list of study IDs visible to a user (owned + shared via slide or case)"""
     pool = await get_db_pool()
     if pool is None:
         return []
@@ -354,9 +354,16 @@ async def get_user_study_ids(user_id: int) -> list[str]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT study_id FROM study_owners WHERE user_id = $1
+            -- Owned slides
+            SELECT orthanc_study_id as study_id FROM slides WHERE owner_id = $1
             UNION
-            SELECT study_id FROM study_shares WHERE shared_with_id = $1
+            -- Directly shared slides
+            SELECT s.orthanc_study_id as study_id FROM slides s
+            JOIN slide_shares ss ON s.id = ss.slide_id WHERE ss.shared_with_id = $1
+            UNION
+            -- Slides in shared cases
+            SELECT s.orthanc_study_id as study_id FROM slides s
+            JOIN case_shares cs ON s.case_id = cs.case_id WHERE cs.shared_with_id = $1
             """,
             user_id
         )
@@ -364,22 +371,51 @@ async def get_user_study_ids(user_id: int) -> list[str]:
 
 
 async def can_access_study(user_id: int, study_id: str) -> bool:
-    """Check if user can access a specific study"""
+    """Check if user can access a specific study/slide.
+    
+    Access is granted if:
+    1. User owns the slide (slides.owner_id)
+    2. Slide is directly shared with user (slide_shares)
+    3. Slide's case is shared with user (case_shares)
+    4. Slide is a public sample (slides.is_sample = true)
+    """
     pool = await get_db_pool()
     if pool is None:
-        return True  # Allow access if DB unavailable
+        return True  # Allow access if DB unavailable (fail open for development)
     
     async with pool.acquire() as conn:
+        # Check all access paths in a single query
         row = await conn.fetchrow(
             """
-            SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2
-            UNION
-            SELECT 1 FROM study_shares WHERE study_id = $1 AND shared_with_id = $2
+            SELECT 1 FROM slides s
+            WHERE s.orthanc_study_id = $2
+            AND (
+                -- User owns the slide
+                s.owner_id = $1
+                -- Slide is a public sample
+                OR s.is_sample = TRUE
+                -- Slide is directly shared with user
+                OR EXISTS (
+                    SELECT 1 FROM slide_shares ss
+                    WHERE ss.slide_id = s.id AND ss.shared_with_id = $1
+                )
+                -- Slide's case is shared with user
+                OR EXISTS (
+                    SELECT 1 FROM case_shares cs
+                    WHERE cs.case_id = s.case_id AND cs.shared_with_id = $1
+                )
+            )
             """,
-            study_id,
-            user_id
+            user_id,
+            study_id
         )
-        return row is not None
+        
+        if row:
+            return True
+        
+        # Log access denial for debugging
+        logger.debug(f"Access denied: user {user_id} cannot access slide {study_id}")
+        return False
 
 
 async def share_study(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> bool:
@@ -559,7 +595,7 @@ async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
     
     try:
         async with pool.acquire() as conn:
-            # Try slide_shares first (new schema), fall back to study_shares
+            # Query slide_shares for share counts
             rows = await conn.fetch(
                 """
                 SELECT s.orthanc_study_id as study_id, COUNT(ss.id) as share_count
@@ -575,6 +611,174 @@ async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
     except Exception as e:
         logger.error(f"get_share_counts_for_studies error: {e}")
         return {}
+
+
+# =============================================================================
+# Case-Level Sharing Functions
+# =============================================================================
+
+async def share_case(case_id: int, owner_id: int, share_with_email: str, permission: str = "view") -> bool:
+    """Share an entire case (and all its slides) with another user by email"""
+    logger.info(f"share_case: case_id={case_id}, owner_id={owner_id}, share_with={share_with_email}")
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+    
+    async with pool.acquire() as conn:
+        # Verify case exists and user has access to it
+        case = await conn.fetchrow(
+            """
+            SELECT c.id, c.owner_id FROM cases c
+            WHERE c.id = $1 AND c.owner_id = $2
+            """,
+            case_id,
+            owner_id
+        )
+        
+        if not case:
+            logger.warning(f"share_case: case {case_id} not found or not owned by {owner_id}")
+            return False
+        
+        # Find target user by email
+        target_user = await conn.fetchrow(
+            "SELECT id FROM users WHERE email = $1",
+            share_with_email
+        )
+        
+        if not target_user:
+            logger.warning(f"share_case: user not found for email {share_with_email}")
+            return False
+        
+        # Create case share
+        await conn.execute(
+            """
+            INSERT INTO case_shares (case_id, owner_id, shared_with_id, permission)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (case_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+            """,
+            case_id,
+            owner_id,
+            target_user["id"],
+            permission
+        )
+        
+        logger.info(f"Shared case {case_id} with user {target_user['id']}")
+        return True
+
+
+async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> bool:
+    """Remove a case share"""
+    logger.info(f"unshare_case: case_id={case_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return False
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        case = await conn.fetchrow(
+            "SELECT id, owner_id FROM cases WHERE id = $1",
+            case_id
+        )
+        
+        if not case or case["owner_id"] != owner_id:
+            logger.warning(f"unshare_case: case {case_id} not found or not owned by {owner_id}")
+            return False
+        
+        # Remove share
+        result = await conn.execute(
+            "DELETE FROM case_shares WHERE case_id = $1 AND shared_with_id = $2",
+            case_id,
+            unshare_user_id
+        )
+        logger.info(f"unshare_case: DELETE result={result}")
+        
+        return True
+
+
+async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
+    """Get list of users a case is shared with"""
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        case = await conn.fetchrow(
+            "SELECT id, owner_id FROM cases WHERE id = $1",
+            case_id
+        )
+        
+        if not case or case["owner_id"] != owner_id:
+            return []
+        
+        rows = await conn.fetch(
+            """
+            SELECT cs.shared_with_id, cs.permission, cs.created_at, u.email, u.name, u.picture
+            FROM case_shares cs
+            JOIN users u ON cs.shared_with_id = u.id
+            WHERE cs.case_id = $1
+            """,
+            case_id
+        )
+        
+        return [
+            {
+                "user_id": row["shared_with_id"],
+                "email": row["email"],
+                "name": row["name"],
+                "picture": row["picture"],
+                "permission": row["permission"],
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None
+            }
+            for row in rows
+        ]
+
+
+async def get_slide_access_info(user_id: int, study_id: str) -> dict:
+    """Get detailed access information for a slide - used by UI to show share source"""
+    pool = await get_db_pool()
+    if pool is None:
+        return {"has_access": False}
+    
+    async with pool.acquire() as conn:
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id, case_id, is_sample FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        
+        if not slide:
+            return {"has_access": False}
+        
+        # Check owner
+        if slide["owner_id"] == user_id:
+            return {"has_access": True, "access_type": "owner"}
+        
+        # Check if sample
+        if slide["is_sample"]:
+            return {"has_access": True, "access_type": "sample"}
+        
+        # Check direct share
+        direct_share = await conn.fetchrow(
+            "SELECT permission FROM slide_shares WHERE slide_id = $1 AND shared_with_id = $2",
+            slide["id"],
+            user_id
+        )
+        if direct_share:
+            return {"has_access": True, "access_type": "direct_share", "permission": direct_share["permission"]}
+        
+        # Check case share
+        if slide["case_id"]:
+            case_share = await conn.fetchrow(
+                "SELECT permission FROM case_shares WHERE case_id = $1 AND shared_with_id = $2",
+                slide["case_id"],
+                user_id
+            )
+            if case_share:
+                return {"has_access": True, "access_type": "case_share", "permission": case_share["permission"]}
+        
+        return {"has_access": False}
 
 
 async def get_user_by_email(email: str) -> Optional[dict]:
