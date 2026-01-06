@@ -3507,7 +3507,6 @@
         
         async function unshareWithUser(userId) {
             if (!currentShareStudyId) return;
-            if (!confirm('Remove access for this user?')) return;
             
             console.log('Unsharing:', currentShareStudyId, 'from user:', userId);
             
@@ -4111,10 +4110,8 @@
         async function deleteAnnotation(annotationId) {
             if (!annotationManager) return;
             
-            if (confirm('Delete this annotation?')) {
-                await annotationManager.deleteAnnotation(annotationId);
-                updateAnnotationsList();
-            }
+            await annotationManager.deleteAnnotation(annotationId);
+            updateAnnotationsList();
         }
         
         function goToAnnotation(annotationId) {
@@ -4194,14 +4191,12 @@
         async function clearAnnotations() {
             if (!annotationManager || !currentStudy) return;
             
-            if (confirm('Clear all annotations for this study?')) {
-                try {
-                    await authFetch(`/api/studies/${currentStudy}/annotations`, { method: 'DELETE' });
-                    annotationManager.clearAll();
-                    updateAnnotationsList();
-                } catch (e) {
-                    console.error('Failed to clear annotations:', e);
-                }
+            try {
+                await authFetch(`/api/studies/${currentStudy}/annotations`, { method: 'DELETE' });
+                annotationManager.clearAll();
+                updateAnnotationsList();
+            } catch (e) {
+                console.error('Failed to clear annotations:', e);
             }
         }
         
