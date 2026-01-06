@@ -383,7 +383,7 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
 
 
 async def share_study(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> bool:
-    """Share a study with another user by email"""
+    """Share a study with another user by email (uses slide_shares table)"""
     pool = await get_db_pool()
     if pool is None:
         return False
@@ -396,55 +396,61 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
         )
         
         if not target_user:
+            logger.warning(f"share_study: user not found for email {share_with_email}")
+            return False
+        
+        # Get slide record (must exist)
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        
+        if not slide:
+            logger.warning(f"share_study: slide not found for {study_id}")
             return False
         
         # Verify ownership
-        is_owner = await conn.fetchrow(
-            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
-            study_id,
-            owner_id
-        )
-        
-        if not is_owner:
+        if slide["owner_id"] != owner_id:
+            logger.warning(f"share_study: user {owner_id} doesn't own slide {study_id}")
             return False
         
-        # Create share
+        # Create share in slide_shares table
         await conn.execute(
             """
-            INSERT INTO study_shares (study_id, owner_id, shared_with_id, permission)
+            INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (study_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+            ON CONFLICT (slide_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
             """,
-            study_id,
+            slide["id"],
             owner_id,
             target_user["id"],
             permission
         )
         
+        logger.info(f"Shared slide {study_id} with user {target_user['id']}")
         return True
 
 
 async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> bool:
-    """Remove a share from a study"""
+    """Remove a share from a study (uses slide_shares table)"""
     pool = await get_db_pool()
     if pool is None:
         return False
     
     async with pool.acquire() as conn:
-        # Verify ownership
-        is_owner = await conn.fetchrow(
-            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
-            study_id,
-            owner_id
+        # Get slide and verify ownership
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            study_id
         )
         
-        if not is_owner:
+        if not slide or slide["owner_id"] != owner_id:
             return False
         
-        # Remove share
+        # Remove share from slide_shares
         await conn.execute(
-            "DELETE FROM study_shares WHERE study_id = $1 AND shared_with_id = $2",
-            study_id,
+            "DELETE FROM slide_shares WHERE slide_id = $1 AND shared_with_id = $2",
+            slide["id"],
             unshare_user_id
         )
         
@@ -509,30 +515,29 @@ async def get_shared_with_me_study_ids(user_id: int) -> set[str]:
 
 
 async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
-    """Get list of users a study is shared with"""
+    """Get list of users a study is shared with (uses slide_shares table)"""
     pool = await get_db_pool()
     if pool is None:
         return []
     
     async with pool.acquire() as conn:
-        # Verify ownership
-        is_owner = await conn.fetchrow(
-            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
-            study_id,
-            owner_id
+        # Get slide and verify ownership
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            study_id
         )
         
-        if not is_owner:
+        if not slide or slide["owner_id"] != owner_id:
             return []
         
         rows = await conn.fetch(
             """
             SELECT ss.shared_with_id, ss.permission, ss.created_at, u.email, u.name, u.picture
-            FROM study_shares ss
+            FROM slide_shares ss
             JOIN users u ON ss.shared_with_id = u.id
-            WHERE ss.study_id = $1
+            WHERE ss.slide_id = $1
             """,
-            study_id
+            slide["id"]
         )
         
         return [
