@@ -3139,7 +3139,9 @@ async def extract_study_id_from_wsi_path(path: str) -> Optional[str]:
     # Check for pyramids path (direct study ID)
     pyramids_match = re.match(r'^pyramids/([a-f0-9-]+)', path)
     if pyramids_match:
-        return pyramids_match.group(1)
+        study_id = pyramids_match.group(1)
+        logger.debug(f"WSI path pyramid: {path} -> study {study_id}")
+        return study_id
     
     # Check for tiles path (series ID - need to lookup)
     tiles_match = re.match(r'^tiles/([a-f0-9-]+)/', path)
@@ -3155,7 +3157,11 @@ async def extract_study_id_from_wsi_path(path: str) -> Optional[str]:
                 )
                 if response.status_code == 200:
                     series_data = response.json()
-                    return series_data.get("ParentStudy")
+                    parent_study = series_data.get("ParentStudy")
+                    logger.debug(f"WSI path tile: series {series_id} -> study {parent_study}")
+                    return parent_study
+                else:
+                    logger.warning(f"Series lookup failed: {series_id}, status={response.status_code}")
         except Exception as e:
             logger.warning(f"Failed to lookup study for series {series_id}: {e}")
     
@@ -3204,10 +3210,16 @@ async def secure_wsi_proxy(path: str, request: Request, user: Optional[User] = D
     """
     # Extract study ID and check access
     study_id = await extract_study_id_from_wsi_path(path)
+    user_id = user.id if user else None
+    
     if study_id:
-        user_id = user.id if user else None
-        if not await can_access_study(user_id, study_id):
+        has_access = await can_access_study(user_id, study_id)
+        if not has_access:
+            logger.warning(f"WSI access denied: user={user_id}, study={study_id}, path={path}")
             raise HTTPException(status_code=403, detail="Access denied to this slide")
+    else:
+        # Could not extract study ID - log but allow (Orthanc will handle unknown paths)
+        logger.debug(f"WSI proxy: could not extract study_id from path: {path}")
     
     # Proxy to Orthanc
     try:
