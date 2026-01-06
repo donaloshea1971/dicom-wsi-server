@@ -25,7 +25,7 @@ import logging
 # Import authentication module
 from auth import (
     User, get_current_user, require_user, require_admin,
-    set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_slide,
+    set_study_owner, get_study_owner, get_user_slide_ids, can_access_study, share_slide,
     unshare_slide, get_owned_slide_ids, get_shared_with_me_slide_ids, get_study_shares,
     search_users, batch_share_studies, batch_unshare_studies, get_db_pool, get_slides_metadata_bulk,
     get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
@@ -1698,7 +1698,7 @@ async def list_studies(
             
             # Regular user
             if current_user.id:
-                user_study_ids = await get_user_study_ids(current_user.id)
+                user_study_ids = await get_user_slide_ids(current_user.id)
                 
                 # Check if user has hidden samples
                 hide_samples = not include_samples or localStorage_hidden_samples(current_user.id)
@@ -1761,7 +1761,7 @@ async def get_studies_ownership(current_user: Optional[User] = Depends(get_curre
             return {study_id: "sample" for study_id in all_studies}
         
         # Get user's studies
-        user_study_ids = await get_user_study_ids(current_user.id) if current_user.id else []
+        user_study_ids = await get_user_slide_ids(current_user.id) if current_user.id else []
         
         # Get all owned studies
         all_owned_ids = await get_all_owned_study_ids()
