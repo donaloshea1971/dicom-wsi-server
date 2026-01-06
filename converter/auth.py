@@ -433,8 +433,11 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
 
 async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> bool:
     """Remove a share from a study (uses slide_shares table)"""
+    logger.info(f"unshare_study called: study_id={study_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
+    
     pool = await get_db_pool()
     if pool is None:
+        logger.error("unshare_study: no database pool")
         return False
     
     async with pool.acquire() as conn:
@@ -444,15 +447,23 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
             study_id
         )
         
-        if not slide or slide["owner_id"] != owner_id:
+        logger.info(f"unshare_study: slide lookup result: {dict(slide) if slide else None}")
+        
+        if not slide:
+            logger.warning(f"unshare_study: slide not found for {study_id}")
+            return False
+            
+        if slide["owner_id"] != owner_id:
+            logger.warning(f"unshare_study: owner mismatch - slide owner={slide['owner_id']}, caller={owner_id}")
             return False
         
         # Remove share from slide_shares
-        await conn.execute(
+        result = await conn.execute(
             "DELETE FROM slide_shares WHERE slide_id = $1 AND shared_with_id = $2",
             slide["id"],
             unshare_user_id
         )
+        logger.info(f"unshare_study: DELETE result={result}")
         
         return True
 

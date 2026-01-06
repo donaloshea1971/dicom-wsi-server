@@ -3401,18 +3401,29 @@
             if (!currentShareStudyId) return;
             if (!confirm('Remove access for this user?')) return;
             
+            console.log('Unsharing:', currentShareStudyId, 'from user:', userId);
+            
             try {
                 const response = await authFetch(`/api/studies/${currentShareStudyId}/share/${userId}`, {
                     method: 'DELETE'
                 });
                 
-                if (!response.ok) throw new Error('Failed to remove share');
+                console.log('Unshare response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Unshare failed:', errorText);
+                    throw new Error('Failed to remove share: ' + errorText);
+                }
                 
                 // Reload and update button
+                console.log('Reloading shares after unshare...');
                 const shares = await loadCurrentShares(currentShareStudyId);
+                console.log('Shares after unshare:', shares);
                 updateShareButtonState(currentShareStudyId, shares.length);
                 
             } catch (e) {
+                console.error('Unshare error:', e);
                 alert('Failed to remove: ' + e.message);
             }
         }
