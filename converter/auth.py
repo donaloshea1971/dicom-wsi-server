@@ -577,6 +577,24 @@ async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
         return {}
 
 
+async def get_user_by_email(email: str) -> Optional[dict]:
+    """Get user by email address"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, email, name, picture FROM users WHERE email = $1",
+                email
+            )
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"get_user_by_email error: {e}")
+        return None
+
+
 async def search_users(query: str = None, exclude_user_id: int = None, limit: int = 50) -> list[dict]:
     """Search users by email or name. Returns all users if query is None or empty."""
     pool = await get_db_pool()

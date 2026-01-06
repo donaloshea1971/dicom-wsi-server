@@ -1869,6 +1869,32 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
     
     success = await share_study(study_id, user.id, request.email, request.permission)
     if success:
+        # Send email notification (async, don't block on failure)
+        try:
+            from email_service import send_share_notification, is_email_configured
+            if is_email_configured():
+                # Get slide details for email
+                slide = await get_slide_by_orthanc_id(study_id)
+                
+                # Get recipient info
+                from auth import get_user_by_email
+                recipient = await get_user_by_email(request.email)
+                
+                send_share_notification(
+                    recipient_email=request.email,
+                    recipient_name=recipient.get("name") if recipient else None,
+                    sharer_name=user.name or user.email,
+                    sharer_email=user.email,
+                    slide_name=slide.get("display_name") if slide else None,
+                    stain=slide.get("stain") if slide else None,
+                    patient_name=slide.get("patient_name") if slide else None,
+                    case_accession=slide.get("case_accession") if slide else None,
+                    patient_dob=slide.get("patient_dob") if slide else None,
+                    slide_id=study_id
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send share notification email: {e}")
+        
         return {"message": f"Study shared with {request.email}", "permission": request.permission}
     else:
         raise HTTPException(status_code=400, detail="Could not share study - check ownership and email")
