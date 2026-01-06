@@ -133,6 +133,43 @@ Edit `config/orthanc.json`:
 }
 ```
 
+## Database Schema
+
+PathView Pro uses PostgreSQL for user management, slide hierarchy, sharing, and annotations.
+
+### Initialize Database
+
+```bash
+# Run the consolidated schema script
+docker-compose exec postgres psql -U orthanc -d orthanc -f /path/to/scripts/init_schema.sql
+
+# Or via local psql
+psql -h localhost -U orthanc -d orthanc -f scripts/init_schema.sql
+```
+
+### Schema Overview
+
+| Table | Description |
+|-------|-------------|
+| `users` | User accounts (synced from Auth0) |
+| `patients` | Patient records (optional hierarchy) |
+| `cases` | Case/accession records (optional hierarchy) |
+| `blocks` | Tissue block records (optional hierarchy) |
+| `slides` | WSI slides - primary entity linking to Orthanc |
+| `slide_shares` | Direct slide sharing between users |
+| `case_shares` | Share entire cases (all slides within) |
+| `pending_shares` | Shares for users not yet registered |
+| `annotations` | Drawing annotations on slides |
+| `stain_types` | Reference table for common stains |
+
+### Key Relationships
+
+- `slides.orthanc_study_id` → Links to Orthanc Study UUID
+- `slides.owner_id` → Slide ownership
+- `slides.case_id` → Optional case grouping
+- `slide_shares.slide_id` → Individual slide sharing
+- `case_shares.case_id` → Case-level sharing (inherits to all slides)
+
 ## Development
 
 ### Local Development (without Docker)

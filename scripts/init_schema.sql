@@ -1,7 +1,24 @@
 -- =============================================================================
--- PathView Pro - Slide Hierarchy Schema
--- Run this AFTER user_schema.sql to add Patient/Case/Block/Slide hierarchy
+-- PathView Pro - Consolidated Database Schema
+-- Single initialization script for all tables
 -- =============================================================================
+
+-- =============================================================================
+-- USERS - Core user table (synced from Auth0)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    auth0_id VARCHAR(255) UNIQUE NOT NULL,  -- Auth0 user ID (sub claim)
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255),
+    picture VARCHAR(500),
+    role VARCHAR(50) DEFAULT 'user',  -- 'user', 'admin'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_auth0 ON users(auth0_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- =============================================================================
 -- PATIENTS - Top level container (optional)
@@ -72,7 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks(owner_id);
 
 -- =============================================================================
 -- SLIDES - The actual WSI images (links to Orthanc)
--- This replaces study_owners as the primary entity
+-- Primary entity for ownership and sharing
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS slides (
     id SERIAL PRIMARY KEY,
@@ -119,7 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_slides_owner ON slides(owner_id);
 CREATE INDEX IF NOT EXISTS idx_slides_stain ON slides(stain);
 
 -- =============================================================================
--- SLIDE SHARING (new table, replaces study_shares for new model)
+-- SLIDE SHARING - Share individual slides
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS slide_shares (
     id SERIAL PRIMARY KEY,
@@ -187,44 +204,60 @@ CREATE INDEX IF NOT EXISTS idx_pending_shares_email ON pending_shares(target_ema
 CREATE INDEX IF NOT EXISTS idx_pending_shares_owner ON pending_shares(owner_id);
 
 -- =============================================================================
--- MIGRATION: Copy existing data from study_owners/study_shares to slides
+-- ANNOTATIONS - Persistent storage for slide annotations
 -- =============================================================================
+CREATE TABLE IF NOT EXISTS annotations (
+    id VARCHAR(32) PRIMARY KEY,  -- Short UUID
+    study_id VARCHAR(255) NOT NULL,  -- Orthanc study ID (for backward compat)
+    slide_id INTEGER REFERENCES slides(id) ON DELETE CASCADE,  -- Internal FK
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    type VARCHAR(50) NOT NULL,  -- measurement, marker, region, text
+    tool VARCHAR(50) NOT NULL,  -- line, polygon, rectangle, point, arrow, text
+    geometry JSONB NOT NULL,    -- GeoJSON geometry
+    properties JSONB DEFAULT '{}',  -- color, label, measurement, etc.
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- Migrate study_owners to slides (only if slides table is empty)
-INSERT INTO slides (orthanc_study_id, owner_id, created_at)
-SELECT so.study_id, so.user_id, so.created_at
-FROM study_owners so
-WHERE NOT EXISTS (SELECT 1 FROM slides WHERE orthanc_study_id = so.study_id)
-ON CONFLICT (orthanc_study_id) DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_annotations_study ON annotations(study_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_slide ON annotations(slide_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_user ON annotations(user_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_type ON annotations(type);
 
--- Migrate study_shares to slide_shares
-INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission, created_at)
-SELECT s.id, ss.owner_id, ss.shared_with_id, ss.permission, ss.created_at
-FROM study_shares ss
-JOIN slides s ON s.orthanc_study_id = ss.study_id
-WHERE NOT EXISTS (
-    SELECT 1 FROM slide_shares 
-    WHERE slide_id = s.id AND shared_with_id = ss.shared_with_id
-)
-ON CONFLICT (slide_id, shared_with_id) DO NOTHING;
+-- =============================================================================
+-- STAIN TYPES - Reference table for dropdown
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stain_types (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    category VARCHAR(50),  -- Routine, IHC, Special, etc.
+    sort_order INTEGER DEFAULT 0
+);
 
--- Add slide_id column to annotations if not exists
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'annotations' AND column_name = 'slide_id'
-    ) THEN
-        ALTER TABLE annotations ADD COLUMN slide_id INTEGER REFERENCES slides(id) ON DELETE CASCADE;
-        CREATE INDEX IF NOT EXISTS idx_annotations_slide ON annotations(slide_id);
-    END IF;
-END $$;
-
--- Update annotations to link to slides
-UPDATE annotations a 
-SET slide_id = s.id 
-FROM slides s 
-WHERE s.orthanc_study_id = a.study_id AND a.slide_id IS NULL;
+INSERT INTO stain_types (code, name, category, sort_order) VALUES
+('HE', 'H&E (Hematoxylin & Eosin)', 'Routine', 1),
+('ER', 'Estrogen Receptor', 'IHC - Breast', 10),
+('PR', 'Progesterone Receptor', 'IHC - Breast', 11),
+('HER2', 'HER2/neu', 'IHC - Breast', 12),
+('KI67', 'Ki-67', 'IHC - Proliferation', 20),
+('P53', 'p53', 'IHC - Tumor Suppressor', 21),
+('CK7', 'Cytokeratin 7', 'IHC - Cytokeratin', 30),
+('CK20', 'Cytokeratin 20', 'IHC - Cytokeratin', 31),
+('CD3', 'CD3 (T-cell)', 'IHC - Lymphoid', 40),
+('CD20', 'CD20 (B-cell)', 'IHC - Lymphoid', 41),
+('CD45', 'CD45 (LCA)', 'IHC - Lymphoid', 42),
+('S100', 'S-100', 'IHC - Neural/Melanocytic', 50),
+('SOX10', 'SOX10', 'IHC - Melanocytic', 51),
+('MELAN', 'Melan-A', 'IHC - Melanocytic', 52),
+('PAS', 'PAS', 'Special', 60),
+('PASD', 'PAS-D (Diastase)', 'Special', 61),
+('TRICHROME', 'Trichrome', 'Special', 62),
+('RETICULIN', 'Reticulin', 'Special', 63),
+('AFB', 'AFB (Acid-Fast)', 'Special - Micro', 70),
+('GMS', 'GMS (Fungal)', 'Special - Micro', 71),
+('OTHER', 'Other', 'Other', 99)
+ON CONFLICT (code) DO NOTHING;
 
 -- =============================================================================
 -- HELPER FUNCTIONS
@@ -263,6 +296,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Backward compatible function - returns studies visible to user
+-- (wraps get_user_slides for compatibility with older code)
+CREATE OR REPLACE FUNCTION get_user_studies(p_user_id INTEGER)
+RETURNS TABLE(study_id VARCHAR(255), permission VARCHAR(50)) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT DISTINCT us.orthanc_study_id, us.permission
+    FROM get_user_slides(p_user_id) us;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Get slide hierarchy info
 CREATE OR REPLACE FUNCTION get_slide_hierarchy(p_slide_id INTEGER)
 RETURNS TABLE(
@@ -295,36 +339,51 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================================================
--- COMMON STAINS REFERENCE (for dropdown)
+-- MIGRATION: Import data from legacy tables if they exist
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS stain_types (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    category VARCHAR(50),  -- Routine, IHC, Special, etc.
-    sort_order INTEGER DEFAULT 0
-);
+DO $$
+BEGIN
+    -- Migrate from study_owners to slides (if study_owners exists)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'study_owners') THEN
+        INSERT INTO slides (orthanc_study_id, owner_id, created_at)
+        SELECT so.study_id, so.user_id, so.created_at
+        FROM study_owners so
+        WHERE NOT EXISTS (SELECT 1 FROM slides WHERE orthanc_study_id = so.study_id)
+        ON CONFLICT (orthanc_study_id) DO UPDATE SET 
+            owner_id = COALESCE(slides.owner_id, EXCLUDED.owner_id);
+        
+        RAISE NOTICE 'Migrated data from study_owners to slides';
+    END IF;
+    
+    -- Migrate from study_shares to slide_shares (if study_shares exists)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'study_shares') THEN
+        INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission, created_at)
+        SELECT s.id, ss.owner_id, ss.shared_with_id, ss.permission, ss.created_at
+        FROM study_shares ss
+        JOIN slides s ON s.orthanc_study_id = ss.study_id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM slide_shares 
+            WHERE slide_id = s.id AND shared_with_id = ss.shared_with_id
+        )
+        ON CONFLICT (slide_id, shared_with_id) DO NOTHING;
+        
+        RAISE NOTICE 'Migrated data from study_shares to slide_shares';
+    END IF;
+    
+    -- Link annotations to slides (if slide_id column exists)
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'annotations' AND column_name = 'slide_id') THEN
+        UPDATE annotations a 
+        SET slide_id = s.id 
+        FROM slides s 
+        WHERE s.orthanc_study_id = a.study_id AND a.slide_id IS NULL;
+        
+        RAISE NOTICE 'Linked annotations to slides';
+    END IF;
+END $$;
 
-INSERT INTO stain_types (code, name, category, sort_order) VALUES
-('HE', 'H&E (Hematoxylin & Eosin)', 'Routine', 1),
-('ER', 'Estrogen Receptor', 'IHC - Breast', 10),
-('PR', 'Progesterone Receptor', 'IHC - Breast', 11),
-('HER2', 'HER2/neu', 'IHC - Breast', 12),
-('KI67', 'Ki-67', 'IHC - Proliferation', 20),
-('P53', 'p53', 'IHC - Tumor Suppressor', 21),
-('CK7', 'Cytokeratin 7', 'IHC - Cytokeratin', 30),
-('CK20', 'Cytokeratin 20', 'IHC - Cytokeratin', 31),
-('CD3', 'CD3 (T-cell)', 'IHC - Lymphoid', 40),
-('CD20', 'CD20 (B-cell)', 'IHC - Lymphoid', 41),
-('CD45', 'CD45 (LCA)', 'IHC - Lymphoid', 42),
-('S100', 'S-100', 'IHC - Neural/Melanocytic', 50),
-('SOX10', 'SOX10', 'IHC - Melanocytic', 51),
-('MELAN', 'Melan-A', 'IHC - Melanocytic', 52),
-('PAS', 'PAS', 'Special', 60),
-('PASD', 'PAS-D (Diastase)', 'Special', 61),
-('TRICHROME', 'Trichrome', 'Special', 62),
-('RETICULIN', 'Reticulin', 'Special', 63),
-('AFB', 'AFB (Acid-Fast)', 'Special - Micro', 70),
-('GMS', 'GMS (Fungal)', 'Special - Micro', 71),
-('OTHER', 'Other', 'Other', 99)
-ON CONFLICT (code) DO NOTHING;
+-- =============================================================================
+-- CLEANUP: Drop legacy tables (uncomment after verifying migration)
+-- =============================================================================
+-- DROP TABLE IF EXISTS study_shares CASCADE;
+-- DROP TABLE IF EXISTS study_owners CASCADE;

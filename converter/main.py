@@ -25,8 +25,8 @@ import logging
 # Import authentication module
 from auth import (
     User, get_current_user, require_user, require_admin,
-    set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
-    unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
+    set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_slide,
+    unshare_slide, get_owned_slide_ids, get_shared_with_me_slide_ids, get_study_shares,
     search_users, batch_share_studies, batch_unshare_studies, get_db_pool, get_slides_metadata_bulk,
     get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
     get_slide_access_info, delete_pending_slide_share, delete_pending_case_share
@@ -276,7 +276,7 @@ app.add_middleware(
 
 @app.get("/studies/{study_id}/annotations")
 async def get_annotations(study_id: str, user: User = Depends(require_user)):
-    """Get all annotations for a study"""
+    """Get all annotations for a slide"""
     # Check access
     if not user.id or not await can_access_study(user.id, study_id):
         raise HTTPException(status_code=403, detail="Access denied to this slide")
@@ -320,7 +320,7 @@ async def create_annotation(
     annotation: AnnotationCreate,
     user: User = Depends(require_user)
 ):
-    """Create a new annotation for a study (persisted to PostgreSQL)"""
+    """Create a new annotation for a slide (persisted to PostgreSQL)"""
     # Check access
     if not user.id or not await can_access_study(user.id, study_id):
         raise HTTPException(status_code=403, detail="Access denied to this slide")
@@ -335,13 +335,21 @@ async def create_annotation(
     user_id = user.id
     
     async with pool.acquire() as conn:
+        # Get slide_id for the internal FK reference
+        slide = await conn.fetchrow(
+            "SELECT id FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        slide_id = slide["id"] if slide else None
+        
         await conn.execute(
             """
-            INSERT INTO annotations (id, study_id, user_id, type, tool, geometry, properties, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO annotations (id, study_id, slide_id, user_id, type, tool, geometry, properties, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """,
             annotation_id,
             study_id,
+            slide_id,
             user_id,
             annotation.type,
             annotation.tool,
@@ -351,7 +359,7 @@ async def create_annotation(
             now
         )
     
-    logger.info(f"Created annotation {annotation_id} for study {study_id} (user: {user_id})")
+    logger.info(f"Created annotation {annotation_id} for slide {study_id} (user: {user_id})")
     
     return {
         "id": annotation_id,
@@ -480,7 +488,7 @@ async def delete_annotation(study_id: str, annotation_id: str, user: User = Depe
 
 @app.delete("/studies/{study_id}/annotations")
 async def clear_annotations(study_id: str, user: User = Depends(require_user)):
-    """Delete all annotations for a study"""
+    """Delete all annotations for a slide"""
     # Check access - only owner can clear all annotations
     if not user.id or not await can_access_study(user.id, study_id):
         raise HTTPException(status_code=403, detail="Access denied to this slide")
@@ -497,7 +505,7 @@ async def clear_annotations(study_id: str, user: User = Depends(require_user)):
         
         # Extract count from result like "DELETE 5"
         count = int(result.split()[-1]) if result else 0
-        logger.info(f"Cleared {count} annotations for study {study_id}")
+        logger.info(f"Cleared {count} annotations for slide {study_id}")
         return {"message": f"Deleted {count} annotations", "count": count}
 
 
@@ -1914,7 +1922,7 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    result = await share_study(study_id, user.id, request.email, request.permission)
+    result = await share_slide(study_id, user.id, request.email, request.permission)
     
     if result["success"]:
         # Send email notification (async, don't block on failure)
@@ -1964,7 +1972,7 @@ async def unshare_study_endpoint(study_id: str, user_id: int, user: User = Depen
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    result = await unshare_study(study_id, user.id, user_id)
+    result = await unshare_slide(study_id, user.id, user_id)
     if result["success"]:
         return {
             "message": result["message"],
@@ -2174,9 +2182,9 @@ async def get_categorized_studies(
             response.raise_for_status()
             all_studies = response.json()
         
-        # Get user's owned and shared studies
-        owned_ids = await get_owned_study_ids(user.id)
-        shared_with_me_ids = await get_shared_with_me_study_ids(user.id)
+        # Get user's owned and shared slides
+        owned_ids = await get_owned_slide_ids(user.id)
+        shared_with_me_ids = await get_shared_with_me_slide_ids(user.id)
         all_owned_ids = await get_all_owned_study_ids()
         
         # Get share counts for owned studies

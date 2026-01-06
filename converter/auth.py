@@ -514,8 +514,14 @@ async def can_access_study(user_id: Optional[int], study_id: str) -> bool:
         return False
 
 
-async def share_study(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> dict:
-    """Share a study with another user by email (uses slide_shares table).
+async def share_slide(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> dict:
+    """Share a slide with another user by email.
+    
+    Args:
+        study_id: Orthanc study UUID (maps to slides.orthanc_study_id)
+        owner_id: ID of the slide owner
+        share_with_email: Email of user to share with
+        permission: Permission level ('view', 'annotate', 'full')
     
     Returns dict with:
     - success: bool
@@ -534,12 +540,12 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
         )
         
         if not slide:
-            logger.warning(f"share_study: slide not found for {study_id}")
+            logger.warning(f"share_slide: slide not found for {study_id}")
             return {"success": False, "pending": False, "message": "Slide not found"}
         
         # Verify ownership
         if slide["owner_id"] != owner_id:
-            logger.warning(f"share_study: user {owner_id} doesn't own slide {study_id}")
+            logger.warning(f"share_slide: user {owner_id} doesn't own slide {study_id}")
             return {"success": False, "pending": False, "message": "Not owner of this slide"}
         
         # Find user by email
@@ -584,8 +590,13 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
                 return {"success": False, "pending": False, "message": "Failed to create pending share"}
 
 
-async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> dict:
-    """Remove a direct share from a study.
+async def unshare_slide(study_id: str, owner_id: int, unshare_user_id: int) -> dict:
+    """Remove a direct share from a slide.
+    
+    Args:
+        study_id: Orthanc study UUID (maps to slides.orthanc_study_id)
+        owner_id: ID of the slide owner
+        unshare_user_id: ID of user to remove share from
     
     Returns dict with:
     - success: bool
@@ -593,11 +604,11 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> d
     - has_inherited_access: bool (if user still has access via case share)
     - inherited_from: dict (case info if inherited access exists)
     """
-    logger.info(f"unshare_study called: study_id={study_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
+    logger.info(f"unshare_slide called: study_id={study_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
     
     pool = await get_db_pool()
     if pool is None:
-        logger.error("unshare_study: no database pool")
+        logger.error("unshare_slide: no database pool")
         return {"success": False, "message": "Database unavailable", "has_inherited_access": False}
     
     async with pool.acquire() as conn:
@@ -607,14 +618,14 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> d
             study_id
         )
         
-        logger.info(f"unshare_study: slide lookup result: {dict(slide) if slide else None}")
+        logger.info(f"unshare_slide: slide lookup result: {dict(slide) if slide else None}")
         
         if not slide:
-            logger.warning(f"unshare_study: slide not found for {study_id}")
+            logger.warning(f"unshare_slide: slide not found for {study_id}")
             return {"success": False, "message": "Slide not found", "has_inherited_access": False}
             
         if slide["owner_id"] != owner_id:
-            logger.warning(f"unshare_study: owner mismatch - slide owner={slide['owner_id']}, caller={owner_id}")
+            logger.warning(f"unshare_slide: owner mismatch - slide owner={slide['owner_id']}, caller={owner_id}")
             return {"success": False, "message": "Not owner of this slide", "has_inherited_access": False}
         
         # Remove share from slide_shares
@@ -623,7 +634,7 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> d
             slide["id"],
             unshare_user_id
         )
-        logger.info(f"unshare_study: DELETE result={result}")
+        logger.info(f"unshare_slide: DELETE result={result}")
         
         # Check if user still has inherited access via case share
         has_inherited_access = False
@@ -648,7 +659,7 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> d
                     "accession": case_share["accession_number"],
                     "case_type": case_share["case_type"]
                 }
-                logger.info(f"unshare_study: user {unshare_user_id} still has access via case {slide['case_id']}")
+                logger.info(f"unshare_slide: user {unshare_user_id} still has access via case {slide['case_id']}")
         
         message = "Share removed"
         if has_inherited_access:
@@ -662,8 +673,11 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> d
         }
 
 
-async def get_owned_study_ids(user_id: int) -> set[str]:
-    """Get study IDs owned by a user (from slides table)"""
+async def get_owned_slide_ids(user_id: int) -> set[str]:
+    """Get Orthanc study IDs for slides owned by a user.
+    
+    Returns set of orthanc_study_id values from slides table.
+    """
     pool = await get_db_pool()
     if pool is None:
         return set()
@@ -676,12 +690,15 @@ async def get_owned_study_ids(user_id: int) -> set[str]:
             )
             return set(row["orthanc_study_id"] for row in rows)
     except Exception as e:
-        logger.error(f"get_owned_study_ids error: {e}")
+        logger.error(f"get_owned_slide_ids error: {e}")
         return set()
 
 
-async def get_shared_with_me_study_ids(user_id: int) -> set[str]:
-    """Get study IDs shared with a user (from slide_shares table)"""
+async def get_shared_with_me_slide_ids(user_id: int) -> set[str]:
+    """Get Orthanc study IDs for slides shared with a user.
+    
+    Returns set of orthanc_study_id values from slide_shares table.
+    """
     pool = await get_db_pool()
     if pool is None:
         return set()
@@ -699,7 +716,7 @@ async def get_shared_with_me_study_ids(user_id: int) -> set[str]:
             )
             return set(row["orthanc_study_id"] for row in rows)
     except Exception as e:
-        logger.error(f"get_shared_with_me_study_ids error: {e}")
+        logger.error(f"get_shared_with_me_slide_ids error: {e}")
         return set()
 
 
