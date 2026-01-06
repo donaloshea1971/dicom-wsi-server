@@ -584,19 +584,26 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
                 return {"success": False, "pending": False, "message": "Failed to create pending share"}
 
 
-async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> bool:
-    """Remove a share from a study (uses slide_shares table)"""
+async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> dict:
+    """Remove a direct share from a study.
+    
+    Returns dict with:
+    - success: bool
+    - message: str
+    - has_inherited_access: bool (if user still has access via case share)
+    - inherited_from: dict (case info if inherited access exists)
+    """
     logger.info(f"unshare_study called: study_id={study_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
     
     pool = await get_db_pool()
     if pool is None:
         logger.error("unshare_study: no database pool")
-        return False
+        return {"success": False, "message": "Database unavailable", "has_inherited_access": False}
     
     async with pool.acquire() as conn:
         # Get slide and verify ownership
         slide = await conn.fetchrow(
-            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            "SELECT id, owner_id, case_id FROM slides WHERE orthanc_study_id = $1",
             study_id
         )
         
@@ -604,11 +611,11 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
         
         if not slide:
             logger.warning(f"unshare_study: slide not found for {study_id}")
-            return False
+            return {"success": False, "message": "Slide not found", "has_inherited_access": False}
             
         if slide["owner_id"] != owner_id:
             logger.warning(f"unshare_study: owner mismatch - slide owner={slide['owner_id']}, caller={owner_id}")
-            return False
+            return {"success": False, "message": "Not owner of this slide", "has_inherited_access": False}
         
         # Remove share from slide_shares
         result = await conn.execute(
@@ -618,7 +625,41 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
         )
         logger.info(f"unshare_study: DELETE result={result}")
         
-        return True
+        # Check if user still has inherited access via case share
+        has_inherited_access = False
+        inherited_from = None
+        
+        if slide["case_id"]:
+            case_share = await conn.fetchrow(
+                """
+                SELECT cs.id, c.accession_number, c.case_type
+                FROM case_shares cs
+                JOIN cases c ON cs.case_id = c.id
+                WHERE cs.case_id = $1 AND cs.shared_with_id = $2
+                """,
+                slide["case_id"],
+                unshare_user_id
+            )
+            
+            if case_share:
+                has_inherited_access = True
+                inherited_from = {
+                    "case_id": slide["case_id"],
+                    "accession": case_share["accession_number"],
+                    "case_type": case_share["case_type"]
+                }
+                logger.info(f"unshare_study: user {unshare_user_id} still has access via case {slide['case_id']}")
+        
+        message = "Share removed"
+        if has_inherited_access:
+            message = f"Direct share removed, but user still has access via case share (Case: {inherited_from['accession'] or inherited_from['case_id']})"
+        
+        return {
+            "success": True,
+            "message": message,
+            "has_inherited_access": has_inherited_access,
+            "inherited_from": inherited_from
+        }
 
 
 async def get_owned_study_ids(user_id: int) -> set[str]:
@@ -663,7 +704,15 @@ async def get_shared_with_me_study_ids(user_id: int) -> set[str]:
 
 
 async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
-    """Get list of users a study is shared with (uses slide_shares table)"""
+    """Get comprehensive list of users with access to a study.
+    
+    Returns shares from:
+    - Direct shares (slide_shares table)
+    - Inherited shares from case (case_shares table)
+    - Pending shares for unregistered users (pending_shares table)
+    
+    Each share includes an 'access_origin' field: 'direct', 'case', or 'pending'
+    """
     pool = await get_db_pool()
     if pool is None:
         return []
@@ -671,14 +720,18 @@ async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
     async with pool.acquire() as conn:
         # Get slide and verify ownership
         slide = await conn.fetchrow(
-            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            "SELECT id, owner_id, case_id FROM slides WHERE orthanc_study_id = $1",
             study_id
         )
         
         if not slide or slide["owner_id"] != owner_id:
             return []
         
-        rows = await conn.fetch(
+        shares = []
+        seen_users = set()  # Track user IDs to avoid duplicates
+        
+        # 1. Direct slide shares
+        direct_shares = await conn.fetch(
             """
             SELECT ss.shared_with_id, ss.permission, ss.created_at, u.email, u.name, u.picture
             FROM slide_shares ss
@@ -688,17 +741,100 @@ async def get_study_shares(study_id: str, owner_id: int) -> list[dict]:
             slide["id"]
         )
         
-        return [
-            {
+        for row in direct_shares:
+            shares.append({
                 "user_id": row["shared_with_id"],
                 "email": row["email"],
                 "name": row["name"],
                 "picture": row["picture"],
                 "permission": row["permission"],
-                "shared_at": row["created_at"].isoformat() if row["created_at"] else None
-            }
-            for row in rows
-        ]
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "access_origin": "direct"
+            })
+            seen_users.add(row["shared_with_id"])
+        
+        # 2. Inherited case shares (if slide belongs to a case)
+        if slide["case_id"]:
+            case_shares = await conn.fetch(
+                """
+                SELECT cs.shared_with_id, cs.permission, cs.created_at, u.email, u.name, u.picture,
+                       c.accession_number as case_accession
+                FROM case_shares cs
+                JOIN users u ON cs.shared_with_id = u.id
+                JOIN cases c ON cs.case_id = c.id
+                WHERE cs.case_id = $1
+                """,
+                slide["case_id"]
+            )
+            
+            for row in case_shares:
+                # Skip if user already has direct access
+                if row["shared_with_id"] in seen_users:
+                    continue
+                shares.append({
+                    "user_id": row["shared_with_id"],
+                    "email": row["email"],
+                    "name": row["name"],
+                    "picture": row["picture"],
+                    "permission": row["permission"],
+                    "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "access_origin": "case",
+                    "case_id": slide["case_id"],
+                    "case_accession": row["case_accession"]
+                })
+                seen_users.add(row["shared_with_id"])
+        
+        # 3. Pending shares (for users not yet registered)
+        pending_slide_shares = await conn.fetch(
+            """
+            SELECT ps.id as pending_id, ps.target_email, ps.permission, ps.created_at
+            FROM pending_shares ps
+            WHERE ps.slide_id = $1
+            """,
+            slide["id"]
+        )
+        
+        for row in pending_slide_shares:
+            shares.append({
+                "pending_id": row["pending_id"],
+                "email": row["target_email"],
+                "name": None,
+                "picture": None,
+                "permission": row["permission"],
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "access_origin": "pending"
+            })
+        
+        # 4. Pending case shares (if slide belongs to a case)
+        if slide["case_id"]:
+            pending_case_shares = await conn.fetch(
+                """
+                SELECT ps.id as pending_id, ps.target_email, ps.permission, ps.created_at,
+                       c.accession_number as case_accession
+                FROM pending_shares ps
+                JOIN cases c ON ps.case_id = c.id
+                WHERE ps.case_id = $1 AND ps.target_email NOT IN (
+                    SELECT target_email FROM pending_shares WHERE slide_id = $2
+                )
+                """,
+                slide["case_id"],
+                slide["id"]
+            )
+            
+            for row in pending_case_shares:
+                shares.append({
+                    "pending_id": row["pending_id"],
+                    "email": row["target_email"],
+                    "name": None,
+                    "picture": None,
+                    "permission": row["permission"],
+                    "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "access_origin": "pending_case",
+                    "case_id": slide["case_id"],
+                    "case_accession": row["case_accession"]
+                })
+        
+        return shares
 
 
 async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
@@ -805,13 +941,18 @@ async def share_case(case_id: int, owner_id: int, share_with_email: str, permiss
                 return {"success": False, "pending": False, "message": "Failed to create pending share"}
 
 
-async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> bool:
-    """Remove a case share"""
+async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> dict:
+    """Remove a case share.
+    
+    Returns dict with:
+    - success: bool
+    - message: str
+    """
     logger.info(f"unshare_case: case_id={case_id}, owner_id={owner_id}, unshare_user_id={unshare_user_id}")
     
     pool = await get_db_pool()
     if pool is None:
-        return False
+        return {"success": False, "message": "Database unavailable"}
     
     async with pool.acquire() as conn:
         # Verify ownership
@@ -820,9 +961,13 @@ async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> boo
             case_id
         )
         
-        if not case or case["owner_id"] != owner_id:
-            logger.warning(f"unshare_case: case {case_id} not found or not owned by {owner_id}")
-            return False
+        if not case:
+            logger.warning(f"unshare_case: case {case_id} not found")
+            return {"success": False, "message": "Case not found"}
+            
+        if case["owner_id"] != owner_id:
+            logger.warning(f"unshare_case: case {case_id} not owned by {owner_id}")
+            return {"success": False, "message": "Not owner of this case"}
         
         # Remove share
         result = await conn.execute(
@@ -832,11 +977,100 @@ async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> boo
         )
         logger.info(f"unshare_case: DELETE result={result}")
         
-        return True
+        return {"success": True, "message": "Case share removed"}
+
+
+async def delete_pending_slide_share(study_id: str, owner_id: int, target_email: str) -> dict:
+    """Remove a pending slide share before the user registers.
+    
+    Returns dict with:
+    - success: bool
+    - message: str
+    """
+    logger.info(f"delete_pending_slide_share: study_id={study_id}, owner_id={owner_id}, email={target_email}")
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return {"success": False, "message": "Database unavailable"}
+    
+    async with pool.acquire() as conn:
+        # Get slide and verify ownership
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        
+        if not slide:
+            return {"success": False, "message": "Slide not found"}
+            
+        if slide["owner_id"] != owner_id:
+            return {"success": False, "message": "Not owner of this slide"}
+        
+        # Remove pending share
+        result = await conn.execute(
+            "DELETE FROM pending_shares WHERE slide_id = $1 AND target_email = $2",
+            slide["id"],
+            target_email.lower()
+        )
+        logger.info(f"delete_pending_slide_share: DELETE result={result}")
+        
+        # Check if any rows were deleted
+        if "DELETE 0" in result:
+            return {"success": False, "message": "Pending share not found"}
+        
+        return {"success": True, "message": "Pending share removed"}
+
+
+async def delete_pending_case_share(case_id: int, owner_id: int, target_email: str) -> dict:
+    """Remove a pending case share before the user registers.
+    
+    Returns dict with:
+    - success: bool
+    - message: str
+    """
+    logger.info(f"delete_pending_case_share: case_id={case_id}, owner_id={owner_id}, email={target_email}")
+    
+    pool = await get_db_pool()
+    if pool is None:
+        return {"success": False, "message": "Database unavailable"}
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        case = await conn.fetchrow(
+            "SELECT id, owner_id FROM cases WHERE id = $1",
+            case_id
+        )
+        
+        if not case:
+            return {"success": False, "message": "Case not found"}
+            
+        if case["owner_id"] != owner_id:
+            return {"success": False, "message": "Not owner of this case"}
+        
+        # Remove pending share
+        result = await conn.execute(
+            "DELETE FROM pending_shares WHERE case_id = $1 AND target_email = $2",
+            case_id,
+            target_email.lower()
+        )
+        logger.info(f"delete_pending_case_share: DELETE result={result}")
+        
+        # Check if any rows were deleted
+        if "DELETE 0" in result:
+            return {"success": False, "message": "Pending share not found"}
+        
+        return {"success": True, "message": "Pending share removed"}
 
 
 async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
-    """Get list of users a case is shared with"""
+    """Get comprehensive list of users with access to a case.
+    
+    Returns shares from:
+    - Direct case shares (case_shares table)
+    - Pending shares for unregistered users (pending_shares table)
+    
+    Each share includes an 'access_origin' field: 'direct' or 'pending'
+    """
     pool = await get_db_pool()
     if pool is None:
         return []
@@ -851,7 +1085,10 @@ async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
         if not case or case["owner_id"] != owner_id:
             return []
         
-        rows = await conn.fetch(
+        shares = []
+        
+        # 1. Direct case shares
+        direct_shares = await conn.fetch(
             """
             SELECT cs.shared_with_id, cs.permission, cs.created_at, u.email, u.name, u.picture
             FROM case_shares cs
@@ -861,16 +1098,39 @@ async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
             case_id
         )
         
-        return [
-            {
+        for row in direct_shares:
+            shares.append({
                 "user_id": row["shared_with_id"],
                 "email": row["email"],
                 "name": row["name"],
                 "picture": row["picture"],
                 "permission": row["permission"],
-                "shared_at": row["created_at"].isoformat() if row["created_at"] else None
-            }
-            for row in rows
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "access_origin": "direct"
+            })
+        
+        # 2. Pending shares (for users not yet registered)
+        pending_shares = await conn.fetch(
+            """
+            SELECT ps.id as pending_id, ps.target_email, ps.permission, ps.created_at
+            FROM pending_shares ps
+            WHERE ps.case_id = $1
+            """,
+            case_id
+        )
+        
+        for row in pending_shares:
+            shares.append({
+                "pending_id": row["pending_id"],
+                "email": row["target_email"],
+                "name": None,
+                "picture": None,
+                "permission": row["permission"],
+                "shared_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "access_origin": "pending"
+            })
+        
+        return shares
         ]
 
 
@@ -1049,46 +1309,54 @@ async def update_user_profile(user_id: int, email: str = None, name: str = None,
 
 
 async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_email: str, permission: str = "view") -> dict:
-    """Share multiple studies with a user at once"""
+    """Share multiple studies with a user at once.
+    
+    If the target user is not registered, creates pending shares instead.
+    
+    Returns dict with:
+    - success: int (count of successful shares)
+    - failed: int (count of failed shares)
+    - pending: bool (true if shares are pending user registration)
+    - errors: list[str] (error messages, if any)
+    """
     pool = await get_db_pool()
     if pool is None:
-        return {"success": 0, "failed": len(study_ids), "errors": ["Database unavailable"]}
+        return {"success": 0, "failed": len(study_ids), "pending": False, "errors": ["Database unavailable"]}
     
     async with pool.acquire() as conn:
         # Find target user
         target_user = await conn.fetchrow(
             "SELECT id FROM users WHERE email = $1",
-            share_with_email
+            share_with_email.lower()
         )
         
-        if not target_user:
-            return {"success": 0, "failed": len(study_ids), "errors": [f"User {share_with_email} not found"]}
+        is_pending = target_user is None
+        target_user_id = target_user["id"] if target_user else None
         
-        target_user_id = target_user["id"]
         success = 0
         failed = 0
         errors = []
         
         for study_id in study_ids:
-            # Verify ownership using slides table
-            is_owner = await conn.fetchrow(
-                "SELECT 1 FROM slides WHERE orthanc_study_id = $1 AND owner_id = $2",
-                study_id,
-                owner_id
+            # Get slide and verify ownership
+            slide = await conn.fetchrow(
+                "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+                study_id
             )
             
-            if not is_owner:
+            if not slide:
+                failed += 1
+                errors.append(f"Slide record not found for {study_id}")
+                continue
+                
+            if slide["owner_id"] != owner_id:
                 failed += 1
                 errors.append(f"Not owner of {study_id}")
                 continue
             
             try:
-                # Get slide_id for the share
-                slide = await conn.fetchrow(
-                    "SELECT id FROM slides WHERE orthanc_study_id = $1",
-                    study_id
-                )
-                if slide:
+                if target_user_id:
+                    # User exists - create direct share
                     await conn.execute(
                         """
                         INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
@@ -1102,13 +1370,29 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
                     )
                     success += 1
                 else:
-                    failed += 1
-                    errors.append(f"Slide record not found for {study_id}")
+                    # User doesn't exist - create pending share
+                    await conn.execute(
+                        """
+                        INSERT INTO pending_shares (slide_id, owner_id, target_email, permission)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (slide_id, target_email) DO UPDATE SET permission = EXCLUDED.permission
+                        """,
+                        slide["id"],
+                        owner_id,
+                        share_with_email.lower(),
+                        permission
+                    )
+                    success += 1
             except Exception as e:
                 failed += 1
                 errors.append(f"Failed to share {study_id}: {str(e)}")
         
-        return {"success": success, "failed": failed, "errors": errors if errors else None}
+        return {
+            "success": success, 
+            "failed": failed, 
+            "pending": is_pending,
+            "errors": errors if errors else None
+        }
 
 
 async def batch_unshare_studies(study_ids: list[str], owner_id: int, unshare_user_id: int) -> dict:

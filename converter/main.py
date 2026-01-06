@@ -29,7 +29,7 @@ from auth import (
     unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
     search_users, batch_share_studies, batch_unshare_studies, get_db_pool, get_slides_metadata_bulk,
     get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
-    get_slide_access_info
+    get_slide_access_info, delete_pending_slide_share, delete_pending_case_share
 )
 
 # Configure logging
@@ -1954,20 +1954,58 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
 
 @app.delete("/studies/{study_id}/share/{user_id}")
 async def unshare_study_endpoint(study_id: str, user_id: int, user: User = Depends(require_user)):
-    """Remove a share from a study"""
+    """Remove a direct share from a study.
+    
+    Returns:
+    - message: str
+    - has_inherited_access: bool (if user still has access via case share)
+    - inherited_from: dict (case info if inherited access exists)
+    """
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    success = await unshare_study(study_id, user.id, user_id)
-    if success:
-        return {"message": "Share removed"}
+    result = await unshare_study(study_id, user.id, user_id)
+    if result["success"]:
+        return {
+            "message": result["message"],
+            "has_inherited_access": result.get("has_inherited_access", False),
+            "inherited_from": result.get("inherited_from")
+        }
     else:
-        raise HTTPException(status_code=400, detail="Could not remove share - check ownership")
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not remove share"))
+
+
+@app.delete("/studies/{study_id}/share/pending")
+async def delete_pending_slide_share_endpoint(
+    study_id: str, 
+    email: str,
+    user: User = Depends(require_user)
+):
+    """Remove a pending share for a slide before the target user registers.
+    
+    Query params:
+    - email: The email address of the pending share to remove
+    """
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    result = await delete_pending_slide_share(study_id, user.id, email)
+    if result["success"]:
+        return {"message": result["message"]}
+    else:
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not remove pending share"))
 
 
 @app.get("/studies/{study_id}/shares")
 async def get_study_shares_endpoint(study_id: str, user: User = Depends(require_user)):
-    """Get list of users a study is shared with"""
+    """Get comprehensive list of all users with access to a study.
+    
+    Returns shares from:
+    - Direct shares (access_origin: 'direct')
+    - Inherited case shares (access_origin: 'case')
+    - Pending shares for unregistered users (access_origin: 'pending')
+    - Pending case shares (access_origin: 'pending_case')
+    """
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
@@ -2033,11 +2071,32 @@ async def unshare_case_endpoint(case_id: int, user_id: int, user: User = Depends
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    success = await unshare_case(case_id, user.id, user_id)
-    if success:
-        return {"message": "Case share removed"}
+    result = await unshare_case(case_id, user.id, user_id)
+    if result["success"]:
+        return {"message": result["message"]}
     else:
-        raise HTTPException(status_code=400, detail="Could not remove case share - check ownership")
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not remove case share"))
+
+
+@app.delete("/cases/{case_id}/share/pending")
+async def delete_pending_case_share_endpoint(
+    case_id: int,
+    email: str,
+    user: User = Depends(require_user)
+):
+    """Remove a pending share for a case before the target user registers.
+    
+    Query params:
+    - email: The email address of the pending share to remove
+    """
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    result = await delete_pending_case_share(case_id, user.id, email)
+    if result["success"]:
+        return {"message": result["message"]}
+    else:
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not remove pending share"))
 
 
 @app.get("/cases/{case_id}/shares")
