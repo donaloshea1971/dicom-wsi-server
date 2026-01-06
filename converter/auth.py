@@ -287,8 +287,8 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
         try:
             if force:
                 # Always set ownership (overwrite if exists)
-            await conn.execute(
-                """
+                await conn.execute(
+                    """
                     INSERT INTO slides (orthanc_study_id, owner_id)
                     VALUES ($1, $2)
                     ON CONFLICT (orthanc_study_id) DO UPDATE SET owner_id = $2, updated_at = CURRENT_TIMESTAMP
@@ -303,17 +303,17 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 result = await conn.execute(
                     """
                     INSERT INTO slides (orthanc_study_id, owner_id)
-                VALUES ($1, $2)
+                    VALUES ($1, $2)
                     ON CONFLICT (orthanc_study_id) DO NOTHING
-                """,
-                study_id,
-                user_id
-            )
+                    """,
+                    study_id,
+                    user_id
+                )
                 # Check if insert happened (result format: "INSERT 0 1" or "INSERT 0 0")
                 rows_affected = int(result.split()[-1])
                 if rows_affected > 0:
                     logger.info(f"Set study {study_id} owner to user {user_id}")
-            return True
+                    return True
                 else:
                     # Study already has an owner
                     existing = await conn.fetchrow(
