@@ -182,6 +182,7 @@ http {
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header Authorization \$http_authorization;
             proxy_redirect off;
             proxy_read_timeout 600s;
             proxy_connect_timeout 30s;
@@ -213,6 +214,7 @@ http {
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header Authorization \$http_authorization;
             proxy_redirect off;
             
             # Long timeouts for large file uploads and conversion
