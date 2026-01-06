@@ -287,8 +287,8 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
         try:
             if force:
                 # Always set ownership (overwrite if exists)
-                await conn.execute(
-                    """
+            await conn.execute(
+                """
                     INSERT INTO slides (orthanc_study_id, owner_id)
                     VALUES ($1, $2)
                     ON CONFLICT (orthanc_study_id) DO UPDATE SET owner_id = $2, updated_at = CURRENT_TIMESTAMP
@@ -303,17 +303,17 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 result = await conn.execute(
                     """
                     INSERT INTO slides (orthanc_study_id, owner_id)
-                    VALUES ($1, $2)
+                VALUES ($1, $2)
                     ON CONFLICT (orthanc_study_id) DO NOTHING
-                    """,
-                    study_id,
-                    user_id
-                )
+                """,
+                study_id,
+                user_id
+            )
                 # Check if insert happened (result format: "INSERT 0 1" or "INSERT 0 0")
                 rows_affected = int(result.split()[-1])
                 if rows_affected > 0:
                     logger.info(f"Set study {study_id} owner to user {user_id}")
-                    return True
+            return True
                 else:
                     # Study already has an owner
                     existing = await conn.fetchrow(
@@ -458,34 +458,18 @@ async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> b
 
 
 async def get_owned_study_ids(user_id: int) -> set[str]:
-    """Get study IDs owned by a user (from slides table, with fallback to study_owners)"""
+    """Get study IDs owned by a user (from slides table)"""
     pool = await get_db_pool()
     if pool is None:
         return set()
     
     try:
         async with pool.acquire() as conn:
-            # Try new slides table first
             rows = await conn.fetch(
                 "SELECT orthanc_study_id FROM slides WHERE owner_id = $1",
                 user_id
             )
-            result = set(row["orthanc_study_id"] for row in rows)
-            
-            # If empty, try legacy study_owners table
-            if not result:
-                try:
-                    legacy_rows = await conn.fetch(
-                        "SELECT study_id FROM study_owners WHERE user_id = $1",
-                        user_id
-                    )
-                    result = set(row["study_id"] for row in legacy_rows)
-                    if result:
-                        logger.info(f"Using legacy study_owners for user {user_id}: {len(result)} studies")
-                except Exception:
-                    pass  # Table might not exist
-            
-            return result
+            return set(row["orthanc_study_id"] for row in rows)
     except Exception as e:
         logger.error(f"get_owned_study_ids error: {e}")
         return set()
@@ -733,29 +717,29 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
         errors = []
         
         for study_id in study_ids:
-            # Verify ownership
-            is_owner = await conn.fetchrow(
-                "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
-                study_id,
-                owner_id
-            )
-            
-            if not is_owner:
+        # Verify ownership
+        is_owner = await conn.fetchrow(
+            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
+            study_id,
+            owner_id
+        )
+        
+        if not is_owner:
                 failed += 1
                 errors.append(f"Not owner of {study_id}")
                 continue
-            
+        
             try:
-                await conn.execute(
-                    """
-                    INSERT INTO study_shares (study_id, owner_id, shared_with_id, permission)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (study_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
-                    """,
-                    study_id,
-                    owner_id,
+        await conn.execute(
+            """
+            INSERT INTO study_shares (study_id, owner_id, shared_with_id, permission)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (study_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+            """,
+            study_id,
+            owner_id,
                     target_user_id,
-                    permission
+            permission
                 )
                 success += 1
             except Exception as e:

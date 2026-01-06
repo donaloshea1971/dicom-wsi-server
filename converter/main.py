@@ -1663,26 +1663,15 @@ def localStorage_hidden_samples(user_id: int) -> bool:
 
 
 async def get_all_owned_study_ids() -> set[str]:
-    """Get all study IDs that have owners (from slides table, with fallback)"""
+    """Get all study IDs that have owners (from slides table)"""
     pool = await get_db_pool()
     if pool is None:
         return set()
     
     try:
         async with pool.acquire() as conn:
-            # Try new slides table
             rows = await conn.fetch("SELECT orthanc_study_id FROM slides WHERE owner_id IS NOT NULL")
-            result = set(row["orthanc_study_id"] for row in rows)
-            
-            # Also check legacy study_owners table
-            try:
-                legacy_rows = await conn.fetch("SELECT study_id FROM study_owners")
-                legacy_ids = set(row["study_id"] for row in legacy_rows)
-                result = result | legacy_ids  # Union of both
-            except Exception:
-                pass  # Table might not exist
-            
-            return result
+            return set(row["orthanc_study_id"] for row in rows)
     except Exception as e:
         logger.error(f"get_all_owned_study_ids error: {e}")
         return set()
