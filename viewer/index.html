@@ -1934,9 +1934,26 @@
                         const studyMap = {};
                         studies.forEach(s => studyMap[s.ID] = s);
                         
-                        // Get share counts and slide metadata from categorized response
+                        // Get share counts from categorized response
                         const shareCounts = categorized.share_counts || {};
-                        const slideMetadata = categorized.slide_metadata || {};
+                        
+                        // Fetch metadata individually for each owned/shared study
+                        const allRelevantIds = [...ownedIds, ...sharedIds];
+                        const slideMetadata = {};
+                        
+                        // Fetch metadata in parallel
+                        const metadataPromises = allRelevantIds.map(async (id) => {
+                            try {
+                                const res = await authFetch(`/api/slides/${id}`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    slideMetadata[id] = data;
+                                }
+                            } catch (e) {
+                                // Slide might not have metadata yet
+                            }
+                        });
+                        await Promise.all(metadataPromises);
                         console.log('Slide metadata from API:', slideMetadata);
                         
                         // Attach shareCount and slide metadata to studies
