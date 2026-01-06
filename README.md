@@ -223,6 +223,21 @@ curl -I http://localhost:3000/dicom-web/studies
 curl http://localhost:8042/studies -u admin:orthanc
 ```
 
+## Deployment
+
+For production deployment, see the comprehensive [Deployment Guide](docs/DEPLOYMENT.md).
+
+Quick deployment:
+
+```bash
+# Linux/Mac
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh setup
+
+# Windows PowerShell
+.\scripts\deploy.ps1 setup
+```
+
 ## License
 
 MIT License - See LICENSE file

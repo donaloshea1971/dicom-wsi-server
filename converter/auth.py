@@ -420,7 +420,7 @@ async def get_study_owner(study_id: str) -> Optional[int]:
         return row["owner_id"] if row else None
 
 
-async def get_user_study_ids(user_id: int) -> list[str]:
+async def get_user_slide_ids(user_id: int) -> list[str]:
     """Get list of study IDs visible to a user (owned + shared via slide or case)"""
     pool = await get_db_pool()
     if pool is None:
@@ -1148,7 +1148,6 @@ async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
             })
         
         return shares
-        ]
 
 
 async def get_slide_access_info(user_id: int, study_id: str) -> dict:
