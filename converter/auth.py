@@ -717,31 +717,40 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
         errors = []
         
         for study_id in study_ids:
-        # Verify ownership
-        is_owner = await conn.fetchrow(
-            "SELECT 1 FROM study_owners WHERE study_id = $1 AND user_id = $2",
-            study_id,
-            owner_id
-        )
-        
-        if not is_owner:
+            # Verify ownership using slides table
+            is_owner = await conn.fetchrow(
+                "SELECT 1 FROM slides WHERE orthanc_study_id = $1 AND owner_id = $2",
+                study_id,
+                owner_id
+            )
+            
+            if not is_owner:
                 failed += 1
                 errors.append(f"Not owner of {study_id}")
                 continue
-        
+            
             try:
-        await conn.execute(
-            """
-            INSERT INTO study_shares (study_id, owner_id, shared_with_id, permission)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (study_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
-            """,
-            study_id,
-            owner_id,
-                    target_user_id,
-            permission
+                # Get slide_id for the share
+                slide = await conn.fetchrow(
+                    "SELECT id FROM slides WHERE orthanc_study_id = $1",
+                    study_id
                 )
-                success += 1
+                if slide:
+                    await conn.execute(
+                        """
+                        INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (slide_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                        """,
+                        slide["id"],
+                        owner_id,
+                        target_user_id,
+                        permission
+                    )
+                    success += 1
+                else:
+                    failed += 1
+                    errors.append(f"Slide record not found for {study_id}")
             except Exception as e:
                 failed += 1
                 errors.append(f"Failed to share {study_id}: {str(e)}")
