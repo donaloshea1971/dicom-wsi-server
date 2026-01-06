@@ -3196,18 +3196,17 @@ async def extract_study_id_from_dicomweb_path(path: str) -> Optional[str]:
 
 
 @app.api_route("/wsi/{path:path}", methods=["GET", "HEAD", "OPTIONS"])
-async def secure_wsi_proxy(path: str, request: Request, user: User = Depends(require_user)):
+async def secure_wsi_proxy(path: str, request: Request, user: Optional[User] = Depends(get_current_user)):
     """
     Secure proxy for Orthanc WSI plugin.
     Validates user access before proxying tile/pyramid requests.
+    Allows sample/public slides without authentication.
     """
-    if not user.id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
     # Extract study ID and check access
     study_id = await extract_study_id_from_wsi_path(path)
     if study_id:
-        if not await can_access_study(user.id, study_id):
+        user_id = user.id if user else None
+        if not await can_access_study(user_id, study_id):
             raise HTTPException(status_code=403, detail="Access denied to this slide")
     
     # Proxy to Orthanc

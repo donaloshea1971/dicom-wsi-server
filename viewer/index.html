@@ -1900,7 +1900,7 @@
             } else if (seriesId) {
                 // Load by series ID - find the parent study first
                 try {
-                    const response = await fetch(`/api/series/${seriesId}`);
+                    const response = await authFetch(`/api/series/${seriesId}`);
                     const series = await response.json();
                     if (series.ParentStudy) {
                         loadStudy(series.ParentStudy);
@@ -2281,7 +2281,7 @@
                 // Check if this is a Hamamatsu image (needs gamma correction)
                 let needsGammaCorrection = false;
                 try {
-                    const seriesInfo = await fetch(`/api/series/${seriesId}`);
+                    const seriesInfo = await authFetch(`/api/series/${seriesId}`);
                     const seriesData = await seriesInfo.json();
                     if (seriesData.Instances && seriesData.Instances.length > 0) {
                         const instanceId = seriesData.Instances[0];
@@ -2504,6 +2504,15 @@
 
                 showLoading(true, 'Initializing viewer...');
 
+                // Get auth token for tile requests
+                let tileAuthHeaders = {};
+                try {
+                    const token = await auth0Client.getTokenSilently();
+                    tileAuthHeaders = { 'Authorization': `Bearer ${token}` };
+                } catch (e) {
+                    console.warn('Could not get auth token for tiles:', e);
+                }
+
                 viewer = OpenSeadragon({
                     id: 'osd-viewer',
                     prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
@@ -2524,9 +2533,10 @@
                     tileSources: wsiTileSource,
                     crossOriginPolicy: 'Anonymous',
                     timeout: 30000,
-                    // AJAX settings
+                    // AJAX settings with auth headers for secure tile proxy
                     loadTilesWithAjax: true,
                     ajaxWithCredentials: false,
+                    ajaxHeaders: tileAuthHeaders,
                     // Prefetch for smoother panning
                     preload: true,
                     // Subpixel rendering for smoother zooming
@@ -3927,7 +3937,7 @@
                 annotationManager = null;
             }
             
-            annotationManager = new AnnotationManager(viewer);
+            annotationManager = new AnnotationManager(viewer, { authFetch });
             annotationManager.init();
             console.log('Annotation system initialized');
             return true;
@@ -4405,7 +4415,7 @@
                 // Fetch first instance metadata
                 const seriesId = study.Series[0];
                 console.log('[Metadata] Series:', seriesId);
-                const seriesRes = await fetch(`/api/series/${seriesId}${cacheBust}`);
+                const seriesRes = await authFetch(`/api/series/${seriesId}${cacheBust}`);
                 let instances = [];
                 try {
                     const series = await seriesRes.json();

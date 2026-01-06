@@ -445,7 +445,7 @@ async def get_user_study_ids(user_id: int) -> list[str]:
         return [row["study_id"] for row in rows]
 
 
-async def can_access_study(user_id: int, study_id: str) -> bool:
+async def can_access_study(user_id: Optional[int], study_id: str) -> bool:
     """Check if user can access a specific study/slide.
     
     Access is granted if:
@@ -454,6 +454,8 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
     3. Slide's case is shared with user (case_shares)
     4. Slide is a public sample (slides.is_sample = true)
     5. Slide has no owner record (unowned/sample - accessible to all authenticated users)
+    
+    For unauthenticated requests (user_id=None), only samples are accessible.
     """
     pool = await get_db_pool()
     if pool is None:
@@ -466,13 +468,19 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
             study_id
         )
         
-        # If no record exists, it's an unowned/sample study - allow access to any authenticated user
+        # If no record exists, it's an unowned/sample study
         if not slide_exists:
-            return True
+            # Allow access to any authenticated user, or unauthenticated if it's a sample
+            return user_id is not None or True  # Unowned slides are effectively samples
         
-        # If it's explicitly a sample, allow access
+        # If it's explicitly a sample, allow access to anyone
         if slide_exists["is_sample"]:
             return True
+        
+        # For non-sample slides, user must be authenticated
+        if user_id is None:
+            logger.debug(f"Access denied: unauthenticated request for non-sample slide {study_id}")
+            return False
         
         # Check ownership and sharing
         row = await conn.fetchrow(

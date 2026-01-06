@@ -4,7 +4,7 @@
  */
 
 class AnnotationManager {
-    constructor(viewer) {
+    constructor(viewer, options = {}) {
         this.viewer = viewer;
         this.canvas = null;
         this.ctx = null;
@@ -13,6 +13,9 @@ class AnnotationManager {
         this.annotations = [];
         this.studyId = null;
         this.initialized = false;
+        
+        // Auth function for API calls (optional, set via setAuthFunction)
+        this.authFetch = options.authFetch || null;
         
         // Calibration: µm per pixel (default 0.25 for ~40x objective)
         this.pixelSpacing = [0.25, 0.25];
@@ -39,6 +42,23 @@ class AnnotationManager {
             point: { fill: '#00d4aa', radius: 6 },
             arrow: { stroke: '#00d4aa', strokeWidth: 2 }
         };
+    }
+    
+    /**
+     * Set the auth fetch function for authenticated API calls
+     */
+    setAuthFunction(authFetchFn) {
+        this.authFetch = authFetchFn;
+    }
+    
+    /**
+     * Make an authenticated fetch request, falling back to regular fetch if no auth function
+     */
+    async _fetch(url, options = {}) {
+        if (this.authFetch) {
+            return this.authFetch(url, options);
+        }
+        return fetch(url, options);
     }
     
     init() {
@@ -310,7 +330,7 @@ class AnnotationManager {
         this.studyId = studyId;
         
         try {
-            const response = await fetch(`/api/studies/${studyId}/calibration`);
+            const response = await this._fetch(`/api/studies/${studyId}/calibration`);
             if (response.ok) {
                 const data = await response.json();
                 this.pixelSpacing = data.pixel_spacing_um;
@@ -328,7 +348,7 @@ class AnnotationManager {
         this.annotations = [];
         
         try {
-            const response = await fetch(`/api/studies/${studyId}/annotations`);
+            const response = await this._fetch(`/api/studies/${studyId}/annotations`);
             if (response.ok) {
                 const data = await response.json();
                 this.annotations = data.annotations || [];
@@ -345,7 +365,7 @@ class AnnotationManager {
         if (!this.studyId) return null;
         
         try {
-            const response = await fetch(`/api/studies/${this.studyId}/annotations`, {
+            const response = await this._fetch(`/api/studies/${this.studyId}/annotations`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(annotation)
@@ -375,7 +395,7 @@ class AnnotationManager {
         if (!this.studyId) return;
         
         try {
-            await fetch(`/api/studies/${this.studyId}/annotations/${annotationId}`, {
+            await this._fetch(`/api/studies/${this.studyId}/annotations/${annotationId}`, {
                 method: 'DELETE'
             });
             this.annotations = this.annotations.filter(a => a.id !== annotationId);
