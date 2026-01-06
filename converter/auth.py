@@ -200,7 +200,7 @@ async def get_or_create_user(token_payload: TokenPayload) -> User:
         )
         
         logger.info(f"Created new user: {email}")
-        return User(
+        user = User(
             id=row["id"],
             auth0_id=row["auth0_id"],
             email=row["email"],
@@ -208,6 +208,81 @@ async def get_or_create_user(token_payload: TokenPayload) -> User:
             picture=row["picture"],
             role=row["role"]
         )
+        
+        # Process any pending shares for this user
+        await process_pending_shares(user.id, email)
+        
+        return user
+
+
+async def process_pending_shares(user_id: int, user_email: str):
+    """Process pending shares when a new user registers or logs in.
+    
+    Converts pending_shares records into actual slide_shares/case_shares.
+    """
+    pool = await get_db_pool()
+    if pool is None:
+        return
+    
+    try:
+        async with pool.acquire() as conn:
+            # Find pending shares for this email
+            pending = await conn.fetch(
+                """
+                SELECT id, slide_id, case_id, owner_id, permission
+                FROM pending_shares
+                WHERE target_email = $1
+                """,
+                user_email.lower()
+            )
+            
+            if not pending:
+                return
+            
+            logger.info(f"Processing {len(pending)} pending shares for {user_email}")
+            
+            for share in pending:
+                try:
+                    if share["slide_id"]:
+                        # Create slide share
+                        await conn.execute(
+                            """
+                            INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT (slide_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                            """,
+                            share["slide_id"],
+                            share["owner_id"],
+                            user_id,
+                            share["permission"]
+                        )
+                        logger.info(f"Converted pending slide share {share['id']} for user {user_email}")
+                    
+                    elif share["case_id"]:
+                        # Create case share
+                        await conn.execute(
+                            """
+                            INSERT INTO case_shares (case_id, owner_id, shared_with_id, permission)
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT (case_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                            """,
+                            share["case_id"],
+                            share["owner_id"],
+                            user_id,
+                            share["permission"]
+                        )
+                        logger.info(f"Converted pending case share {share['id']} for user {user_email}")
+                    
+                    # Delete the pending share
+                    await conn.execute(
+                        "DELETE FROM pending_shares WHERE id = $1",
+                        share["id"]
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to convert pending share {share['id']}: {e}")
+                    
+    except Exception as e:
+        logger.error(f"Error processing pending shares for {user_email}: {e}")
 
 
 async def get_current_user(
@@ -431,23 +506,19 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
         return False
 
 
-async def share_study(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> bool:
-    """Share a study with another user by email (uses slide_shares table)"""
+async def share_study(study_id: str, owner_id: int, share_with_email: str, permission: str = "view") -> dict:
+    """Share a study with another user by email (uses slide_shares table).
+    
+    Returns dict with:
+    - success: bool
+    - pending: bool (if share is pending user registration)
+    - message: str
+    """
     pool = await get_db_pool()
     if pool is None:
-        return False
+        return {"success": False, "pending": False, "message": "Database unavailable"}
     
     async with pool.acquire() as conn:
-        # Find user by email
-        target_user = await conn.fetchrow(
-            "SELECT id FROM users WHERE email = $1",
-            share_with_email
-        )
-        
-        if not target_user:
-            logger.warning(f"share_study: user not found for email {share_with_email}")
-            return False
-        
         # Get slide record (must exist)
         slide = await conn.fetchrow(
             "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
@@ -456,28 +527,53 @@ async def share_study(study_id: str, owner_id: int, share_with_email: str, permi
         
         if not slide:
             logger.warning(f"share_study: slide not found for {study_id}")
-            return False
+            return {"success": False, "pending": False, "message": "Slide not found"}
         
         # Verify ownership
         if slide["owner_id"] != owner_id:
             logger.warning(f"share_study: user {owner_id} doesn't own slide {study_id}")
-            return False
+            return {"success": False, "pending": False, "message": "Not owner of this slide"}
         
-        # Create share in slide_shares table
-        await conn.execute(
-            """
-            INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (slide_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
-            """,
-            slide["id"],
-            owner_id,
-            target_user["id"],
-            permission
+        # Find user by email
+        target_user = await conn.fetchrow(
+            "SELECT id FROM users WHERE email = $1",
+            share_with_email
         )
         
-        logger.info(f"Shared slide {study_id} with user {target_user['id']}")
-        return True
+        if target_user:
+            # User exists - create direct share
+            await conn.execute(
+                """
+                INSERT INTO slide_shares (slide_id, owner_id, shared_with_id, permission)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (slide_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                """,
+                slide["id"],
+                owner_id,
+                target_user["id"],
+                permission
+            )
+            logger.info(f"Shared slide {study_id} with user {target_user['id']}")
+            return {"success": True, "pending": False, "message": "Shared successfully"}
+        else:
+            # User doesn't exist - create pending share
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO pending_shares (slide_id, owner_id, target_email, permission)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (slide_id, target_email) DO UPDATE SET permission = EXCLUDED.permission
+                    """,
+                    slide["id"],
+                    owner_id,
+                    share_with_email.lower(),
+                    permission
+                )
+                logger.info(f"Created pending share for slide {study_id} to {share_with_email}")
+                return {"success": True, "pending": True, "message": f"Share pending - {share_with_email} will see this when they sign up"}
+            except Exception as e:
+                logger.error(f"Failed to create pending share: {e}")
+                return {"success": False, "pending": False, "message": "Failed to create pending share"}
 
 
 async def unshare_study(study_id: str, owner_id: int, unshare_user_id: int) -> bool:
@@ -630,13 +726,19 @@ async def get_share_counts_for_studies(study_ids: list[str]) -> dict[str, int]:
 # Case-Level Sharing Functions
 # =============================================================================
 
-async def share_case(case_id: int, owner_id: int, share_with_email: str, permission: str = "view") -> bool:
-    """Share an entire case (and all its slides) with another user by email"""
+async def share_case(case_id: int, owner_id: int, share_with_email: str, permission: str = "view") -> dict:
+    """Share an entire case (and all its slides) with another user by email.
+    
+    Returns dict with:
+    - success: bool
+    - pending: bool (if share is pending user registration)
+    - message: str
+    """
     logger.info(f"share_case: case_id={case_id}, owner_id={owner_id}, share_with={share_with_email}")
     
     pool = await get_db_pool()
     if pool is None:
-        return False
+        return {"success": False, "pending": False, "message": "Database unavailable"}
     
     async with pool.acquire() as conn:
         # Verify case exists and user has access to it
@@ -651,7 +753,7 @@ async def share_case(case_id: int, owner_id: int, share_with_email: str, permiss
         
         if not case:
             logger.warning(f"share_case: case {case_id} not found or not owned by {owner_id}")
-            return False
+            return {"success": False, "pending": False, "message": "Case not found or not owned"}
         
         # Find target user by email
         target_user = await conn.fetchrow(
@@ -659,25 +761,40 @@ async def share_case(case_id: int, owner_id: int, share_with_email: str, permiss
             share_with_email
         )
         
-        if not target_user:
-            logger.warning(f"share_case: user not found for email {share_with_email}")
-            return False
-        
-        # Create case share
-        await conn.execute(
-            """
-            INSERT INTO case_shares (case_id, owner_id, shared_with_id, permission)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (case_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
-            """,
-            case_id,
-            owner_id,
-            target_user["id"],
-            permission
-        )
-        
-        logger.info(f"Shared case {case_id} with user {target_user['id']}")
-        return True
+        if target_user:
+            # User exists - create direct share
+            await conn.execute(
+                """
+                INSERT INTO case_shares (case_id, owner_id, shared_with_id, permission)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (case_id, shared_with_id) DO UPDATE SET permission = EXCLUDED.permission
+                """,
+                case_id,
+                owner_id,
+                target_user["id"],
+                permission
+            )
+            logger.info(f"Shared case {case_id} with user {target_user['id']}")
+            return {"success": True, "pending": False, "message": "Case shared successfully"}
+        else:
+            # User doesn't exist - create pending share
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO pending_shares (case_id, owner_id, target_email, permission)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (case_id, target_email) DO UPDATE SET permission = EXCLUDED.permission
+                    """,
+                    case_id,
+                    owner_id,
+                    share_with_email.lower(),
+                    permission
+                )
+                logger.info(f"Created pending share for case {case_id} to {share_with_email}")
+                return {"success": True, "pending": True, "message": f"Share pending - {share_with_email} will see this when they sign up"}
+            except Exception as e:
+                logger.error(f"Failed to create pending case share: {e}")
+                return {"success": False, "pending": False, "message": "Failed to create pending share"}
 
 
 async def unshare_case(case_id: int, owner_id: int, unshare_user_id: int) -> bool:
@@ -984,6 +1101,53 @@ async def batch_share_studies(study_ids: list[str], owner_id: int, share_with_em
                 errors.append(f"Failed to share {study_id}: {str(e)}")
         
         return {"success": success, "failed": failed, "errors": errors if errors else None}
+
+
+async def batch_unshare_studies(study_ids: list[str], owner_id: int, unshare_user_id: int) -> dict:
+    """Unshare multiple studies from a user at once"""
+    pool = await get_db_pool()
+    if pool is None:
+        return {"success": 0, "failed": len(study_ids), "errors": ["Database unavailable"]}
+    
+    success = 0
+    failed = 0
+    errors = []
+    
+    async with pool.acquire() as conn:
+        for study_id in study_ids:
+            # Verify ownership
+            slide = await conn.fetchrow(
+                "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+                study_id
+            )
+            
+            if not slide:
+                failed += 1
+                errors.append(f"Slide not found: {study_id}")
+                continue
+            
+            if slide["owner_id"] != owner_id:
+                failed += 1
+                errors.append(f"Not owner of {study_id}")
+                continue
+            
+            try:
+                result = await conn.execute(
+                    "DELETE FROM slide_shares WHERE slide_id = $1 AND shared_with_id = $2",
+                    slide["id"],
+                    unshare_user_id
+                )
+                # Check if any row was deleted
+                if "DELETE 1" in result or "DELETE" in result:
+                    success += 1
+                else:
+                    failed += 1
+                    errors.append(f"Share not found for {study_id}")
+            except Exception as e:
+                failed += 1
+                errors.append(f"Failed to unshare {study_id}: {str(e)}")
+    
+    return {"success": success, "failed": failed, "errors": errors if errors else None}
 
 
 # =============================================================================

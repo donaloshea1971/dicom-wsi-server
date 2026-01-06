@@ -27,7 +27,7 @@ from auth import (
     User, get_current_user, require_user, require_admin,
     set_study_owner, get_study_owner, get_user_study_ids, can_access_study, share_study,
     unshare_study, get_owned_study_ids, get_shared_with_me_study_ids, get_study_shares,
-    search_users, batch_share_studies, get_db_pool, get_slides_metadata_bulk,
+    search_users, batch_share_studies, batch_unshare_studies, get_db_pool, get_slides_metadata_bulk,
     get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
     get_slide_access_info
 )
@@ -1910,12 +1910,13 @@ class UnshareRequest(BaseModel):
 
 @app.post("/studies/{study_id}/share")
 async def share_study_endpoint(study_id: str, request: ShareRequest, user: User = Depends(require_user)):
-    """Share a study with another user by email"""
+    """Share a study with another user by email. Supports pending shares for unregistered users."""
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    success = await share_study(study_id, user.id, request.email, request.permission)
-    if success:
+    result = await share_study(study_id, user.id, request.email, request.permission)
+    
+    if result["success"]:
         # Send email notification (async, don't block on failure)
         try:
             from email_service import send_share_notification, is_email_configured
@@ -1923,7 +1924,7 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
                 # Get slide details for email
                 slide = await get_slide_by_orthanc_id(study_id)
                 
-                # Get recipient info
+                # Get recipient info (may be None for pending shares)
                 from auth import get_user_by_email
                 recipient = await get_user_by_email(request.email)
                 
@@ -1942,9 +1943,13 @@ async def share_study_endpoint(study_id: str, request: ShareRequest, user: User 
         except Exception as e:
             logger.warning(f"Failed to send share notification email: {e}")
         
-        return {"message": f"Study shared with {request.email}", "permission": request.permission}
+        return {
+            "message": result["message"],
+            "permission": request.permission,
+            "pending": result.get("pending", False)
+        }
     else:
-        raise HTTPException(status_code=400, detail="Could not share study - check ownership and email")
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not share study"))
 
 
 @app.delete("/studies/{study_id}/share/{user_id}")
@@ -1980,6 +1985,22 @@ async def batch_share_endpoint(request: BatchShareRequest, user: User = Depends(
     return result
 
 
+class BatchUnshareRequest(BaseModel):
+    """Request to unshare multiple studies"""
+    study_ids: list[str]
+    user_id: int
+
+
+@app.delete("/studies/batch-share")
+async def batch_unshare_endpoint(request: BatchUnshareRequest, user: User = Depends(require_user)):
+    """Unshare multiple studies from a user at once"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    result = await batch_unshare_studies(request.study_ids, user.id, request.user_id)
+    return result
+
+
 # =============================================================================
 # Case-Level Sharing Endpoints
 # =============================================================================
@@ -1992,15 +2013,18 @@ class CaseShareRequest(BaseModel):
 
 @app.post("/cases/{case_id}/share")
 async def share_case_endpoint(case_id: int, request: CaseShareRequest, user: User = Depends(require_user)):
-    """Share an entire case (and all slides within) with another user"""
+    """Share an entire case (and all slides within) with another user. Supports pending shares for unregistered users."""
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
-    success = await share_case(case_id, user.id, request.email, request.permission)
-    if success:
-        return {"message": f"Case shared with {request.email}"}
+    result = await share_case(case_id, user.id, request.email, request.permission)
+    if result["success"]:
+        return {
+            "message": result["message"],
+            "pending": result.get("pending", False)
+        }
     else:
-        raise HTTPException(status_code=400, detail="Could not share case - check ownership and email")
+        raise HTTPException(status_code=400, detail=result.get("message", "Could not share case"))
 
 
 @app.delete("/cases/{case_id}/share/{user_id}")
@@ -3096,6 +3120,188 @@ async def cancel_chunked_upload(upload_id: str):
     logger.info(f"📦 Chunked upload {upload_id} cancelled and cleaned up")
     
     return {"message": "Upload cancelled", "upload_id": upload_id}
+
+
+# =============================================================================
+# Secure WSI and DICOMweb Proxy (with access control)
+# =============================================================================
+
+import re
+from starlette.responses import StreamingResponse
+
+async def extract_study_id_from_wsi_path(path: str) -> Optional[str]:
+    """Extract study ID from WSI plugin paths.
+    
+    WSI paths:
+    - /tiles/{series_id}/{level}/{x}/{y} - Need to lookup study from series
+    - /pyramids/{study_id} - Direct study ID
+    """
+    # Check for pyramids path (direct study ID)
+    pyramids_match = re.match(r'^pyramids/([a-f0-9-]+)', path)
+    if pyramids_match:
+        return pyramids_match.group(1)
+    
+    # Check for tiles path (series ID - need to lookup)
+    tiles_match = re.match(r'^tiles/([a-f0-9-]+)/', path)
+    if tiles_match:
+        series_id = tiles_match.group(1)
+        # Lookup parent study from Orthanc
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{settings.orthanc_url}/series/{series_id}",
+                    auth=(settings.orthanc_username, settings.orthanc_password),
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    series_data = response.json()
+                    return series_data.get("ParentStudy")
+        except Exception as e:
+            logger.warning(f"Failed to lookup study for series {series_id}: {e}")
+    
+    return None
+
+
+async def extract_study_id_from_dicomweb_path(path: str) -> Optional[str]:
+    """Extract study ID from DICOMweb paths.
+    
+    DICOMweb paths:
+    - /studies - No specific study (list)
+    - /studies/{study_uid} - Direct study UID
+    - /studies/{study_uid}/series - Series in study
+    - /studies/{study_uid}/series/{series_uid}/instances - Instances
+    """
+    # Extract study UID from path
+    studies_match = re.match(r'^studies/([^/]+)', path)
+    if studies_match:
+        study_uid = studies_match.group(1)
+        # DICOMweb uses DICOM UIDs, need to find Orthanc ID
+        try:
+            async with httpx.AsyncClient() as client:
+                # Search for study by DICOM UID
+                response = await client.post(
+                    f"{settings.orthanc_url}/tools/lookup",
+                    auth=(settings.orthanc_username, settings.orthanc_password),
+                    json=study_uid,
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    results = response.json()
+                    if results and len(results) > 0:
+                        return results[0].get("ID")
+        except Exception as e:
+            logger.warning(f"Failed to lookup study for UID {study_uid}: {e}")
+    
+    return None
+
+
+@app.api_route("/wsi/{path:path}", methods=["GET", "HEAD", "OPTIONS"])
+async def secure_wsi_proxy(path: str, request: Request, user: User = Depends(require_user)):
+    """
+    Secure proxy for Orthanc WSI plugin.
+    Validates user access before proxying tile/pyramid requests.
+    """
+    if not user.id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Extract study ID and check access
+    study_id = await extract_study_id_from_wsi_path(path)
+    if study_id:
+        if not await can_access_study(user.id, study_id):
+            raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
+    # Proxy to Orthanc
+    try:
+        async with httpx.AsyncClient() as client:
+            # Build target URL
+            target_url = f"{settings.orthanc_url}/wsi/{path}"
+            if request.query_params:
+                target_url += f"?{request.query_params}"
+            
+            # Forward request
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=60.0
+            )
+            
+            # Return response with caching headers for tiles
+            headers = {
+                "Cache-Control": "public, max-age=604800",
+                "Access-Control-Allow-Origin": "*"
+            }
+            
+            # Copy content-type if present
+            if "content-type" in response.headers:
+                headers["Content-Type"] = response.headers["content-type"]
+            
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=headers
+            )
+    except httpx.HTTPError as e:
+        logger.error(f"WSI proxy error: {e}")
+        raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
+@app.api_route("/dicom-web/{path:path}", methods=["GET", "HEAD", "OPTIONS", "POST"])
+async def secure_dicomweb_proxy(path: str, request: Request, user: User = Depends(require_user)):
+    """
+    Secure proxy for Orthanc DICOMweb plugin.
+    Validates user access for study-specific requests.
+    """
+    if not user.id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # For study-specific paths, check access
+    study_id = await extract_study_id_from_dicomweb_path(path)
+    if study_id:
+        if not await can_access_study(user.id, study_id):
+            raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
+    # Proxy to Orthanc
+    try:
+        async with httpx.AsyncClient() as client:
+            # Build target URL
+            target_url = f"{settings.orthanc_url}/dicom-web/{path}"
+            if request.query_params:
+                target_url += f"?{request.query_params}"
+            
+            # Get request body for POST requests
+            body = None
+            if request.method == "POST":
+                body = await request.body()
+            
+            # Forward request
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                content=body,
+                headers={"Content-Type": request.headers.get("content-type", "application/json")},
+                timeout=120.0
+            )
+            
+            # Build response headers
+            headers = {
+                "Access-Control-Allow-Origin": "*"
+            }
+            
+            # Copy relevant headers
+            for header in ["content-type", "content-length", "content-disposition"]:
+                if header in response.headers:
+                    headers[header.title()] = response.headers[header]
+            
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=headers
+            )
+    except httpx.HTTPError as e:
+        logger.error(f"DICOMweb proxy error: {e}")
+        raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
 
 
 if __name__ == "__main__":

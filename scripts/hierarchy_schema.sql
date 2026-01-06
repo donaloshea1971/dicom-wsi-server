@@ -151,6 +151,42 @@ CREATE INDEX IF NOT EXISTS idx_case_shares_case ON case_shares(case_id);
 CREATE INDEX IF NOT EXISTS idx_case_shares_shared_with ON case_shares(shared_with_id);
 
 -- =============================================================================
+-- PENDING SHARES - For sharing with users who haven't registered yet
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pending_shares (
+    id SERIAL PRIMARY KEY,
+    
+    -- What is being shared (exactly one must be set)
+    slide_id INTEGER REFERENCES slides(id) ON DELETE CASCADE,
+    case_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+    
+    -- Who is sharing
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- Target email (not yet a user)
+    target_email VARCHAR(255) NOT NULL,
+    
+    -- Permission level
+    permission VARCHAR(50) DEFAULT 'view',
+    
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Ensure either slide_id or case_id is set (but not both)
+    CONSTRAINT pending_shares_target_check CHECK (
+        (slide_id IS NOT NULL AND case_id IS NULL) OR 
+        (slide_id IS NULL AND case_id IS NOT NULL)
+    ),
+    
+    -- Unique constraint per target
+    UNIQUE(slide_id, target_email),
+    UNIQUE(case_id, target_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_shares_email ON pending_shares(target_email);
+CREATE INDEX IF NOT EXISTS idx_pending_shares_owner ON pending_shares(owner_id);
+
+-- =============================================================================
 -- MIGRATION: Copy existing data from study_owners/study_shares to slides
 -- =============================================================================
 

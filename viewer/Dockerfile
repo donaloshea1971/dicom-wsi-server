@@ -235,19 +235,24 @@ http {
             }
         }
 
-        # WSI tiles - CACHED for performance
+        # WSI tiles - SECURED via FastAPI proxy with access control
+        # All requests go through converter which validates user permissions
         location ~ ^/wsi/(.*)\$ {
-            proxy_pass http://orthanc/wsi/\$1\$is_args\$args;
+            proxy_pass http://converter/wsi/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
-            proxy_set_header Authorization "Basic $ORTHANC_AUTH_BASE64";
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header Authorization \$http_authorization;
             proxy_redirect off;
             
-            # Aggressive tile caching
+            # Tile caching (after authentication)
             proxy_cache tile_cache;
-            proxy_cache_key "\$request_uri";
+            proxy_cache_key "\$http_authorization\$request_uri";
             proxy_cache_valid 200 7d;
+            proxy_cache_valid 401 403 1m;
             proxy_cache_valid 404 1m;
             proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
             proxy_cache_lock on;
@@ -257,18 +262,31 @@ http {
             add_header X-Cache-Status \$upstream_cache_status;
             add_header Cache-Control "public, max-age=604800" always;
             add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            
+            if (\$request_method = OPTIONS) {
+                return 204;
+            }
         }
 
-        # DICOMweb
+        # DICOMweb - SECURED via FastAPI proxy with access control
         location ~ ^/dicom-web/(.*)\$ {
-            proxy_pass http://orthanc/dicom-web/\$1\$is_args\$args;
+            proxy_pass http://converter/dicom-web/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
-            proxy_set_header Authorization "Basic $ORTHANC_AUTH_BASE64";
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_set_header Authorization \$http_authorization;
             proxy_redirect off;
             
             add_header Access-Control-Allow-Origin "${CORS_ALLOWED_ORIGINS}" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+            
+            if (\$request_method = OPTIONS) {
+                return 204;
+            }
         }
 
         # Health check endpoint
