@@ -2113,7 +2113,8 @@
             // Bottom row: Case ID | Patient Name | DOB
             const caseId = study.case_accession || '';
             const patientName = study.patient_name || '';
-            const patientDob = study.patient_dob ? formatDate(study.patient_dob) : '';
+            // patient_dob comes as ISO date (YYYY-MM-DD), display as-is or format nicely
+            const patientDob = study.patient_dob ? study.patient_dob.substring(0, 10) : '';
             
             // Build bottom info parts
             let bottomParts = [];
