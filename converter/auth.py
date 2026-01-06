@@ -378,13 +378,28 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
     2. Slide is directly shared with user (slide_shares)
     3. Slide's case is shared with user (case_shares)
     4. Slide is a public sample (slides.is_sample = true)
+    5. Slide has no owner record (unowned/sample - accessible to all authenticated users)
     """
     pool = await get_db_pool()
     if pool is None:
         return True  # Allow access if DB unavailable (fail open for development)
     
     async with pool.acquire() as conn:
-        # Check all access paths in a single query
+        # First check if this slide exists in our database at all
+        slide_exists = await conn.fetchrow(
+            "SELECT id, owner_id, is_sample FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        
+        # If no record exists, it's an unowned/sample study - allow access to any authenticated user
+        if not slide_exists:
+            return True
+        
+        # If it's explicitly a sample, allow access
+        if slide_exists["is_sample"]:
+            return True
+        
+        # Check ownership and sharing
         row = await conn.fetchrow(
             """
             SELECT 1 FROM slides s
@@ -392,8 +407,6 @@ async def can_access_study(user_id: int, study_id: str) -> bool:
             AND (
                 -- User owns the slide
                 s.owner_id = $1
-                -- Slide is a public sample
-                OR s.is_sample = TRUE
                 -- Slide is directly shared with user
                 OR EXISTS (
                     SELECT 1 FROM slide_shares ss

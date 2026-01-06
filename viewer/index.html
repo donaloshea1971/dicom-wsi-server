@@ -1978,7 +1978,7 @@
                     
                     if (allIds.length > 0) {
                         const studies = await Promise.all(
-                            allIds.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
+                            allIds.map(id => authFetch(`/api/studies/${id}`).then(r => r.json()))
                         );
                         
                         const studyMap = {};
@@ -2105,7 +2105,7 @@
                     
                     if (ids && ids.length > 0) {
                         const studies = await Promise.all(
-                            ids.map(id => fetch(`/api/studies/${id}`).then(r => r.json()))
+                            ids.map(id => authFetch(`/api/studies/${id}`).then(r => r.json()))
                         );
                         
                         const ownedStudies = studies.filter(s => ownership[s.ID] === 'owned');
@@ -2268,7 +2268,7 @@
 
             try {
                 // Get study info to find series ID
-                const studyResponse = await fetch(`/api/studies/${studyId}`);
+                const studyResponse = await authFetch(`/api/studies/${studyId}`);
                 const studyData = await studyResponse.json();
                 
                 if (!studyData.Series || studyData.Series.length === 0) {
@@ -2786,7 +2786,7 @@
             
             try {
                 // Fetch ICC profile with transform data
-                const res = await fetch(`/api/studies/${studyId}/icc-profile?include_transform=true`);
+                const res = await authFetch(`/api/studies/${studyId}/icc-profile?include_transform=true`);
                 if (res.ok) {
                     const data = await res.json();
                     currentICCProfile = data;
@@ -3974,7 +3974,7 @@
             }
             
             try {
-                const response = await fetch(`/api/studies/${currentStudy}/annotations/export?format=${format}`);
+                const response = await authFetch(`/api/studies/${currentStudy}/annotations/export?format=${format}`);
                 if (!response.ok) throw new Error('Export failed');
                 
                 const data = await response.json();
@@ -4162,7 +4162,7 @@
                 
                 // Try to save to server
                 try {
-                    await fetch(`/api/studies/${currentStudy}/annotations/${annotationId}`, {
+                    await authFetch(`/api/studies/${currentStudy}/annotations/${annotationId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -4186,7 +4186,7 @@
             
             if (confirm('Clear all annotations for this study?')) {
                 try {
-                    await fetch(`/api/studies/${currentStudy}/annotations`, { method: 'DELETE' });
+                    await authFetch(`/api/studies/${currentStudy}/annotations`, { method: 'DELETE' });
                     annotationManager.clearAll();
                     updateAnnotationsList();
                 } catch (e) {
@@ -4399,7 +4399,7 @@
 
             try {
                 // Fetch study details
-                const studyRes = await fetch(`/api/studies/${currentStudy}${cacheBust}`);
+                const studyRes = await authFetch(`/api/studies/${currentStudy}${cacheBust}`);
                 const study = await studyRes.json();
                 
                 // Fetch first instance metadata
@@ -4558,7 +4558,7 @@
                 
                 // Check for ICC profile
                 try {
-                    const iccRes = await fetch(`/api/studies/${currentStudy}/icc-profile`);
+                    const iccRes = await authFetch(`/api/studies/${currentStudy}/icc-profile`);
                     if (iccRes.ok) {
                         const iccData = await iccRes.json();
                         if (iccData.has_icc) {
