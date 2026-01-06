@@ -2285,7 +2285,7 @@
                     const seriesData = await seriesInfo.json();
                     if (seriesData.Instances && seriesData.Instances.length > 0) {
                         const instanceId = seriesData.Instances[0];
-                        const tagsResponse = await fetch(`/api/instances/${instanceId}/simplified-tags`);
+                        const tagsResponse = await authFetch(`/api/instances/${instanceId}/simplified-tags`);
                         const tags = await tagsResponse.json();
                         const manufacturer = (tags.Manufacturer || '').toLowerCase();
                         if (manufacturer.includes('hamamatsu')) {
@@ -2304,7 +2304,7 @@
                 if (!pyramidResponse.ok) {
                     // Check if this is a Leica multi-file pyramid
                     console.log('Standard WSI pyramid not found, checking for Leica multi-file format...');
-                    const leicaResponse = await fetch(`/api/leica-pyramid/${studyId}`);
+                    const leicaResponse = await authFetch(`/api/leica-pyramid/${studyId}`);
                     
                     if (leicaResponse.ok) {
                         pyramid = await leicaResponse.json();
@@ -4433,7 +4433,7 @@
                 let instanceTags = null;
                 if (instances.length > 0) {
                     try {
-                        const tagsRes = await fetch(`/api/instances/${instances[0]}/simplified-tags${cacheBust}`);
+                        const tagsRes = await authFetch(`/api/instances/${instances[0]}/simplified-tags${cacheBust}`);
                         instanceTags = await tagsRes.json();
                         console.log('[Metadata] Instance tags:', instanceTags);
                     } catch(e) {
