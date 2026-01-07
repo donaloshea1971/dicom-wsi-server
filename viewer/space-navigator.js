@@ -5,8 +5,15 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.15.2';
+const SPACEMOUSE_VERSION = '1.16.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
+
+// Preferences storage key
+const SPACEMOUSE_PREFS_KEY = 'spacemouse_preferences';
+
+// Global event suppression state (can be enabled before controller exists)
+let _globalSuppressionEnabled = false;
+let _globalSuppressionHandlers = null;
 
 // Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
 // Larger screens will pan faster to maintain consistent physical motion
@@ -291,6 +298,13 @@ class SpaceNavigatorController {
                 // Suppress 3Dconnexion driver default actions
                 this.enableEventSuppression();
                 
+                // Save preference that SpaceMouse is in use
+                SpaceNavigatorController.savePreferences({
+                    lastConnected: Date.now(),
+                    connectionMode: 'webhid',
+                    deviceName: this.device.productName
+                });
+
                 console.log('%c🎮 SpaceMouse auto-connected via WebHID!', 'color: #10b981; font-weight: bold');
                 console.log(`Device: ${this.device.productName}`);
                 
@@ -367,6 +381,12 @@ class SpaceNavigatorController {
                     this.updateStatus('connected');
                     this.showCrosshair();
                     this.enableEventSuppression();
+                    
+                    // Save preference
+                    SpaceNavigatorController.savePreferences({
+                        lastConnected: Date.now(),
+                        connectionMode: '3dxware'
+                    });
                     
                     resolve(true);
                 };
@@ -564,6 +584,12 @@ class SpaceNavigatorController {
         // Suppress events
         this.enableEventSuppression();
         
+        // Save preference
+        SpaceNavigatorController.savePreferences({
+            lastConnected: Date.now(),
+            connectionMode: 'gamepad'
+        });
+
         console.log('%c🎮 SpaceMouse connected via Gamepad API!', 'color: #f59e0b; font-weight: bold');
         console.log('%c   ⚠️ Gamepad API may have limited axis support', 'color: #f59e0b');
         
@@ -774,6 +800,13 @@ class SpaceNavigatorController {
             // Suppress 3Dconnexion driver default actions (menus, shortcuts)
             this.enableEventSuppression();
             
+            // Save preference
+            SpaceNavigatorController.savePreferences({
+                lastConnected: Date.now(),
+                connectionMode: 'webhid',
+                deviceName: this.device.productName
+            });
+
             return true;
         } catch (error) {
             if (error.name === 'NotFoundError') {
@@ -2191,6 +2224,134 @@ class SpaceNavigatorController {
         console.log('SpaceMouse: Event suppression disabled');
     }
 }
+
+    // ========== STATIC PREFERENCE MANAGEMENT ==========
+    
+    /**
+     * Get stored preferences
+     */
+    static getPreferences() {
+        try {
+            const saved = localStorage.getItem(SPACEMOUSE_PREFS_KEY);
+            return saved ? JSON.parse(saved) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    /**
+     * Save preferences
+     */
+    static savePreferences(prefs) {
+        try {
+            const existing = SpaceNavigatorController.getPreferences() || {};
+            const merged = { ...existing, ...prefs, lastUpdated: Date.now() };
+            localStorage.setItem(SPACEMOUSE_PREFS_KEY, JSON.stringify(merged));
+            console.log('SpaceMouse: Preferences saved');
+        } catch (e) {
+            console.warn('SpaceMouse: Failed to save preferences:', e);
+        }
+    }
+    
+    /**
+     * Check if SpaceMouse was previously used (for early suppression)
+     */
+    static wasRecentlyUsed() {
+        const prefs = SpaceNavigatorController.getPreferences();
+        if (!prefs) return false;
+        // Consider "recently used" if used within the last 30 days
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        return prefs.lastConnected && (Date.now() - prefs.lastConnected) < thirtyDays;
+    }
+    
+    /**
+     * Enable global event suppression (can be called before controller exists)
+     * This blocks 3Dconnexion driver menus/shortcuts
+     */
+    static enableGlobalSuppression() {
+        if (_globalSuppressionEnabled) return;
+        
+        const contextHandler = (e) => {
+            // Always block context menu on the viewer
+            const target = e.target;
+            if (target.closest('#osd-viewer') || target.closest('#osd-viewer-2') || target.closest('.openseadragon-container')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        };
+        
+        const keyHandler = (e) => {
+            // Block Ctrl+Shift combinations (3Dconnexion shortcuts)
+            if (e.ctrlKey && e.shiftKey) {
+                const blocked = ['KeyR', 'KeyF', 'KeyC', 'KeyV', 'Digit1', 'Digit2', 'Digit3'];
+                if (blocked.includes(e.code)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        };
+        
+        const auxHandler = (e) => {
+            // Block middle-click on viewer
+            if (e.target.closest('#osd-viewer') || e.target.closest('.openseadragon-container')) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+        
+        const mouseDownHandler = (e) => {
+            // Block right-click (button 2) on viewer areas
+            if (e.button === 2) {
+                const target = e.target;
+                if (target.closest('#osd-viewer') || target.closest('#osd-viewer-2') || target.closest('.openseadragon-container')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        };
+        
+        document.addEventListener('contextmenu', contextHandler, true);
+        document.addEventListener('keydown', keyHandler, true);
+        document.addEventListener('auxclick', auxHandler, true);
+        document.addEventListener('mousedown', mouseDownHandler, true);
+        
+        _globalSuppressionHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler };
+        _globalSuppressionEnabled = true;
+        console.log('%c🎮 SpaceMouse: Global event suppression enabled', 'color: #6366f1');
+    }
+    
+    /**
+     * Disable global event suppression
+     */
+    static disableGlobalSuppression() {
+        if (!_globalSuppressionEnabled || !_globalSuppressionHandlers) return;
+        
+        document.removeEventListener('contextmenu', _globalSuppressionHandlers.contextHandler, true);
+        document.removeEventListener('keydown', _globalSuppressionHandlers.keyHandler, true);
+        document.removeEventListener('auxclick', _globalSuppressionHandlers.auxHandler, true);
+        document.removeEventListener('mousedown', _globalSuppressionHandlers.mouseDownHandler, true);
+        
+        _globalSuppressionHandlers = null;
+        _globalSuppressionEnabled = false;
+        console.log('SpaceMouse: Global event suppression disabled');
+    }
+    
+    /**
+     * Initialize early - call this on page load to set up suppression if needed
+     */
+    static initEarly() {
+        if (SpaceNavigatorController.wasRecentlyUsed()) {
+            console.log('%c🎮 SpaceMouse: Previously used, enabling early suppression', 'color: #6366f1');
+            SpaceNavigatorController.enableGlobalSuppression();
+            return true;
+        }
+        return false;
+    }
+}
+
+// Auto-initialize early suppression on module load
+SpaceNavigatorController.initEarly();
 
 // Export for use
 if (typeof module !== 'undefined' && module.exports) {
