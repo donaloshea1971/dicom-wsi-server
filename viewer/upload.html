@@ -118,8 +118,8 @@
 
         // App Bootstrapper
         document.addEventListener('DOMContentLoaded', async () => {
-            // Initialize Auth (from auth.js)
-            await initAuth();
+            // Initialize Auth (from auth.js) - don't redirect if unauthenticated
+            await initAuth(false);
             
             // Initialize Upload UI (from upload-ui.js)
             initUploadUI();

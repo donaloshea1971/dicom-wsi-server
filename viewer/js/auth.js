@@ -21,14 +21,15 @@ if (typeof CONFIG === 'undefined') {
 
 /**
  * Initialize Auth0 and check authentication
+ * @param {boolean} redirectIfUnauthed - Whether to redirect to home if not logged in
  */
-async function initAuth() {
+async function initAuth(redirectIfUnauthed = true) {
     try {
         auth0Client = await auth0.createAuth0Client({
             domain: AUTH0_DOMAIN,
             clientId: AUTH0_CLIENT_ID,
             authorizationParams: {
-                redirect_uri: 'https://pathviewpro.com/callback',
+                redirect_uri: window.location.origin + '/callback',
                 audience: 'https://pathviewpro.com/api'
             },
             cacheLocation: 'localstorage',
@@ -36,48 +37,82 @@ async function initAuth() {
             useRefreshTokensFallback: true
         });
 
+        // Handle callback if present in URL
+        if (window.location.search.includes('code=')) {
+            await auth0Client.handleRedirectCallback();
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
         const isAuthenticated = await auth0Client.isAuthenticated();
         
         if (!isAuthenticated) {
-            // Not logged in - redirect to landing
-            window.location.href = '/';
+            updateUserUI(false);
+            if (redirectIfUnauthed) {
+                console.log('User not authenticated, redirecting to landing...');
+                window.location.href = '/';
+            }
             return false;
         }
 
         // Get user info
         currentUser = await auth0Client.getUser();
-        updateUserUI();
+        updateUserUI(true);
         
-        // Sync profile to backend (email, name, picture)
+        // Sync profile to backend
         syncUserProfile();
         
         return true;
     } catch (e) {
         console.error('Auth init error:', e);
-        // If Auth0 not configured, allow access (dev mode)
-        if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN') {
-            console.warn('Auth0 not configured - running in dev mode');
-            return true;
-        }
+        updateUserUI(false);
         return false;
     }
 }
 
 /**
  * Update UI with current user info
+ * @param {boolean} authenticated - Current auth status
  */
-function updateUserUI() {
-    if (!currentUser) return;
-    
+function updateUserUI(authenticated = true) {
     const userMenu = document.getElementById('user-menu');
     const userAvatar = document.getElementById('user-avatar');
     const userName = document.getElementById('user-name');
     const userEmail = document.getElementById('user-email');
+    const authBadge = document.getElementById('auth-badge');
+    const loginBtn = document.getElementById('login-btn');
     
-    if (userMenu) userMenu.style.display = 'block';
-    if (userAvatar) userAvatar.src = currentUser.picture || '';
-    if (userName) userName.textContent = currentUser.name || currentUser.email?.split('@')[0] || 'User';
-    if (userEmail) userEmail.textContent = currentUser.email || '';
+    if (authenticated && currentUser) {
+        if (userMenu) userMenu.style.display = 'block';
+        if (loginBtn) loginBtn.style.display = 'none';
+        if (userAvatar) userAvatar.src = currentUser.picture || '';
+        if (userName) userName.textContent = currentUser.name || currentUser.email?.split('@')[0] || 'User';
+        if (userEmail) userEmail.textContent = currentUser.email || '';
+        
+        if (authBadge) {
+            authBadge.innerHTML = `✓ Logged in as <strong>${currentUser.email}</strong> - uploads will be saved to your account`;
+            authBadge.style.color = 'var(--success)';
+        }
+    } else {
+        if (userMenu) userMenu.style.display = 'none';
+        if (loginBtn) loginBtn.style.display = 'block';
+        
+        if (authBadge) {
+            authBadge.innerHTML = '⚠ Not logged in - <button onclick="login()" style="color: var(--accent); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0; font: inherit;">Click to login</button> to own your uploads';
+            authBadge.style.color = 'var(--warning)';
+        }
+    }
+}
+
+/**
+ * Trigger login redirect
+ */
+async function login() {
+    if (!auth0Client) return;
+    await auth0Client.loginWithRedirect({
+        authorizationParams: {
+            redirect_uri: window.location.href
+        }
+    });
 }
 
 /**

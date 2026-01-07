@@ -6,13 +6,16 @@
 /**
  * Poll for chunked upload status (server assembles and converts)
  */
-async function pollChunkedUploadStatus(item, uploadId, token) {
+async function pollChunkedUploadStatus(item, uploadId, initialToken) {
     item.status = 'converting';
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 30; // 1.5 min of failures
     
     while (true) {
         try {
+            // Re-fetch token to avoid expiration during long conversions
+            const token = typeof getAuthToken === 'function' ? await getAuthToken() : initialToken;
+            
             const status = await fetchWithRetry(`/api/upload/${uploadId}/status`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : {}
             }, 2);
@@ -57,12 +60,15 @@ async function pollChunkedUploadStatus(item, uploadId, token) {
 /**
  * Poll for conversion job status (simple upload)
  */
-async function pollConversionStatus(item, token) {
+async function pollConversionStatus(item, initialToken) {
     item.status = 'converting';
     item.progress = 50;
     
     while (true) {
         try {
+            // Re-fetch token to avoid expiration
+            const token = typeof getAuthToken === 'function' ? await getAuthToken() : initialToken;
+            
             const job = await fetchWithRetry(`/api/jobs/${item.jobId}`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : {}
             });
