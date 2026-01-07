@@ -395,6 +395,94 @@ async def create_annotation(
     }
 
 
+# NOTE: Export route MUST come before {annotation_id} routes to avoid path matching issues
+@app.get("/studies/{study_id}/annotations/export")
+async def export_annotations(study_id: str, format: str = "json", user: User = Depends(require_user)):
+    """Export annotations as JSON or GeoJSON"""
+    # Check access
+    if not user.id or not await can_access_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Access denied to this slide")
+    
+    pool = await get_db_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, study_id, type, tool, geometry, properties, created_at, updated_at
+            FROM annotations
+            WHERE study_id = $1
+            ORDER BY created_at ASC
+            """,
+            study_id
+        )
+        
+        # Parse all rows with proper JSON handling
+        parsed_annotations = []
+        for row in rows:
+            geom = row["geometry"]
+            if isinstance(geom, str):
+                try:
+                    geom = json.loads(geom)
+                except:
+                    geom = {"type": "Unknown", "coordinates": []}
+            
+            props = row["properties"] or {}
+            if isinstance(props, str):
+                try:
+                    props = json.loads(props)
+                except:
+                    props = {}
+            
+            parsed_annotations.append({
+                "id": row["id"],
+                "study_id": row["study_id"],
+                "type": row["type"],
+                "tool": row["tool"],
+                "geometry": geom,
+                "properties": props,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+            })
+        
+        if format == "geojson":
+            # Export as GeoJSON FeatureCollection
+            features = []
+            for ann in parsed_annotations:
+                feature = {
+                    "type": "Feature",
+                    "id": ann["id"],
+                    "geometry": ann["geometry"],
+                    "properties": {
+                        **ann["properties"],
+                        "tool": ann["tool"],
+                        "annotation_type": ann["type"],
+                        "created_at": ann["created_at"]
+                    }
+                }
+                features.append(feature)
+            
+            return {
+                "type": "FeatureCollection",
+                "features": features,
+                "properties": {
+                    "study_id": study_id,
+                    "count": len(features),
+                    "exported_at": datetime.utcnow().isoformat()
+                }
+            }
+        else:
+            # Export as PathView Pro JSON format
+            return {
+                "version": "1.0",
+                "study_id": study_id,
+                "count": len(parsed_annotations),
+                "exported_at": datetime.utcnow().isoformat(),
+                "annotations": parsed_annotations
+            }
+
+
 @app.get("/studies/{study_id}/annotations/{annotation_id}")
 async def get_annotation(study_id: str, annotation_id: str, user: User = Depends(require_user)):
     """Get a specific annotation"""
@@ -529,93 +617,6 @@ async def clear_annotations(study_id: str, user: User = Depends(require_user)):
         count = int(result.split()[-1]) if result else 0
         logger.info(f"Cleared {count} annotations for slide {study_id}")
         return {"message": f"Deleted {count} annotations", "count": count}
-
-
-@app.get("/studies/{study_id}/annotations/export")
-async def export_annotations(study_id: str, format: str = "json", user: User = Depends(require_user)):
-    """Export annotations as JSON or GeoJSON"""
-    # Check access
-    if not user.id or not await can_access_study(user.id, study_id):
-        raise HTTPException(status_code=403, detail="Access denied to this slide")
-    
-    pool = await get_db_pool()
-    if pool is None:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, study_id, type, tool, geometry, properties, created_at, updated_at
-            FROM annotations
-            WHERE study_id = $1
-            ORDER BY created_at ASC
-            """,
-            study_id
-        )
-        
-        # Parse all rows with proper JSON handling
-        parsed_annotations = []
-        for row in rows:
-            geom = row["geometry"]
-            if isinstance(geom, str):
-                try:
-                    geom = json.loads(geom)
-                except:
-                    geom = {"type": "Unknown", "coordinates": []}
-            
-            props = row["properties"] or {}
-            if isinstance(props, str):
-                try:
-                    props = json.loads(props)
-                except:
-                    props = {}
-            
-            parsed_annotations.append({
-                "id": row["id"],
-                "study_id": row["study_id"],
-                "type": row["type"],
-                "tool": row["tool"],
-                "geometry": geom,
-                "properties": props,
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
-            })
-        
-        if format == "geojson":
-            # Export as GeoJSON FeatureCollection
-            features = []
-            for ann in parsed_annotations:
-                feature = {
-                    "type": "Feature",
-                    "id": ann["id"],
-                    "geometry": ann["geometry"],
-                    "properties": {
-                        **ann["properties"],
-                        "tool": ann["tool"],
-                        "annotation_type": ann["type"],
-                        "created_at": ann["created_at"]
-                    }
-                }
-                features.append(feature)
-            
-            return {
-                "type": "FeatureCollection",
-                "features": features,
-                "properties": {
-                    "study_id": study_id,
-                    "count": len(features),
-                    "exported_at": datetime.utcnow().isoformat()
-                }
-            }
-        else:
-            # Export as PathView Pro JSON format
-            return {
-                "version": "1.0",
-                "study_id": study_id,
-                "count": len(parsed_annotations),
-                "exported_at": datetime.utcnow().isoformat(),
-                "annotations": parsed_annotations
-            }
 
 
 @app.get("/studies/{study_id}/calibration")
