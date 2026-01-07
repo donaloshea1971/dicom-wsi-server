@@ -3454,13 +3454,18 @@
             }
         }
         
+        let shareInProgress = false;
         async function shareWithUser(email, element) {
             if (!currentShareStudyId) return;
+            if (shareInProgress) return; // Prevent double-clicks
             
+            shareInProgress = true;
             element.style.opacity = '0.5';
             element.style.pointerEvents = 'none';
+            element.onclick = null; // Remove click handler to prevent re-triggering
             
             try {
+                console.log('Sharing with:', email);
                 const response = await authFetch(`/api/studies/${currentShareStudyId}/share`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3468,9 +3473,11 @@
                 });
                 
                 if (!response.ok) {
-                    const err = await response.json();
+                    const err = await response.json().catch(() => ({ detail: 'Share failed' }));
                     throw new Error(err.detail || 'Share failed');
                 }
+                
+                console.log('Share successful');
                 
                 // Show success
                 element.innerHTML = `
@@ -3478,19 +3485,25 @@
                 `;
                 
                 // Reload current shares and update button
-                const shares = await loadCurrentShares(currentShareStudyId);
-                updateShareButtonState(currentShareStudyId, shares.length);
+                const studyId = currentShareStudyId; // Capture before async
+                const shares = await loadCurrentShares(studyId);
+                updateShareButtonState(studyId, shares.length);
                 
                 // Clear search
-                document.getElementById('share-search').value = '';
-                document.getElementById('share-results').innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                const searchInput = document.getElementById('share-search');
+                const resultsDiv = document.getElementById('share-results');
+                if (searchInput) searchInput.value = '';
+                if (resultsDiv) resultsDiv.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
                     Type to search for more users
                 </div>`;
                 
             } catch (e) {
+                console.error('Share failed:', e);
                 element.style.opacity = '1';
                 element.style.pointerEvents = 'auto';
                 alert('Failed to share: ' + e.message);
+            } finally {
+                shareInProgress = false;
             }
         }
         
