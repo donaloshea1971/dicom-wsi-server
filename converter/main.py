@@ -297,19 +297,31 @@ async def get_annotations(study_id: str, user: User = Depends(require_user)):
             study_id
         )
         
-        annotations = [
-            {
+        annotations = []
+        for row in rows:
+            # Parse geometry if it's a string (shouldn't happen with JSONB, but safety check)
+            geometry = row["geometry"]
+            if isinstance(geometry, str):
+                try:
+                    geometry = json.loads(geometry)
+                except:
+                    geometry = {"type": "Unknown", "coordinates": []}
+            
+            # Skip annotations with missing coordinates
+            if not geometry or not geometry.get("coordinates"):
+                logger.warning(f"Skipping annotation {row['id']} with invalid geometry")
+                continue
+            
+            annotations.append({
                 "id": row["id"],
                 "study_id": row["study_id"],
                 "type": row["type"],
                 "tool": row["tool"],
-                "geometry": row["geometry"],
+                "geometry": geometry,
                 "properties": row["properties"] or {},
                 "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                 "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
-            }
-            for row in rows
-        ]
+            })
         
         return {"annotations": annotations, "count": len(annotations)}
 
@@ -359,7 +371,9 @@ async def create_annotation(
             now
         )
     
+    geometry_data = annotation.geometry.model_dump()
     logger.info(f"Created annotation {annotation_id} for slide {study_id} (user: {user_id})")
+    logger.debug(f"Annotation geometry: {geometry_data}")
     
     return {
         "id": annotation_id,
