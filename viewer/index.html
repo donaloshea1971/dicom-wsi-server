@@ -178,6 +178,103 @@
             letter-spacing: 1px;
         }
 
+        .view-btn {
+            padding: 6px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .view-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+
+        .view-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        /* Grouped view styles */
+        .case-group {
+            margin-bottom: 4px;
+        }
+
+        .case-group-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .case-group-header:hover {
+            background: var(--bg-secondary);
+        }
+
+        .case-group-header .expand-icon {
+            transition: transform 0.2s;
+        }
+
+        .case-group-header.collapsed .expand-icon {
+            transform: rotate(-90deg);
+        }
+
+        .case-group-header .case-info {
+            flex: 1;
+        }
+
+        .case-group-header .case-title {
+            font-weight: 500;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .case-group-header .case-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .case-group-header .slide-count {
+            font-size: 11px;
+            background: var(--bg-secondary);
+            padding: 2px 8px;
+            border-radius: 10px;
+            color: var(--text-secondary);
+        }
+
+        .case-group-slides {
+            padding-left: 12px;
+            border-left: 2px solid var(--border);
+            margin-left: 20px;
+        }
+
+        .case-group-slides.collapsed {
+            display: none;
+        }
+
+        .case-group-slides .study-card {
+            margin: 4px 0;
+        }
+
+        .ungrouped-header {
+            padding: 8px 16px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
         .study-list {
             flex: 1;
             overflow-y: auto;
@@ -1495,7 +1592,22 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-header">
-            <h2>🔬 Slides</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>🔬 Slides</h2>
+                <div class="view-toggle" style="display: flex; gap: 4px;">
+                    <button id="view-flat" onclick="setViewMode('flat')" class="view-btn active" title="Flat list">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                    </button>
+                    <button id="view-grouped" onclick="setViewMode('grouped')" class="view-btn" title="Group by Case/Patient">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
             <div class="search-box" style="margin-top: 12px;">
                 <input type="text" id="study-search" placeholder="🔍 Search slides..." 
                        oninput="filterStudies(this.value)"
@@ -2289,35 +2401,19 @@
                         // Store study list for navigation
                         studyList = [...ownedIds, ...sharedIds, ...sampleIds];
                         
+                        // Cache for view mode switching
+                        allStudiesCache = {
+                            owned: ownedStudies,
+                            shared: sharedStudies,
+                            samples: sampleStudies
+                        };
+                        
+                        // Render based on current view mode
                         let html = '';
-                        
-                        // Show owned slides
-                        if (ownedStudies.length > 0) {
-                            html += `<div class="study-section-header">🔬 Your Slides (${ownedStudies.length})</div>`;
-                            html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
-                        }
-                        
-                        // Show shared slides
-                        if (sharedStudies.length > 0) {
-                            html += `<div class="study-section-header" style="margin-top: 16px;">🔗 Shared with You (${sharedStudies.length})</div>`;
-                            html += sharedStudies.map(study => renderStudyCard(study, 'shared')).join('');
-                        }
-                        
-                        // Show sample slides
-                        if (sampleStudies.length > 0 && !hideSamples) {
-                            html += `
-                                <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>📚 Sample Slides (${sampleStudies.length})</span>
-                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
-                                        ✕ Hide
-                                    </button>
-                                </div>
-                            `;
-                            html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
-                        }
-                        
-                        if (!html) {
-                            html = renderEmptyState(hideSamples);
+                        if (currentViewMode === 'grouped') {
+                            html = renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSamples);
+                        } else {
+                            html = renderFlatView(ownedStudies, sharedStudies, sampleStudies, hideSamples);
                         }
                         
                         list.innerHTML = html;
@@ -2351,27 +2447,19 @@
                         
                         studyList = [...ownedStudies.map(s => s.ID), ...sampleStudies.map(s => s.ID)];
                         
+                        // Cache for view mode switching
+                        allStudiesCache = {
+                            owned: ownedStudies,
+                            shared: [],
+                            samples: sampleStudies
+                        };
+                        
+                        // Render based on current view mode
                         let html = '';
-                        
-                        if (ownedStudies.length > 0) {
-                            html += `<div class="study-section-header">🔬 Your Slides</div>`;
-                            html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
-                        }
-                        
-                        if (sampleStudies.length > 0 && !hideSamples) {
-                            html += `
-                                <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
-                                    <span>📚 Sample Slides</span>
-                                    <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
-                                        ✕ Hide
-                                    </button>
-                                </div>
-                            `;
-                            html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
-                        }
-                        
-                        if (!html) {
-                            html = renderEmptyState(hideSamples);
+                        if (currentViewMode === 'grouped') {
+                            html = renderGroupedView(ownedStudies, [], sampleStudies, hideSamples);
+                        } else {
+                            html = renderFlatView(ownedStudies, [], sampleStudies, hideSamples);
                         }
                         
                         list.innerHTML = html;
@@ -4788,24 +4876,169 @@
         }
         
         // Search/filter studies
-        let allStudiesCache = [];
+        let allStudiesCache = { owned: [], shared: [], samples: [] };
+        let currentViewMode = 'flat'; // 'flat' or 'grouped'
         
         function filterStudies(query) {
             const studyList = document.getElementById('study-list');
             const cards = studyList.querySelectorAll('.study-card');
+            const groups = studyList.querySelectorAll('.case-group');
             const q = query.toLowerCase().trim();
             
             if (!q) {
                 // Show all
                 cards.forEach(card => card.style.display = '');
+                groups.forEach(g => g.style.display = '');
                 return;
             }
             
+            // Filter cards
             cards.forEach(card => {
                 const text = card.textContent.toLowerCase();
                 const matches = text.includes(q);
                 card.style.display = matches ? '' : 'none';
             });
+            
+            // In grouped view, hide empty groups
+            groups.forEach(group => {
+                const visibleCards = group.querySelectorAll('.study-card:not([style*="display: none"])');
+                group.style.display = visibleCards.length > 0 ? '' : 'none';
+            });
+        }
+        
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            
+            // Update buttons
+            document.getElementById('view-flat').classList.toggle('active', mode === 'flat');
+            document.getElementById('view-grouped').classList.toggle('active', mode === 'grouped');
+            
+            // Re-render the study list
+            rerenderStudyList();
+        }
+        
+        function rerenderStudyList() {
+            const list = document.getElementById('study-list');
+            const hideSamples = localStorage.getItem('hideSampleSlides') === 'true';
+            
+            if (currentViewMode === 'grouped') {
+                list.innerHTML = renderGroupedView(allStudiesCache.owned, allStudiesCache.shared, allStudiesCache.samples, hideSamples);
+            } else {
+                list.innerHTML = renderFlatView(allStudiesCache.owned, allStudiesCache.shared, allStudiesCache.samples, hideSamples);
+            }
+        }
+        
+        function renderFlatView(ownedStudies, sharedStudies, sampleStudies, hideSamples) {
+            let html = '';
+            
+            if (ownedStudies.length > 0) {
+                html += `<div class="study-section-header">🔬 Your Slides (${ownedStudies.length})</div>`;
+                html += ownedStudies.map(study => renderStudyCard(study, 'owned')).join('');
+            }
+            
+            if (sharedStudies.length > 0) {
+                html += `<div class="study-section-header" style="margin-top: 16px;">🔗 Shared with You (${sharedStudies.length})</div>`;
+                html += sharedStudies.map(study => renderStudyCard(study, 'shared')).join('');
+            }
+            
+            if (sampleStudies.length > 0 && !hideSamples) {
+                html += `
+                    <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>📚 Sample Slides (${sampleStudies.length})</span>
+                        <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
+                            ✕ Hide
+                        </button>
+                    </div>
+                `;
+                html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
+            }
+            
+            return html || renderEmptyState(hideSamples);
+        }
+        
+        function renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSamples) {
+            let html = '';
+            
+            // Group owned slides by case_accession or patient_name
+            const groups = {};
+            const ungrouped = [];
+            
+            [...ownedStudies, ...sharedStudies].forEach(study => {
+                const groupKey = study.case_accession || study.patient_name || null;
+                if (groupKey) {
+                    if (!groups[groupKey]) {
+                        groups[groupKey] = {
+                            key: groupKey,
+                            case_accession: study.case_accession,
+                            patient_name: study.patient_name,
+                            patient_dob: study.patient_dob,
+                            slides: []
+                        };
+                    }
+                    groups[groupKey].slides.push(study);
+                } else {
+                    ungrouped.push(study);
+                }
+            });
+            
+            // Render groups
+            const groupKeys = Object.keys(groups).sort();
+            if (groupKeys.length > 0) {
+                html += `<div class="study-section-header">📁 Cases & Patients (${groupKeys.length})</div>`;
+                
+                groupKeys.forEach(key => {
+                    const group = groups[key];
+                    const isOwned = group.slides.some(s => ownedStudies.includes(s));
+                    
+                    html += `
+                        <div class="case-group">
+                            <div class="case-group-header" onclick="toggleCaseGroup(this)">
+                                <svg class="expand-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                                <div class="case-info">
+                                    <div class="case-title">${group.case_accession ? '📋 ' + group.case_accession : '👤 ' + group.patient_name}</div>
+                                    <div class="case-meta">
+                                        ${group.patient_name && group.case_accession ? group.patient_name + ' • ' : ''}
+                                        ${group.patient_dob ? group.patient_dob.substring(0, 10) : ''}
+                                    </div>
+                                </div>
+                                <span class="slide-count">${group.slides.length} slide${group.slides.length > 1 ? 's' : ''}</span>
+                            </div>
+                            <div class="case-group-slides">
+                                ${group.slides.map(study => renderStudyCard(study, isOwned ? 'owned' : 'shared')).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            // Render ungrouped
+            if (ungrouped.length > 0) {
+                html += `<div class="ungrouped-header">Ungrouped Slides (${ungrouped.length})</div>`;
+                html += ungrouped.map(study => renderStudyCard(study, 'owned')).join('');
+            }
+            
+            // Sample slides
+            if (sampleStudies.length > 0 && !hideSamples) {
+                html += `
+                    <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                        <span>📚 Sample Slides (${sampleStudies.length})</span>
+                        <button class="btn-small" onclick="event.stopPropagation(); hideSamples();" title="Hide sample slides">
+                            ✕ Hide
+                        </button>
+                    </div>
+                `;
+                html += sampleStudies.map(study => renderStudyCard(study, 'sample')).join('');
+            }
+            
+            return html || renderEmptyState(hideSamples);
+        }
+        
+        function toggleCaseGroup(header) {
+            header.classList.toggle('collapsed');
+            const slides = header.nextElementSibling;
+            slides.classList.toggle('collapsed');
         }
         
         function toggleKeyboardHelp() {
