@@ -5,12 +5,15 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.15.0';
+const SPACEMOUSE_VERSION = '1.15.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
 // Larger screens will pan faster to maintain consistent physical motion
 const REFERENCE_WIDTH = 1920;
+
+// Reference frame time - calibrated on 144Hz Lenovo Legion (6.94ms per frame)
+const REFERENCE_FRAME_MS = 1000 / 144;  // 6.944ms
 
 // Log API support on load
 const _webhidSupport = 'hid' in navigator;
@@ -78,7 +81,7 @@ class SpaceNavigatorController {
         
         // Momentum/inertia for smooth deceleration
         this._velocity = { x: 0, y: 0 };
-        this._momentumDecay = 0.96;  // Decay factor per frame at 60fps (0.96 = longer glide)
+        this._momentumDecay = 0.96;  // Decay factor per frame at 144fps baseline (0.96 = longer glide)
         this._hasActiveInput = false;
         this._lastDecayTime = 0;     // For time-based decay (frame-rate independent)
         
@@ -1170,11 +1173,11 @@ class SpaceNavigatorController {
             // No input but we have momentum - apply TIME-BASED decay
             // This ensures consistent coast duration regardless of display refresh rate
             const now = performance.now();
-            const deltaMs = this._lastDecayTime ? (now - this._lastDecayTime) : 16.67;
+            const deltaMs = this._lastDecayTime ? (now - this._lastDecayTime) : REFERENCE_FRAME_MS;
             this._lastDecayTime = now;
             
-            // Normalize to 60fps (16.67ms per frame) - if frame took longer, decay more
-            const frameMultiplier = deltaMs / 16.67;
+            // Normalize to 144fps baseline (6.94ms per frame) - if frame took longer, decay more
+            const frameMultiplier = deltaMs / REFERENCE_FRAME_MS;
             
             // Apply screen scale + time correction
             // decay^(screenScale * frameMultiplier) handles both screen size AND frame rate
