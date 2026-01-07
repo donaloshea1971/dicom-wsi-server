@@ -1,0 +1,410 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - img
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - img [ref=e4]
+      - text: PathView Pro
+    - generic [ref=e7]:
+      - button "↻ Refresh" [ref=e8] [cursor=pointer]
+      - button "+ Upload" [ref=e9] [cursor=pointer]
+      - button "Donal O'Shea" [ref=e11] [cursor=pointer]:
+        - generic [ref=e12]: Donal O'Shea
+        - img [ref=e13]
+  - complementary [ref=e15]:
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - heading "🔬 Slides" [level=2] [ref=e18]
+        - generic [ref=e19]:
+          - button "Flat list" [ref=e20] [cursor=pointer]:
+            - img [ref=e21]
+          - button "Group by Case/Patient" [ref=e22] [cursor=pointer]:
+            - img [ref=e23]
+      - textbox "🔍 Search slides..." [ref=e26]
+    - generic [ref=e27]:
+      - generic [ref=e28]: 🔬 Your Slides (2)
+      - generic [ref=e29] [cursor=pointer]:
+        - generic [ref=e30]:
+          - generic [ref=e31]: b1be2e0e...
+          - generic [ref=e32]:
+            - button "⧉" [ref=e33]
+            - button "✏️ Edit" [ref=e34]
+            - button "Shared with 2 user(s)" [ref=e35]:
+              - img [ref=e36]
+        - generic [ref=e42]: Unnamed HE
+        - generic [ref=e43]: No patient info
+      - generic [ref=e44] [cursor=pointer]:
+        - generic [ref=e45]:
+          - generic [ref=e46]: f31f041c...
+          - generic [ref=e47]:
+            - button "⧉" [ref=e48]
+            - button "✏️ Edit" [ref=e49]
+            - button "Shared with 1 user(s)" [ref=e50]:
+              - img [ref=e51]
+        - generic [ref=e57]: Unnamed
+        - generic [ref=e58]: No patient info
+      - generic [ref=e59]: 🔗 Shared with You (4)
+      - generic [ref=e60] [cursor=pointer]:
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - text: 09e626fe...
+            - generic [ref=e63]: SHARED
+          - button "⧉" [ref=e65]
+        - generic [ref=e66]: A1 ER
+        - generic [ref=e67]: 12344 | John Smith
+      - generic [ref=e68] [cursor=pointer]:
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - text: 0a283ebe...
+            - generic [ref=e71]: SHARED
+          - button "⧉" [ref=e73]
+        - generic [ref=e74]: A2 HE
+        - generic [ref=e75]: 12344 | Joe Bloggs | 1971-05-31
+      - generic [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]:
+          - generic [ref=e78]:
+            - text: 354c5d61...
+            - generic [ref=e79]: SHARED
+          - button "⧉" [ref=e81]
+        - generic [ref=e82]: Unnamed
+        - generic [ref=e83]: No patient info
+      - generic [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]:
+          - generic [ref=e86]:
+            - text: 52391c74...
+            - generic [ref=e87]: SHARED
+          - button "⧉" [ref=e89]
+        - generic [ref=e90]: Unnamed
+        - generic [ref=e91]: Joe Bloggs | 1971-05-31
+      - generic [ref=e92]:
+        - generic [ref=e93]: 📚 Sample Slides (28)
+        - button "✕ Hide" [ref=e94] [cursor=pointer]
+      - generic [ref=e95] [cursor=pointer]:
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - text: 06a96294...
+            - generic [ref=e98]: SAMPLE
+          - button "⧉" [ref=e100]
+        - generic [ref=e101]: Unnamed
+        - generic [ref=e102]: No patient info
+      - generic [ref=e103] [cursor=pointer]:
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - text: 104c1b43...
+            - generic [ref=e106]: SAMPLE
+          - button "⧉" [ref=e108]
+        - generic [ref=e109]: Unnamed
+        - generic [ref=e110]: No patient info
+      - generic [ref=e111] [cursor=pointer]:
+        - generic [ref=e112]:
+          - generic [ref=e113]:
+            - text: 1602f43e...
+            - generic [ref=e114]: SAMPLE
+          - button "⧉" [ref=e116]
+        - generic [ref=e117]: Unnamed
+        - generic [ref=e118]: No patient info
+      - generic [ref=e119] [cursor=pointer]:
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - text: 33ea7933...
+            - generic [ref=e122]: SAMPLE
+          - button "⧉" [ref=e124]
+        - generic [ref=e125]: Unnamed
+        - generic [ref=e126]: No patient info
+      - generic [ref=e127] [cursor=pointer]:
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - text: 53cdfce7...
+            - generic [ref=e130]: SAMPLE
+          - button "⧉" [ref=e132]
+        - generic [ref=e133]: Unnamed
+        - generic [ref=e134]: No patient info
+      - generic [ref=e135] [cursor=pointer]:
+        - generic [ref=e136]:
+          - generic [ref=e137]:
+            - text: 53ebd087...
+            - generic [ref=e138]: SAMPLE
+          - button "⧉" [ref=e140]
+        - generic [ref=e141]: Unnamed
+        - generic [ref=e142]: No patient info
+      - generic [ref=e143] [cursor=pointer]:
+        - generic [ref=e144]:
+          - generic [ref=e145]:
+            - text: 60387282...
+            - generic [ref=e146]: SAMPLE
+          - button "⧉" [ref=e148]
+        - generic [ref=e149]: Unnamed
+        - generic [ref=e150]: No patient info
+      - generic [ref=e151] [cursor=pointer]:
+        - generic [ref=e152]:
+          - generic [ref=e153]:
+            - text: 606b32eb...
+            - generic [ref=e154]: SAMPLE
+          - button "⧉" [ref=e156]
+        - generic [ref=e157]: Unnamed
+        - generic [ref=e158]: No patient info
+      - generic [ref=e159] [cursor=pointer]:
+        - generic [ref=e160]:
+          - generic [ref=e161]:
+            - text: 6916f580...
+            - generic [ref=e162]: SAMPLE
+          - button "⧉" [ref=e164]
+        - generic [ref=e165]: Unnamed
+        - generic [ref=e166]: No patient info
+      - generic [ref=e167] [cursor=pointer]:
+        - generic [ref=e168]:
+          - generic [ref=e169]:
+            - text: 7d96401f...
+            - generic [ref=e170]: SAMPLE
+          - button "⧉" [ref=e172]
+        - generic [ref=e173]: Unnamed
+        - generic [ref=e174]: No patient info
+      - generic [ref=e175] [cursor=pointer]:
+        - generic [ref=e176]:
+          - generic [ref=e177]:
+            - text: 7e11c47b...
+            - generic [ref=e178]: SAMPLE
+          - button "⧉" [ref=e180]
+        - generic [ref=e181]: Unnamed
+        - generic [ref=e182]: No patient info
+      - generic [ref=e183] [cursor=pointer]:
+        - generic [ref=e184]:
+          - generic [ref=e185]:
+            - text: 85a151dc...
+            - generic [ref=e186]: SAMPLE
+          - button "⧉" [ref=e188]
+        - generic [ref=e189]: Unnamed
+        - generic [ref=e190]: No patient info
+      - generic [ref=e191] [cursor=pointer]:
+        - generic [ref=e192]:
+          - generic [ref=e193]:
+            - text: 8f5a29b5...
+            - generic [ref=e194]: SAMPLE
+          - button "⧉" [ref=e196]
+        - generic [ref=e197]: Unnamed
+        - generic [ref=e198]: No patient info
+      - generic [ref=e199] [cursor=pointer]:
+        - generic [ref=e200]:
+          - generic [ref=e201]:
+            - text: 9824fc99...
+            - generic [ref=e202]: SAMPLE
+          - button "⧉" [ref=e204]
+        - generic [ref=e205]: Unnamed
+        - generic [ref=e206]: No patient info
+      - generic [ref=e207] [cursor=pointer]:
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - text: 9c749064...
+            - generic [ref=e210]: SAMPLE
+          - button "⧉" [ref=e212]
+        - generic [ref=e213]: Unnamed
+        - generic [ref=e214]: No patient info
+      - generic [ref=e215] [cursor=pointer]:
+        - generic [ref=e216]:
+          - generic [ref=e217]:
+            - text: a37c6389...
+            - generic [ref=e218]: SAMPLE
+          - button "⧉" [ref=e220]
+        - generic [ref=e221]: Unnamed
+        - generic [ref=e222]: No patient info
+      - generic [ref=e223] [cursor=pointer]:
+        - generic [ref=e224]:
+          - generic [ref=e225]:
+            - text: a6f98e1c...
+            - generic [ref=e226]: SAMPLE
+          - button "⧉" [ref=e228]
+        - generic [ref=e229]: Unnamed
+        - generic [ref=e230]: No patient info
+      - generic [ref=e231] [cursor=pointer]:
+        - generic [ref=e232]:
+          - generic [ref=e233]:
+            - text: a7fd8c60...
+            - generic [ref=e234]: SAMPLE
+          - button "⧉" [ref=e236]
+        - generic [ref=e237]: Unnamed
+        - generic [ref=e238]: No patient info
+      - generic [ref=e239] [cursor=pointer]:
+        - generic [ref=e240]:
+          - generic [ref=e241]:
+            - text: b1bdb81a...
+            - generic [ref=e242]: SAMPLE
+          - button "⧉" [ref=e244]
+        - generic [ref=e245]: Unnamed
+        - generic [ref=e246]: No patient info
+      - generic [ref=e247] [cursor=pointer]:
+        - generic [ref=e248]:
+          - generic [ref=e249]:
+            - text: c8758186...
+            - generic [ref=e250]: SAMPLE
+          - button "⧉" [ref=e252]
+        - generic [ref=e253]: Unnamed
+        - generic [ref=e254]: No patient info
+      - generic [ref=e255] [cursor=pointer]:
+        - generic [ref=e256]:
+          - generic [ref=e257]:
+            - text: d0a9ed51...
+            - generic [ref=e258]: SAMPLE
+          - button "⧉" [ref=e260]
+        - generic [ref=e261]: Unnamed
+        - generic [ref=e262]: No patient info
+      - generic [ref=e263] [cursor=pointer]:
+        - generic [ref=e264]:
+          - generic [ref=e265]:
+            - text: d4dc2806...
+            - generic [ref=e266]: SAMPLE
+          - button "⧉" [ref=e268]
+        - generic [ref=e269]: Unnamed
+        - generic [ref=e270]: No patient info
+      - generic [ref=e271] [cursor=pointer]:
+        - generic [ref=e272]:
+          - generic [ref=e273]:
+            - text: d55de8ca...
+            - generic [ref=e274]: SAMPLE
+          - button "⧉" [ref=e276]
+        - generic [ref=e277]: Unnamed
+        - generic [ref=e278]: No patient info
+      - generic [ref=e279] [cursor=pointer]:
+        - generic [ref=e280]:
+          - generic [ref=e281]:
+            - text: e8ce2b29...
+            - generic [ref=e282]: SAMPLE
+          - button "⧉" [ref=e284]
+        - generic [ref=e285]: Unnamed
+        - generic [ref=e286]: No patient info
+      - generic [ref=e287] [cursor=pointer]:
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - text: e9adc540...
+            - generic [ref=e290]: SAMPLE
+          - button "⧉" [ref=e292]
+        - generic [ref=e293]: Unnamed
+        - generic [ref=e294]: No patient info
+      - generic [ref=e295] [cursor=pointer]:
+        - generic [ref=e296]:
+          - generic [ref=e297]:
+            - text: eb8ecd9c...
+            - generic [ref=e298]: SAMPLE
+          - button "⧉" [ref=e300]
+        - generic [ref=e301]: Unnamed
+        - generic [ref=e302]: No patient info
+      - generic [ref=e303] [cursor=pointer]:
+        - generic [ref=e304]:
+          - generic [ref=e305]:
+            - text: f36cc7fe...
+            - generic [ref=e306]: SAMPLE
+          - button "⧉" [ref=e308]
+        - generic [ref=e309]: Unnamed
+        - generic [ref=e310]: No patient info
+      - generic [ref=e311] [cursor=pointer]:
+        - generic [ref=e312]:
+          - generic [ref=e313]:
+            - text: faee2fdc...
+            - generic [ref=e314]: SAMPLE
+          - button "⧉" [ref=e316]
+        - generic [ref=e317]: Unnamed
+        - generic [ref=e318]: No patient info
+  - main [ref=e319]:
+    - generic [ref=e320]:
+      - generic:
+        - img
+    - generic [ref=e326]:
+      - generic [ref=e327]: 0.8x
+      - generic "Click to connect SpaceMouse" [ref=e328] [cursor=pointer]: 🎮
+      - generic "Color settings" [ref=e329] [cursor=pointer]: 🎨
+      - generic "Keyboard shortcuts (?)" [ref=e330] [cursor=pointer]: "?"
+      - generic [ref=e331]: "ICC: sRGB"
+    - generic [ref=e332]:
+      - button "Pan (P)" [ref=e333] [cursor=pointer]:
+        - img [ref=e334]
+      - button "Measure Distance (L)" [ref=e338] [cursor=pointer]:
+        - img [ref=e339]
+      - button "Measure Area (R)" [ref=e341] [cursor=pointer]:
+        - img [ref=e342]
+      - button "Polygon Region (G)" [ref=e344] [cursor=pointer]:
+        - img [ref=e345]
+      - button "Ellipse/Circle (E)" [ref=e347] [cursor=pointer]:
+        - img [ref=e348]
+      - button "Point Marker (M)" [ref=e351] [cursor=pointer]:
+        - img [ref=e352]
+      - button "Arrow (Shift+A)" [ref=e355] [cursor=pointer]:
+        - img [ref=e356]
+      - button "Text Label (T)" [ref=e359] [cursor=pointer]:
+        - img [ref=e360]
+      - button "Annotations List" [ref=e363] [cursor=pointer]:
+        - img [ref=e364]
+      - button "Clear All" [ref=e368] [cursor=pointer]:
+        - img [ref=e369]
+      - textbox "Annotation Color" [ref=e373] [cursor=pointer]: "#00d4aa"
+    - generic [ref=e374]:
+      - generic [ref=e375]:
+        - heading "📐 Annotations" [level=3] [ref=e376]
+        - generic [ref=e377]:
+          - button "📤 Import" [ref=e378] [cursor=pointer]
+          - generic [ref=e379]:
+            - button "📥 Export ▾" [active] [ref=e380] [cursor=pointer]
+            - generic [ref=e381]:
+              - button "📄 JSON" [ref=e382] [cursor=pointer]
+              - button "🗺️ GeoJSON" [ref=e383] [cursor=pointer]
+          - button "×" [ref=e384] [cursor=pointer]
+      - generic [ref=e385]:
+        - strong [ref=e386]: "Calibration:"
+        - generic [ref=e387]: 0.250 µm/px (default)
+      - generic [ref=e388]:
+        - generic [ref=e389] [cursor=pointer]:
+          - generic [ref=e390]:
+            - generic [ref=e391]: ⬜ My point
+            - generic [ref=e392]:
+              - button "💬" [ref=e393]
+              - button "×" [ref=e394]
+          - generic [ref=e395]: 1.059 mm²
+          - generic [ref=e396]: sdfklsdfjsd
+        - generic [ref=e397] [cursor=pointer]:
+          - generic [ref=e398]:
+            - generic [ref=e399]: ⬜ rectangle
+            - generic [ref=e400]:
+              - button "💬" [ref=e401]
+              - button "×" [ref=e402]
+          - generic [ref=e403]: 117558 µm²
+        - generic [ref=e404] [cursor=pointer]:
+          - generic [ref=e405]:
+            - generic [ref=e406]: ⬜ rectangle
+            - generic [ref=e407]:
+              - button "💬" [ref=e408]
+              - button "×" [ref=e409]
+          - generic [ref=e410]: 160498 µm²
+        - generic [ref=e411] [cursor=pointer]:
+          - generic [ref=e412]:
+            - generic [ref=e413]: ⬜ rectangle
+            - generic [ref=e414]:
+              - button "💬" [ref=e415]
+              - button "×" [ref=e416]
+          - generic [ref=e417]: 791778 µm²
+        - generic [ref=e418] [cursor=pointer]:
+          - generic [ref=e419]:
+            - generic [ref=e420]: ⬜ rectangle
+            - generic [ref=e421]:
+              - button "💬" [ref=e422]
+              - button "×" [ref=e423]
+          - generic [ref=e424]: 453821 µm²
+        - generic [ref=e425] [cursor=pointer]:
+          - generic [ref=e426]:
+            - generic [ref=e427]: ⬜ rectangle
+            - generic [ref=e428]:
+              - button "💬" [ref=e429]
+              - button "×" [ref=e430]
+          - generic [ref=e431]: 336431 µm²
+    - generic [ref=e432]:
+      - button "Zoom In" [ref=e433] [cursor=pointer]:
+        - img [ref=e434]
+      - button "Zoom Out" [ref=e437] [cursor=pointer]:
+        - img [ref=e438]
+      - button "Reset View" [ref=e441] [cursor=pointer]:
+        - img [ref=e442]
+      - button "Image Info" [ref=e445] [cursor=pointer]:
+        - img [ref=e446]
+      - button "Fullscreen" [ref=e448] [cursor=pointer]:
+        - img [ref=e449]
+  - generic [ref=e453]: Live sync
+```

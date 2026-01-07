@@ -8,7 +8,9 @@
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
     "test:report": "npx playwright show-report",
-    "test:codegen": "npx playwright codegen https://pathviewpro.com/viewer"
+    "test:codegen": "npx playwright codegen https://pathviewpro.com/viewer",
+    "test:login": "npx playwright test save-auth.noauth.spec.js --project=no-auth --headed",
+    "test:noauth": "npx playwright test --project=no-auth"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0"

@@ -55,6 +55,7 @@ module.exports = defineConfig({
       testMatch: /.*\.setup\.js/,
     },
     
+    /* Authenticated tests (requires login) */
     {
       name: 'chromium',
       use: { 
@@ -63,6 +64,15 @@ module.exports = defineConfig({
         storageState: 'tests/e2e/.auth/user.json',
       },
       dependencies: ['setup'],
+    },
+    
+    /* No-auth tests (landing page, public features) */
+    {
+      name: 'no-auth',
+      use: { 
+        ...devices['Desktop Chrome'],
+      },
+      testMatch: /.*\.noauth\.spec\.js/,
     },
 
     /* Uncomment to test on Firefox and Safari */

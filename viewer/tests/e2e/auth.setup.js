@@ -15,6 +15,19 @@ setup('authenticate', async ({ page }) => {
         fs.mkdirSync(authDir, { recursive: true });
     }
 
+    // Skip if auth state already exists and is valid
+    if (fs.existsSync(authFile)) {
+        try {
+            const authData = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+            if (authData.cookies && authData.cookies.length > 0) {
+                console.log('✅ Using existing auth state from:', authFile);
+                return; // Skip login - auth already saved
+            }
+        } catch (e) {
+            console.log('⚠️  Auth file exists but invalid, will re-authenticate');
+        }
+    }
+
     // Check if we have test credentials in environment
     const testEmail = process.env.TEST_USER_EMAIL;
     const testPassword = process.env.TEST_USER_PASSWORD;
