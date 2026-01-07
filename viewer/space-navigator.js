@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.15.1';
+const SPACEMOUSE_VERSION = '1.15.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
@@ -558,9 +558,9 @@ class SpaceNavigatorController {
         // Show crosshair
         this.showCrosshair();
         
-        // Disable OSD navigation (mouse pan/zoom/scroll)
-        this._disableOSDNavigation();
-        
+        // NOTE: No longer disabling OSD navigation - mouse and SpaceMouse can coexist
+        // this._disableOSDNavigation();
+
         // Suppress events
         this.enableEventSuppression();
         
@@ -768,8 +768,8 @@ class SpaceNavigatorController {
             // Show crosshair
             this.showCrosshair();
             
-            // DISABLE all OpenSeadragon navigation when SpaceMouse is active
-            this._disableOSDNavigation();
+            // NOTE: No longer disabling OSD navigation - mouse and SpaceMouse can coexist
+            // this._disableOSDNavigation();
             
             // Suppress 3Dconnexion driver default actions (menus, shortcuts)
             this.enableEventSuppression();
@@ -821,8 +821,8 @@ class SpaceNavigatorController {
         // Remove event suppression
         this.disableEventSuppression();
         
-        // RE-ENABLE all OpenSeadragon navigation
-        this._enableOSDNavigation();
+        // NOTE: No longer disabling/enabling OSD navigation - mouse and SpaceMouse coexist
+        // this._enableOSDNavigation();
         
         // Close WebHID device if applicable
         if (this._connectionMode === 'webhid' && this.device) {
@@ -1435,10 +1435,10 @@ class SpaceNavigatorController {
         this.viewer = newViewer;
         console.log('SpaceMouse: Viewer reference updated');
         
-        // Re-disable navigation on new viewer if SpaceMouse is connected
-        if (this.connected) {
-            this._disableOSDNavigation();
-        }
+        // NOTE: No longer disabling OSD navigation - mouse and SpaceMouse coexist
+        // if (this.connected) {
+        //     this._disableOSDNavigation();
+        // }
         
         // Re-attach crosshair to new viewer if it was visible
         if (this._crosshairVisible && this.connected) {
