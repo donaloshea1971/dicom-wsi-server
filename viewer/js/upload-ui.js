@@ -217,37 +217,56 @@ async function startUpload() {
     if (isUploading || uploadQueue.length === 0) return;
     
     isUploading = true;
-    document.getElementById('upload-btn').disabled = true;
-    document.getElementById('clear-btn').disabled = true;
+    const uploadBtn = document.getElementById('upload-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    if (uploadBtn) uploadBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
     
-    const dicomItems = uploadQueue.filter(f => f.type === 'dicom' && f.status === 'pending');
-    const convertFiles = uploadQueue.filter(f => f.type === 'convert' && f.status === 'pending');
-    
-    if (dicomItems.length > 0) await uploadDicomGroup(dicomItems);
-    for (const item of convertFiles) await uploadForConversion(item);
-    
-    isUploading = false;
-    document.getElementById('upload-btn').disabled = false;
-    document.getElementById('clear-btn').disabled = false;
-    
-    const completed = uploadQueue.filter(f => f.status === 'complete').length;
-    const failed = uploadQueue.filter(f => f.status === 'error').length;
-    
-    if (completed > 0) {
-        const listEl = document.getElementById('queue-list');
-        const successMsg = document.createElement('div');
-        successMsg.className = 'upload-success-message';
-        successMsg.style.cssText = 'background: rgba(0, 212, 170, 0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;';
-        successMsg.innerHTML = `
-            <h3 style="color: var(--accent); margin-bottom: 8px;">✓ Upload Complete</h3>
-            <p style="font-size: 14px; margin-bottom: 16px;">${completed} files are now on the server.</p>
-            <a href="/" class="btn btn-primary" style="text-decoration: none; display: inline-block;">Go to Slide Viewer</a>
-        `;
-        listEl.prepend(successMsg);
-    }
-    
-    if (failed > 0) {
-        alert(`Upload finished with ${failed} errors.`);
+    try {
+        const dicomItems = uploadQueue.filter(f => f.type === 'dicom' && f.status === 'pending');
+        const convertFiles = uploadQueue.filter(f => f.type === 'convert' && f.status === 'pending');
+        
+        if (dicomItems.length > 0) {
+            console.log(`Starting DICOM upload for ${dicomItems.length} items`);
+            await uploadDicomGroup(dicomItems);
+        }
+        
+        for (const item of convertFiles) {
+            console.log(`Starting conversion upload for: ${item.name}`);
+            await uploadForConversion(item);
+        }
+    } catch (err) {
+        console.error('Upload process error:', err);
+        alert('An error occurred during the upload process. Some files may not have been uploaded.');
+    } finally {
+        isUploading = false;
+        if (uploadBtn) uploadBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+        
+        const completed = uploadQueue.filter(f => f.status === 'complete').length;
+        const failed = uploadQueue.filter(f => f.status === 'error').length;
+        
+        if (completed > 0) {
+            const listEl = document.getElementById('queue-list');
+            if (listEl) {
+                const successMsg = document.createElement('div');
+                successMsg.className = 'upload-success-message';
+                successMsg.style.cssText = 'background: rgba(0, 212, 170, 0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;';
+                successMsg.innerHTML = `
+                    <h3 style="color: var(--accent); margin-bottom: 8px;">✓ Upload Complete</h3>
+                    <p style="font-size: 14px; margin-bottom: 16px;">${completed} files are now on the server.</p>
+                    <div style="display: flex; gap: 8px; justify-content: center;">
+                        <a href="/" class="btn btn-primary" style="text-decoration: none; display: inline-block;">Go to Slide Viewer</a>
+                        <button onclick="location.reload()" class="btn" style="display: inline-block;">Upload More</button>
+                    </div>
+                `;
+                listEl.prepend(successMsg);
+            }
+        }
+        
+        if (failed > 0) {
+            console.warn(`${failed} uploads failed`);
+        }
     }
 }
 
