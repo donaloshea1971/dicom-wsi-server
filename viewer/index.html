@@ -2953,7 +2953,12 @@
             try {
                 // Fetch study metadata
                 const response = await authFetch(`/api/studies/${studyId}`);
+                if (!response.ok) {
+                    console.error('Failed to fetch study:', response.status);
+                    return;
+                }
                 const studyData = await response.json();
+                console.log('Study data for viewer 2:', studyData);
                 
                 // Get first series
                 if (!studyData.Series || studyData.Series.length === 0) {
@@ -2962,12 +2967,18 @@
                 }
                 
                 const seriesId = studyData.Series[0];
-                const seriesResponse = await authFetch(`/api/series/${seriesId}`);
-                const seriesData = await seriesResponse.json();
+                console.log('Loading series in viewer 2:', seriesId);
                 
-                // Fetch WSI metadata
+                // Fetch WSI metadata directly (skip series fetch, we just need pyramid)
                 const pyramidResponse = await authFetch(`/wsi/tiles/${seriesId}/pyramid`);
+                if (!pyramidResponse.ok) {
+                    console.error('Failed to fetch pyramid:', pyramidResponse.status);
+                    const errorText = await pyramidResponse.text();
+                    console.error('Pyramid error:', errorText);
+                    return;
+                }
                 const pyramidData = await pyramidResponse.json();
+                console.log('Pyramid data for viewer 2:', pyramidData);
                 
                 // Get auth headers
                 let authHeaders = {};
