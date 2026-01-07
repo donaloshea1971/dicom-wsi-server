@@ -3,14 +3,32 @@
  * Modals, dropdowns, keyboard shortcuts, and UI interactions
  */
 
-// Current share dialog state
-var currentShareStudyId = null;
-
 /**
  * Open the uploader page
  */
 function openUploader() {
-    window.open('/upload', '_blank');
+    window.location.href = '/upload.html';
+}
+
+/**
+ * Open color correction panel
+ */
+function openColorPanel() {
+    const panel = document.getElementById('color-panel');
+    if (panel) {
+        panel.classList.add('active');
+        updateColorUI();
+        updateICCStatusPanel();
+    }
+}
+
+/**
+ * Close color correction panel
+ */
+function closeColorPanel(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const panel = document.getElementById('color-panel');
+    if (panel) panel.classList.remove('active');
 }
 
 /**
@@ -24,35 +42,10 @@ function toggleKeyboardHelp() {
 }
 
 /**
- * Close share dialog
- */
-function closeShareDialog() {
-    const dialog = document.getElementById('share-dialog');
-    if (dialog) dialog.remove();
-    currentShareStudyId = null;
-}
-
-/**
- * Format time ago string
- */
-function formatTimeAgo(isoDate) {
-    const date = new Date(isoDate);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-}
-
-/**
  * Escape HTML for safe display
  */
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -67,150 +60,241 @@ function getToolIcon(tool) {
         rectangle: '⬜',
         polygon: '🔷',
         point: '📍',
-        arrow: '➡️'
+        arrow: '➡️',
+        text: '📝'
     };
     return icons[tool] || '📌';
 }
 
 /**
- * Toggle annotations panel
+ * Format relative time (e.g., "5m ago")
  */
-function toggleAnnotationsPanel() {
-    const panel = document.getElementById('annotations-panel');
-    if (panel) {
-        panel.classList.toggle('active');
-    }
-}
-
-/**
- * Toggle export menu
- */
-function toggleExportMenu() {
-    const menu = document.getElementById('export-menu');
-    if (menu) {
-        menu.classList.toggle('active');
-    }
-}
-
-/**
- * Set annotation tool
- */
-function setAnnotationTool(tool) {
-    if (!annotationManager) return;
+function formatTimeAgo(isoDate) {
+    if (!isoDate) return '';
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
     
-    annotationManager.setTool(tool);
-    
-    // Update toolbar buttons
-    document.querySelectorAll('.annotation-tool-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tool === tool);
-    });
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+    return date.toLocaleDateString();
 }
 
 /**
- * Set annotation color
- */
-function setAnnotationColor(color) {
-    if (!annotationManager) return;
-    annotationManager.setColor(color);
-}
-
-/**
- * Reset annotation toolbar
+ * Reset annotation toolbar to default pan mode
  */
 function resetAnnotationToolbar() {
-    document.querySelectorAll('.annotation-tool-btn').forEach(btn => {
+    document.querySelectorAll('.annotation-toolbar .tool-btn').forEach(btn => {
         btn.classList.remove('active');
     });
+    const panBtn = document.getElementById('tool-pan');
+    if (panBtn) panBtn.classList.add('active');
+    
+    const panel = document.getElementById('annotations-panel');
+    if (panel) panel.classList.remove('active');
+    
+    if (typeof currentAnnotationTool !== 'undefined') currentAnnotationTool = null;
 }
 
 /**
- * Trigger import annotations file dialog
+ * Show image metadata modal
  */
-function triggerImportAnnotations() {
-    const input = document.getElementById('import-annotations-input');
-    if (input) input.click();
+async function showMetadata() {
+    if (!currentStudy) return;
+    
+    const modal = document.getElementById('metadata-modal');
+    const content = document.getElementById('metadata-content');
+    if (modal) modal.classList.add('active');
+    if (content) content.innerHTML = '<div class="spinner"></div>';
+    
+    const cacheBust = `?_=${Date.now()}`;
+
+    try {
+        const studyRes = await authFetch(`/api/studies/${currentStudy}${cacheBust}`);
+        const study = await studyRes.json();
+        
+        const seriesId = study.Series[0];
+        const seriesRes = await authFetch(`/api/series/${seriesId}${cacheBust}`);
+        let instances = [];
+        try {
+            const series = await seriesRes.json();
+            instances = series.Instances || [];
+        } catch(e) {}
+
+        const pyramidRes = await fetch(`/wsi/pyramids/${seriesId}${cacheBust}`);
+        let pyramid = null;
+        try {
+            pyramid = await pyramidRes.json();
+        } catch(e) {}
+
+        let instanceTags = null;
+        if (instances.length > 0) {
+            try {
+                const tagsRes = await authFetch(`/api/instances/${instances[0]}/simplified-tags${cacheBust}`);
+                instanceTags = await tagsRes.json();
+            } catch(e) {}
+        }
+
+        let html = '';
+
+        // Patient info
+        html += `<div class="metadata-section">
+            <h4>Patient Information</h4>
+            <div class="metadata-grid">
+                ${metadataItem('Patient Name', study.PatientMainDicomTags?.PatientName)}
+                ${metadataItem('Patient ID', study.PatientMainDicomTags?.PatientID)}
+                ${metadataItem('Birth Date', formatDate(study.PatientMainDicomTags?.PatientBirthDate))}
+                ${metadataItem('Sex', study.PatientMainDicomTags?.PatientSex)}
+            </div>
+        </div>`;
+
+        // Study info
+        html += `<div class="metadata-section">
+            <h4>Study Information</h4>
+            <div class="metadata-grid">
+                ${metadataItem('Study Description', study.MainDicomTags?.StudyDescription)}
+                ${metadataItem('Study Date', formatDate(study.MainDicomTags?.StudyDate))}
+                ${metadataItem('Accession Number', study.MainDicomTags?.AccessionNumber)}
+                ${metadataItem('Study ID', study.MainDicomTags?.StudyID)}
+                ${metadataItem('Referring Physician', study.MainDicomTags?.ReferringPhysicianName)}
+                ${metadataItem('Study Instance UID', study.MainDicomTags?.StudyInstanceUID)}
+            </div>
+        </div>`;
+
+        // Scanner/Acquisition info
+        const manufacturer = instanceTags?.Manufacturer || instanceTags?.['00080070']?.Value?.[0] || '';
+        const model = instanceTags?.ManufacturerModelName || instanceTags?.['00081090']?.Value?.[0] || '';
+        const software = instanceTags?.SoftwareVersions || instanceTags?.['00181020']?.Value?.[0] || '';
+        const stationName = instanceTags?.StationName || instanceTags?.['00081010']?.Value?.[0] || '';
+        const deviceSerial = instanceTags?.DeviceSerialNumber || instanceTags?.['00181000']?.Value?.[0] || '';
+        const acquisitionDate = instanceTags?.AcquisitionDateTime || instanceTags?.ContentDate || instanceTags?.['00080022']?.Value?.[0] || '';
+        const sopClass = instanceTags?.SOPClassUID || instanceTags?.['00080016']?.Value?.[0] || '';
+        const isWSI = sopClass.includes('1.2.840.10008.5.1.4.1.1.77.1.6');
+        const institutionName = instanceTags?.InstitutionName || instanceTags?.['00080080']?.Value?.[0] || '';
+        
+        const isConverted = manufacturer.toLowerCase().includes('wsidicom') || 
+                           software.toLowerCase().includes('dicom server converter') ||
+                           institutionName.toLowerCase().startsWith('converted:');
+        
+        html += `<div class="metadata-section">
+            <h4>Scanner / Acquisition</h4>
+            <div class="metadata-grid">
+                ${metadataItem('Source Type', isConverted ? 'Converted' : 'Native DICOM WSI')}
+                ${metadataItem('Manufacturer', manufacturer)}
+                ${metadataItem('Scanner Model', model)}
+                ${metadataItem('Software Version', software)}
+                ${metadataItem('Station Name', stationName)}
+                ${metadataItem('Device Serial', deviceSerial)}
+                ${metadataItem('Acquisition Date', formatDate(acquisitionDate))}
+                ${metadataItem('SOP Class', isWSI ? 'VL Whole Slide Microscopy' : sopClass)}
+            </div>
+        </div>`;
+
+        if (pyramid && pyramid.TotalWidth) {
+            html += `<div class="metadata-section">
+                <h4>Image Information</h4>
+                <div class="metadata-grid">
+                    ${metadataItem('Dimensions', `${pyramid.TotalWidth} × ${pyramid.TotalHeight} px`)}
+                    ${metadataItem('Megapixels', ((pyramid.TotalWidth * pyramid.TotalHeight) / 1000000).toFixed(1) + ' MP')}
+                    ${metadataItem('Pyramid Levels', pyramid.Resolutions?.length || 0)}
+                    ${metadataItem('Tile Size', `${pyramid.TilesSizes?.[0]?.[0]} × ${pyramid.TilesSizes?.[0]?.[1]} px`)}
+                </div>
+            </div>`;
+        }
+        
+        if (content) content.innerHTML = html;
+
+    } catch (e) {
+        if (content) content.innerHTML = `<p style="color: var(--danger);">Failed to load metadata: ${e.message}</p>`;
+    }
 }
 
 /**
- * Initialize SpaceNavigator
+ * Helper to render a metadata item
+ */
+function metadataItem(label, value) {
+    const displayValue = value || '—';
+    return `<div class="metadata-item">
+        <span class="metadata-label">${label}</span>
+        <span class="metadata-value">${displayValue}</span>
+    </div>`;
+}
+
+/**
+ * Helper to format DICOM date
+ */
+function formatDate(dicomDate) {
+    if (!dicomDate || dicomDate.length < 8) return dicomDate || '—';
+    return `${dicomDate.substring(0,4)}-${dicomDate.substring(4,6)}-${dicomDate.substring(6,8)}`;
+}
+
+/**
+ * Close metadata modal
+ */
+function closeMetadataModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('metadata-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+// =========================================
+// Space Navigator (3D Mouse) Support
+// =========================================
+
+/**
+ * Initialize SpaceNavigator UI
  */
 function initSpaceNavigator() {
-    if (!SpaceNavigatorController.isSupported()) {
-        console.log('WebHID not supported - Space Navigator unavailable');
+    if (!typeof SpaceNavigatorController === 'undefined' || !SpaceNavigatorController.isSupported()) {
+        console.log('Space Navigator not supported or controller script missing');
         return;
     }
-
-    // Show the badge when WebHID is supported
     const badge = document.getElementById('space-nav-badge');
-    if (badge) {
-        badge.style.display = 'block';
-    }
+    if (badge) badge.style.display = 'block';
 }
 
 /**
- * Open SpaceMouse calibration
- */
-function openSpaceMouseCalibration(event) {
-    if (event) event.preventDefault();
-    window.open('/spacemouse-calibration.html', '_blank');
-}
-
-/**
- * Update SpaceNav button state
- */
-function updateSpaceNavButton(connected, connectionMode) {
-    const badge = document.getElementById('space-nav-badge');
-    if (!badge) return;
-    
-    if (connected) {
-        badge.style.background = connectionMode === 'webhid' ? '#10b981' : '#f59e0b';
-        badge.style.color = '#000';
-        badge.title = `SpaceMouse connected (${connectionMode})`;
-    } else {
-        badge.style.background = 'var(--bg-tertiary)';
-        badge.style.color = 'var(--text-muted)';
-        badge.title = 'Click to connect SpaceMouse';
-    }
-}
-
-/**
- * Toggle SpaceNavigator connection
+ * Toggle SpaceNavigator connection cycle
  */
 async function toggleSpaceNavigator() {
     if (!viewer) {
-        alert('Please load a study first before connecting the SpaceMouse.');
+        alert('Please load a study first.');
         return;
     }
-
-    if (spaceNavController && spaceNavController.connected) {
-        await spaceNavController.disconnect();
-        updateSpaceNavButton(false);
-    } else {
+    
+    if (!spaceNavController || !spaceNavController.connected) {
         await connectSpaceMouse();
+        return;
+    }
+    
+    const currentMode = spaceNavController.getConnectionMode();
+    if (currentMode === 'webhid') {
+        await spaceNavController.disconnect();
+        const gamepad = spaceNavController._findSpaceMouseGamepad();
+        if (gamepad) {
+            spaceNavController._connectViaGamepad(gamepad);
+            updateSpaceNavButton(true, 'gamepad');
+        } else {
+            updateSpaceNavButton(false);
+        }
+    } else {
+        await disconnectSpaceMouse();
     }
 }
 
 /**
- * Connect SpaceMouse
+ * Connect to SpaceMouse
  */
 async function connectSpaceMouse() {
-    if (!viewer) return;
-    
+    if (typeof SpaceNavigatorController === 'undefined') return;
     spaceNavController = new SpaceNavigatorController(viewer);
     spaceNavController.onStatusChange = (status) => {
-        if (status === 'connected') {
-            const mode = spaceNavController.getConnectionMode();
-            updateSpaceNavButton(true, mode);
-        } else if (status === 'disconnected') {
-            updateSpaceNavButton(false);
-        }
+        if (status === 'connected') updateSpaceNavButton(true, spaceNavController.getConnectionMode());
+        else updateSpaceNavButton(false);
     };
-    
-    const connected = await spaceNavController.connect();
-    if (connected) {
-        const mode = spaceNavController.getConnectionMode();
-        updateSpaceNavButton(true, mode);
-    }
+    await spaceNavController.connect();
 }
 
 /**
@@ -219,113 +303,180 @@ async function connectSpaceMouse() {
 async function disconnectSpaceMouse() {
     if (spaceNavController) {
         await spaceNavController.disconnect();
+        spaceNavController = null;
         updateSpaceNavButton(false);
     }
 }
 
-// Keyboard shortcuts handler
+/**
+ * Update SpaceMouse badge UI
+ */
+function updateSpaceNavButton(connected, connectionMode) {
+    const badge = document.getElementById('space-nav-badge');
+    if (!badge) return;
+    
+    if (connected) {
+        badge.classList.add('connected');
+        let bgColor = 'var(--accent)';
+        if (connectionMode === '3dxware') bgColor = '#8b5cf6';
+        else if (connectionMode === 'gamepad') bgColor = '#f59e0b';
+        
+        badge.style.background = bgColor;
+        badge.style.color = '#000';
+        badge.title = `SpaceMouse (${connectionMode}) - click to cycle`;
+    } else {
+        badge.classList.remove('connected');
+        badge.style.background = 'var(--bg-tertiary)';
+        badge.style.color = 'var(--text-muted)';
+        badge.title = 'Click to connect SpaceMouse';
+    }
+}
+
+/**
+ * Open SpaceMouse context menu
+ */
+function openSpaceMouseMenu(event) {
+    event.preventDefault();
+    const existingMenu = document.getElementById('spacemouse-context-menu');
+    if (existingMenu) existingMenu.remove();
+    
+    const connected = spaceNavController && spaceNavController.connected;
+    const menu = document.createElement('div');
+    menu.id = 'spacemouse-context-menu';
+    menu.style.cssText = `position:fixed; left:${event.clientX}px; top:${event.clientY}px; background:rgba(15,23,42,0.98); border:1px solid #334155; border-radius:8px; padding:8px 0; min-width:200px; z-index:10000; box-shadow:0 10px 40px rgba(0,0,0,0.5); font-size:13px;`;
+    
+    const items = connected ? [
+        { label: '🎯 Toggle Crosshair', action: () => spaceNavController.toggleCrosshair() },
+        { label: '⚙️ Config Panel', action: () => spaceNavController.createConfigPanel() },
+        { label: '🔌 Reselect Device', action: reselectSpaceMouse },
+        { divider: true },
+        { label: '❌ Disconnect', action: disconnectSpaceMouse, style: 'color:#ef4444' }
+    ] : [
+        { label: '🔌 Connect SpaceMouse', action: connectSpaceMouse }
+    ];
+    
+    items.push({ divider: true }, { label: '🎓 Calibration', action: () => window.open('/spacemouse-calibration.html') });
+
+    items.forEach(item => {
+        if (item.divider) {
+            const d = document.createElement('div');
+            d.style.cssText = 'height:1px; background:#334155; margin:6px 0;';
+            menu.appendChild(d);
+        } else {
+            const div = document.createElement('div');
+            div.textContent = item.label;
+            div.style.cssText = `padding:8px 16px; cursor:pointer; color:#e2e8f0; ${item.style || ''}`;
+            div.onclick = () => { menu.remove(); item.action(); };
+            div.onmouseenter = () => div.style.background = '#1e293b';
+            div.onmouseleave = () => div.style.background = '';
+            menu.appendChild(div);
+        }
+    });
+    
+    document.body.appendChild(menu);
+    const close = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 0);
+}
+
+async function reselectSpaceMouse() {
+    await disconnectSpaceMouse();
+    await connectSpaceMouse();
+}
+
+async function toggleSpaceMouseMode() {
+    if (spaceNavController && spaceNavController.connected) {
+        const mode = spaceNavController.getConnectionMode();
+        await spaceNavController.disconnect();
+        if (mode === 'webhid') {
+            const gp = spaceNavController._findSpaceMouseGamepad();
+            if (gp) spaceNavController._connectViaGamepad(gp);
+            else await spaceNavController.connect();
+        } else {
+            await spaceNavController.connect();
+        }
+    }
+}
+
+// =========================================
+// Global Event Listeners
+// =========================================
+
+// Close dropdowns on outside click
+document.addEventListener('click', (e) => {
+    // User menu dropdown
+    const userMenu = document.getElementById('user-menu');
+    const userDropdown = document.getElementById('user-dropdown');
+    if (userMenu && userDropdown && !userMenu.contains(e.target)) {
+        userDropdown.classList.remove('active');
+    }
+    
+    // Export menu
+    const exportMenu = document.getElementById('export-menu');
+    if (exportMenu && exportMenu.style.display === 'block' && !e.target.closest('.export-dropdown')) {
+        exportMenu.style.display = 'none';
+    }
+});
+
+// Keyboard shortcuts for navigation and tools
 document.addEventListener('keydown', (e) => {
-    // Skip if typing in input/textarea
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     
-    // Help toggle with '?'
-    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+    const key = e.key.toLowerCase();
+    
+    // Global shortcuts
+    if (key === '?' || (e.shiftKey && key === '/')) {
         toggleKeyboardHelp();
         e.preventDefault();
         return;
     }
     
-    if (!viewer) return;
-    const viewport = viewer.viewport;
-    
-    switch (e.key) {
-        case '1': // Overview (fit to screen)
-            viewport.fitBounds(viewport.getHomeBounds());
-            e.preventDefault();
-            break;
-        case '2': // 2x
-            viewport.zoomTo(2);
-            e.preventDefault();
-            break;
-        case '3': // 5x
-            viewport.zoomTo(5);
-            e.preventDefault();
-            break;
-        case '4': // 10x
-            viewport.zoomTo(10);
-            e.preventDefault();
-            break;
-        case '5': // 20x
-            viewport.zoomTo(20);
-            e.preventDefault();
-            break;
-        case '6': // 40x
-            viewport.zoomTo(40);
-            e.preventDefault();
-            break;
-        case 'Home':
-        case '0':
-            viewport.goHome();
-            e.preventDefault();
-            break;
-        case 'f':
-        case 'F':
-            toggleFullscreen();
-            e.preventDefault();
-            break;
-        case 'g':
-        case 'G':
-            toggleGamma();
-            e.preventDefault();
-            break;
-        case 'Escape':
-            // Close panels/modals
-            closeColorPanel();
-            toggleKeyboardHelp();
-            break;
+    if (key === 'escape') {
+        if (compareMode) exitCompareMode();
+        if (typeof closeMetadataModal === 'function') closeMetadataModal();
+        if (typeof closeColorPanel === 'function') closeColorPanel();
+        if (typeof closeSlideEditDialog === 'function') closeSlideEditDialog();
+        if (typeof closeAnnotationEdit === 'function') closeAnnotationEdit();
+        if (typeof hideCommentsPanel === 'function') hideCommentsPanel();
+        return;
     }
-    
-    // Arrow key navigation
-    const panAmount = e.shiftKey ? 0.2 : 0.1;
-    switch (e.key) {
-        case 'ArrowLeft':
-            viewport.panBy(new OpenSeadragon.Point(-panAmount, 0));
-            e.preventDefault();
-            break;
-        case 'ArrowRight':
-            viewport.panBy(new OpenSeadragon.Point(panAmount, 0));
-            e.preventDefault();
-            break;
-        case 'ArrowUp':
-            viewport.panBy(new OpenSeadragon.Point(0, -panAmount));
-            e.preventDefault();
-            break;
-        case 'ArrowDown':
-            viewport.panBy(new OpenSeadragon.Point(0, panAmount));
-            e.preventDefault();
-            break;
-    }
-    
-    // Study navigation with [ and ]
-    if (e.key === '[' || e.key === ']') {
-        const currentIndex = studyList.indexOf(currentStudy);
-        if (currentIndex === -1) return;
-        
-        const nextIndex = e.key === ']' 
-            ? (currentIndex + 1) % studyList.length
-            : (currentIndex - 1 + studyList.length) % studyList.length;
-        
-        loadStudy(studyList[nextIndex]);
-        e.preventDefault();
-    }
-});
 
-// Close dropdowns when clicking outside
-document.addEventListener('click', (e) => {
-    // Close export menu
-    const exportMenu = document.getElementById('export-menu');
-    const exportBtn = e.target.closest('[onclick*="toggleExportMenu"]');
-    if (exportMenu && exportMenu.classList.contains('active') && !exportBtn) {
-        exportMenu.classList.remove('active');
+    // Viewer-specific navigation
+    const activeV = compareMode && activeViewer === 2 && viewer2 ? viewer2 : viewer;
+    if (activeV) {
+        const vp = activeV.viewport;
+        const center = vp.getCenter();
+        const panStep = 0.1;
+
+        switch (key) {
+            case 'w': case 'arrowup': vp.panTo(new OpenSeadragon.Point(center.x, center.y - panStep)); break;
+            case 's': case 'arrowdown': vp.panTo(new OpenSeadragon.Point(center.x, center.y + panStep)); break;
+            case 'a': case 'arrowleft': if (!e.ctrlKey && !e.metaKey) vp.panTo(new OpenSeadragon.Point(center.x - panStep, center.y)); break;
+            case 'd': case 'arrowright': vp.panTo(new OpenSeadragon.Point(center.x + panStep, center.y)); break;
+            case '1': vp.goHome(); break;
+            case '2': vp.zoomTo(2); break;
+            case '3': vp.zoomTo(5); break;
+            case '4': vp.zoomTo(10); break;
+            case '5': vp.zoomTo(20); break;
+            case '6': vp.zoomTo(40); break;
+            case '+': case '=': vp.zoomBy(1.5); break;
+            case '-': case '_': vp.zoomBy(0.67); break;
+            case 'f': toggleFullscreen(); break;
+            case '[': if (typeof previousStudy === 'function') previousStudy(); break;
+            case ']': if (typeof nextStudy === 'function') nextStudy(); break;
+        }
+    }
+    
+    // Annotation tool shortcuts
+    if (typeof annotationManager !== 'undefined' && annotationManager) {
+        switch (key) {
+            case 'p': setAnnotationTool(null); break;
+            case 'l': setAnnotationTool('line'); break;
+            case 'r': setAnnotationTool('rectangle'); break;
+            case 'g': setAnnotationTool('polygon'); break;
+            case 'e': setAnnotationTool('ellipse'); break;
+            case 'm': setAnnotationTool('point'); break;
+            case 't': setAnnotationTool('text'); break;
+        }
+        if (e.shiftKey && key === 'a') setAnnotationTool('arrow');
     }
 });

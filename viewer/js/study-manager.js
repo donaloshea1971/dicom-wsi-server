@@ -7,6 +7,9 @@
 var studyList = [];  // Store list of study IDs for navigation
 var allStudiesCache = { owned: [], shared: [], samples: [] };
 var currentViewMode = 'flat'; // 'flat' or 'grouped'
+var currentEditSlideId = null;
+var currentShareStudyId = null;
+var shareSearchTimeout = null;
 
 /**
  * Check if sample slides are hidden
@@ -341,8 +344,10 @@ function setViewMode(mode) {
     currentViewMode = mode;
     
     // Update buttons
-    document.getElementById('view-flat').classList.toggle('active', mode === 'flat');
-    document.getElementById('view-grouped').classList.toggle('active', mode === 'grouped');
+    const flatBtn = document.getElementById('view-flat');
+    const groupedBtn = document.getElementById('view-grouped');
+    if (flatBtn) flatBtn.classList.toggle('active', mode === 'flat');
+    if (groupedBtn) groupedBtn.classList.toggle('active', mode === 'grouped');
     
     // Re-render the study list
     rerenderStudyList();
@@ -353,7 +358,7 @@ function setViewMode(mode) {
  */
 function rerenderStudyList() {
     const list = document.getElementById('study-list');
-    const hideSamples = localStorage.getItem('hideSampleSlides') === 'true';
+    const hideSamples = isSamplesHidden();
     
     if (currentViewMode === 'grouped') {
         list.innerHTML = renderGroupedView(allStudiesCache.owned, allStudiesCache.shared, allStudiesCache.samples, hideSamples);
@@ -399,7 +404,6 @@ function renderFlatView(ownedStudies, sharedStudies, sampleStudies, hideSamples)
 function renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSamples) {
     let html = '';
     
-    // Group owned slides by case_accession or patient_name
     const groups = {};
     const ungrouped = [];
     
@@ -421,7 +425,6 @@ function renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSampl
         }
     });
     
-    // Render groups
     const groupKeys = Object.keys(groups).sort();
     if (groupKeys.length > 0) {
         html += `<div class="study-section-header">📁 Cases & Patients (${groupKeys.length})</div>`;
@@ -453,13 +456,11 @@ function renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSampl
         });
     }
     
-    // Render ungrouped
     if (ungrouped.length > 0) {
         html += `<div class="ungrouped-header">Ungrouped Slides (${ungrouped.length})</div>`;
         html += ungrouped.map(study => renderStudyCard(study, 'owned')).join('');
     }
     
-    // Sample slides
     if (sampleStudies.length > 0 && !hideSamples) {
         html += `
             <div class="study-section-header" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
@@ -481,5 +482,593 @@ function renderGroupedView(ownedStudies, sharedStudies, sampleStudies, hideSampl
 function toggleCaseGroup(header) {
     header.classList.toggle('collapsed');
     const slides = header.nextElementSibling;
-    slides.classList.toggle('collapsed');
+    if (slides) slides.classList.toggle('collapsed');
+}
+
+/**
+ * Open slide edit dialog
+ */
+async function openSlideEditDialog(slideId, fallbackName, fallbackStain) {
+    currentEditSlideId = slideId;
+    const idInput = document.getElementById('slide-edit-id');
+    const nameInput = document.getElementById('slide-edit-name');
+    const stainSelect = document.getElementById('slide-edit-stain');
+    const caseSelect = document.getElementById('slide-edit-case');
+    const blockSelect = document.getElementById('slide-edit-block');
+    const patientSelect = document.getElementById('slide-edit-patient');
+    const dialog = document.getElementById('slide-edit-dialog');
+
+    if (idInput) idInput.value = slideId;
+    if (nameInput) nameInput.value = fallbackName || '';
+    if (stainSelect) stainSelect.value = fallbackStain || '';
+    if (caseSelect) caseSelect.innerHTML = '<option value="">-- No Case --</option>';
+    if (blockSelect) blockSelect.innerHTML = '<option value="">-- No Block --</option>';
+    if (patientSelect) patientSelect.innerHTML = '<option value="">-- No Patient --</option>';
+    
+    if (dialog) dialog.style.display = 'flex';
+    
+    try {
+        const slideRes = await authFetch(`/api/slides/${slideId}`);
+        if (slideRes.ok) {
+            const slide = await slideRes.json();
+            window.currentSlideData = slide;
+            if (nameInput && slide.display_name) nameInput.value = slide.display_name;
+            if (stainSelect && slide.stain) stainSelect.value = slide.stain;
+        } else {
+            window.currentSlideData = null;
+        }
+    } catch (e) {
+        window.currentSlideData = null;
+    }
+    
+    await loadHierarchyOptions();
+    if (nameInput) nameInput.focus();
+}
+
+/**
+ * Load hierarchy options for slide editing
+ */
+async function loadHierarchyOptions() {
+    const slideData = window.currentSlideData;
+    
+    try {
+        const casesRes = await authFetch('/api/cases');
+        if (casesRes.ok) {
+            const data = await casesRes.json();
+            const select = document.getElementById('slide-edit-case');
+            if (select) {
+                data.cases?.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.accession_number || `Case #${c.id}`;
+                    if (slideData?.case_id === c.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+        }
+        
+        const blocksRes = await authFetch('/api/blocks');
+        if (blocksRes.ok) {
+            const data = await blocksRes.json();
+            const select = document.getElementById('slide-edit-block');
+            if (select) {
+                data.blocks?.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b.id;
+                    opt.textContent = b.block_id || `Block #${b.id}`;
+                    if (slideData?.block_id === b.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+        }
+        
+        const patientsRes = await authFetch('/api/patients');
+        if (patientsRes.ok) {
+            const data = await patientsRes.json();
+            const select = document.getElementById('slide-edit-patient');
+            if (select) {
+                data.patients?.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name || p.mrn || `Patient #${p.id}`;
+                    if (slideData?.patient_id === p.id) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+        }
+    } catch (e) {
+        console.log('Could not load hierarchy options:', e);
+    }
+}
+
+/**
+ * Close slide edit dialog
+ */
+function closeSlideEditDialog() {
+    const dialog = document.getElementById('slide-edit-dialog');
+    if (dialog) dialog.style.display = 'none';
+    currentEditSlideId = null;
+    window.currentSlideData = null;
+}
+
+/**
+ * Save slide edits
+ */
+async function saveSlideEdit() {
+    const slideId = document.getElementById('slide-edit-id')?.value;
+    const displayName = document.getElementById('slide-edit-name')?.value.trim();
+    const stain = document.getElementById('slide-edit-stain')?.value;
+    const caseId = document.getElementById('slide-edit-case')?.value;
+    const blockId = document.getElementById('slide-edit-block')?.value;
+    const patientId = document.getElementById('slide-edit-patient')?.value;
+    
+    if (!slideId) {
+        alert('No slide selected');
+        return;
+    }
+    
+    try {
+        const response = await authFetch(`/api/slides/${slideId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                display_name: displayName || null,
+                stain: stain || null,
+                case_id: caseId ? parseInt(caseId) : -1,
+                block_id: blockId ? parseInt(blockId) : -1,
+                patient_id: patientId ? parseInt(patientId) : -1
+            })
+        });
+        
+        if (response.ok) {
+            closeSlideEditDialog();
+            await refreshStudies();
+        } else {
+            const err = await response.json();
+            alert('Failed to save: ' + (err.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Failed to save slide: ' + error.message);
+    }
+}
+
+/**
+ * Quick create new case
+ */
+async function showNewCaseForm() {
+    const accession = prompt('Enter Case/Accession Number:\n(e.g., S24-12345)');
+    if (!accession) return;
+    
+    try {
+        const response = await authFetch('/api/cases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accession_number: accession.trim() })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            const select = document.getElementById('slide-edit-case');
+            if (select) {
+                const opt = document.createElement('option');
+                opt.value = result.case_id;
+                opt.textContent = accession.trim();
+                opt.selected = true;
+                select.appendChild(opt);
+            }
+        } else {
+            alert('Failed to create case');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+/**
+ * Quick create new block
+ */
+async function showNewBlockForm() {
+    const blockId = prompt('Enter Block ID:\n(e.g., A1, A2, B1)');
+    if (!blockId) return;
+    
+    const caseId = document.getElementById('slide-edit-case')?.value;
+    
+    try {
+        const response = await authFetch('/api/blocks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                block_id: blockId.trim(),
+                case_id: caseId ? parseInt(caseId) : null
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            const select = document.getElementById('slide-edit-block');
+            if (select) {
+                const opt = document.createElement('option');
+                opt.value = result.block_id;
+                opt.textContent = blockId.trim();
+                opt.selected = true;
+                select.appendChild(opt);
+            }
+        } else {
+            alert('Failed to create block');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+/**
+ * Quick create new patient
+ */
+async function showNewPatientForm() {
+    const name = prompt('Enter Patient Name:');
+    if (!name) return;
+    
+    const mrn = prompt('Enter MRN (optional):');
+    const dobStr = prompt('Enter Date of Birth (YYYY-MM-DD, optional):');
+    
+    let dob = null;
+    if (dobStr) {
+        const dobMatch = dobStr.match(/^\d{4}-\d{2}-\d{2}$/);
+        if (dobMatch) dob = dobStr;
+        else alert('Invalid date format. Use YYYY-MM-DD.');
+    }
+    
+    try {
+        const response = await authFetch('/api/patients', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                name: name.trim(),
+                mrn: mrn?.trim() || null,
+                dob: dob
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            const select = document.getElementById('slide-edit-patient');
+            if (select) {
+                const opt = document.createElement('option');
+                opt.value = result.patient_id;
+                opt.textContent = name.trim() + (dob ? ` (${dob})` : '');
+                opt.selected = true;
+                select.appendChild(opt);
+            }
+        } else {
+            alert('Failed to create patient');
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+/**
+ * Open sharing dialog
+ */
+async function openShareDialog(studyId) {
+    currentShareStudyId = studyId;
+    
+    let accessInfo = null;
+    try {
+        const accessResponse = await authFetch(`/api/slides/${studyId}/access-info`);
+        if (accessResponse.ok) accessInfo = await accessResponse.json();
+    } catch (e) {}
+    
+    let accessHtml = '';
+    if (accessInfo && accessInfo.has_access) {
+        let badgeClass = 'owner';
+        let badgeText = 'You own this slide';
+        
+        if (accessInfo.access_type === 'direct_share') {
+            badgeClass = 'direct-share';
+            badgeText = `Shared with you (${accessInfo.permission})`;
+        } else if (accessInfo.access_type === 'case_share') {
+            badgeClass = 'case-share';
+            badgeText = `Access via case share (${accessInfo.permission})`;
+        } else if (accessInfo.access_type === 'sample') {
+            badgeClass = 'sample';
+            badgeText = 'Sample slide (public)';
+        }
+        
+        accessHtml = `
+            <div class="access-info">
+                <div class="access-info-label">Your Access</div>
+                <span class="access-badge ${badgeClass}">${badgeText}</span>
+            </div>
+        `;
+    }
+    
+    const isOwner = accessInfo && accessInfo.access_type === 'owner';
+    const sharingControlsHtml = isOwner ? `
+        <input type="text" class="share-search-input" id="share-search" 
+               placeholder="Search by email or name..." 
+               oninput="searchUsersToShare(this.value)">
+        <div class="share-results" id="share-results">
+            <div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                Type to search for users
+            </div>
+        </div>
+        <div class="share-current-list" id="share-current">
+            <h4>Currently shared with</h4>
+            <div id="current-shares">Loading...</div>
+        </div>
+        
+        <div class="public-link-section">
+            <h4>🌐 Public Links (No Login Required)</h4>
+            <div class="public-link-list" id="public-links-list">
+                Loading...
+            </div>
+            <div class="public-link-create">
+                <select id="public-link-expiry">
+                    <option value="">Never expires</option>
+                    <option value="1">1 day</option>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                </select>
+                <button onclick="createPublicLink()">🔗 Create Link</button>
+            </div>
+        </div>
+    ` : `
+        <div style="color: var(--text-muted); text-align: center; padding: 20px;">
+            Only the slide owner can manage sharing.
+        </div>
+    `;
+    
+    const dialog = document.createElement('div');
+    dialog.className = 'share-dialog';
+    dialog.id = 'share-dialog';
+    dialog.innerHTML = `
+        <div class="share-dialog-content">
+            <h3>🔗 ${isOwner ? 'Share Slide' : 'Slide Access'}</h3>
+            ${accessHtml}
+            ${sharingControlsHtml}
+            <div class="share-dialog-buttons">
+                <button class="btn" onclick="closeShareDialog()">Close</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    if (isOwner) {
+        loadCurrentShares(studyId);
+        loadPublicLinks(studyId);
+        const searchInput = document.getElementById('share-search');
+        if (searchInput) searchInput.focus();
+    }
+    
+    dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) closeShareDialog();
+    });
+}
+
+/**
+ * Close share dialog
+ */
+function closeShareDialog() {
+    const dialog = document.getElementById('share-dialog');
+    if (dialog) dialog.remove();
+    currentShareStudyId = null;
+}
+
+/**
+ * Search users to share with
+ */
+async function searchUsersToShare(query) {
+    const results = document.getElementById('share-results');
+    if (!results) return;
+    
+    if (!query || query.length < 2) {
+        results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+            Type at least 2 characters to search
+        </div>`;
+        return;
+    }
+    
+    clearTimeout(shareSearchTimeout);
+    shareSearchTimeout = setTimeout(async () => {
+        results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+            Searching...
+        </div>`;
+        
+        try {
+            const response = await authFetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+            if (!response.ok) throw new Error('Search failed');
+            
+            const data = await response.json();
+            const users = data.users || [];
+            
+            if (users.length === 0) {
+                results.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                    No users found matching "${query}"
+                </div>`;
+                return;
+            }
+            
+            results.innerHTML = users.map(user => `
+                <div class="share-user-item" onclick="shareWithUser('${user.email}', this)">
+                    <img src="${user.picture || ''}" class="share-user-avatar" 
+                         onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Ccircle cx=%2720%27 cy=%2720%27 r=%2720%27 fill=%27%23334155%27/%3E%3C/svg%3E'">
+                    <div class="share-user-info">
+                        <div class="share-user-name">${user.name || 'Unknown'}</div>
+                        <div class="share-user-email">${user.email}</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            results.innerHTML = `<div style="color: var(--danger); text-align: center; padding: 20px;">
+                Error: ${e.message}
+            </div>`;
+        }
+    }, 300);
+}
+
+/**
+ * Share slide with a user
+ */
+async function shareWithUser(email, element) {
+    if (!currentShareStudyId) return;
+    element.style.opacity = '0.5';
+    element.style.pointerEvents = 'none';
+    
+    try {
+        const response = await authFetch(`/api/studies/${currentShareStudyId}/share`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, permission: 'view' })
+        });
+        
+        if (!response.ok) throw new Error('Share failed');
+        
+        element.innerHTML = `<span style="color: var(--accent);">✓ Shared with ${email}</span>`;
+        const shares = await loadCurrentShares(currentShareStudyId);
+        updateShareButtonState(currentShareStudyId, shares.length);
+        
+    } catch (e) {
+        element.style.opacity = '1';
+        element.style.pointerEvents = 'auto';
+        alert('Failed to share: ' + e.message);
+    }
+}
+
+/**
+ * Load current shares for a study
+ */
+async function loadCurrentShares(studyId) {
+    const container = document.getElementById('current-shares');
+    if (!container) return [];
+    
+    try {
+        const response = await authFetch(`/api/studies/${studyId}/shares`);
+        if (!response.ok) throw new Error('Failed to load shares');
+        
+        const data = await response.json();
+        const shares = data.shares || [];
+        
+        if (shares.length === 0) {
+            container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px;">
+                Not shared with anyone yet
+            </div>`;
+            return [];
+        }
+        
+        container.innerHTML = shares.map(share => `
+            <div class="share-current-item">
+                <img src="${share.picture || ''}" onerror="this.src='data:image/svg+xml,...'">
+                <span class="email">${share.email}</span>
+                <button class="share-remove-btn" onclick="unshareWithUser(${share.user_id})">×</button>
+            </div>
+        `).join('');
+        return shares;
+    } catch (e) {
+        container.innerHTML = `<div style="color: var(--danger); font-size: 13px;">${e.message}</div>`;
+        return [];
+    }
+}
+
+/**
+ * Remove user share
+ */
+async function unshareWithUser(userId) {
+    if (!currentShareStudyId) return;
+    try {
+        const response = await authFetch(`/api/studies/${currentShareStudyId}/share/${userId}`, { method: 'DELETE' });
+        if (response.ok) {
+            const shares = await loadCurrentShares(currentShareStudyId);
+            updateShareButtonState(currentShareStudyId, shares.length);
+        }
+    } catch (e) {
+        alert('Failed to remove share');
+    }
+}
+
+/**
+ * Update share button icon state
+ */
+function updateShareButtonState(studyId, shareCount) {
+    const card = document.querySelector(`.study-card[data-id="${studyId}"]`);
+    if (!card) return;
+    const btn = card.querySelector('.share-btn');
+    if (!btn) return;
+    if (shareCount > 0) {
+        btn.classList.add('shared');
+        btn.title = `Shared with ${shareCount} user(s)`;
+    } else {
+        btn.classList.remove('shared');
+        btn.title = 'Share this study';
+    }
+}
+
+/**
+ * Load public links for a study
+ */
+async function loadPublicLinks(studyId) {
+    const container = document.getElementById('public-links-list');
+    if (!container) return;
+    
+    try {
+        const response = await authFetch(`/api/studies/${studyId}/public-links`);
+        if (response.ok) {
+            const data = await response.json();
+            const links = data.links || [];
+            if (links.length === 0) {
+                container.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No public links</div>';
+                return;
+            }
+            container.innerHTML = links.map(link => `
+                <div class="public-link-item">
+                    <span>${link.title || 'Public Link'}</span>
+                    <button onclick="copyPublicLink('${link.token}')">Copy</button>
+                    <button onclick="deletePublicLink(${link.id})">Del</button>
+                </div>
+            `).join('');
+        }
+    } catch (e) {}
+}
+
+/**
+ * Create a new public access link
+ */
+async function createPublicLink() {
+    if (!currentShareStudyId) return;
+    const days = document.getElementById('public-link-expiry')?.value;
+    try {
+        const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expires_in_days: days ? parseInt(days) : null })
+        });
+        if (response.ok) {
+            const result = await response.json();
+            copyPublicLink(result.token);
+            loadPublicLinks(currentShareStudyId);
+        }
+    } catch (e) {
+        alert('Failed to create public link');
+    }
+}
+
+/**
+ * Copy public link to clipboard
+ */
+function copyPublicLink(token) {
+    const url = window.location.origin + '/viewer/public/' + token;
+    navigator.clipboard.writeText(url).then(() => alert('Link copied!'));
+}
+
+/**
+ * Delete a public link
+ */
+async function deletePublicLink(linkId) {
+    if (!currentShareStudyId || !confirm('Delete this public link?')) return;
+    try {
+        const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link/${linkId}`, { method: 'DELETE' });
+        if (response.ok) loadPublicLinks(currentShareStudyId);
+    } catch (e) {}
 }

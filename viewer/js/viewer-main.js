@@ -3,7 +3,7 @@
  * OpenSeadragon initialization, compare mode, and viewer-related functions
  */
 
-// Global viewer state (use var for compatibility with inline fallbacks)
+// Global viewer state
 var viewer = null;
 var currentStudy = null;
 
@@ -19,28 +19,32 @@ var compareSlideName2 = '';
 // Color correction state
 var colorCorrection = null;
 var currentICCProfile = null;
+var iccApplied = false;
 
 // SpaceMouse controller
 var spaceNavController = null;
 
-// Annotation manager
+// Annotation state
 var annotationManager = null;
 var annotationEventSource = null;
 
 /**
- * Show/hide loading overlay
+ * Show/hide loading overlay or update placeholder text
  */
 function showLoading(show, message = 'Loading...') {
-    // Implementation depends on your loading UI
     const placeholder = document.getElementById('viewer-placeholder');
-    if (placeholder) {
-        if (show) {
+    const loadingOverlay = document.getElementById('loading');
+    
+    if (show) {
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+        if (placeholder) {
             placeholder.style.display = 'flex';
             const loadingText = placeholder.querySelector('p');
             if (loadingText) loadingText.textContent = message;
-        } else {
-            placeholder.style.display = 'none';
         }
+    } else {
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+        if (placeholder) placeholder.style.display = 'none';
     }
 }
 
@@ -49,37 +53,398 @@ function showLoading(show, message = 'Loading...') {
  */
 function closeMetadataModal() {
     const modal = document.getElementById('metadata-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) modal.classList.remove('active');
 }
 
 /**
- * Add label to viewer
+ * Add a text label to a viewer container
  */
 function addViewerLabel(viewerId, label) {
-    const viewerEl = document.getElementById(viewerId);
-    if (!viewerEl) return;
+    const container = document.getElementById(viewerId);
+    if (!container) return;
     
-    // Remove existing label
-    const existing = viewerEl.querySelector('.viewer-label');
+    const existing = container.querySelector('.viewer-label');
     if (existing) existing.remove();
     
     const labelEl = document.createElement('div');
     labelEl.className = 'viewer-label';
     labelEl.textContent = label;
-    viewerEl.appendChild(labelEl);
+    container.appendChild(labelEl);
 }
 
 /**
- * Set active viewer in compare mode
+ * Set the active viewer in comparison mode
  */
 function setActiveViewer(num) {
     activeViewer = num;
-    document.getElementById('osd-viewer').classList.toggle('active-viewer', num === 1);
-    document.getElementById('osd-viewer-2').classList.toggle('active-viewer', num === 2);
+    const v1 = document.getElementById('osd-viewer');
+    const v2 = document.getElementById('osd-viewer-2');
+    if (v1) v1.classList.toggle('active-viewer', num === 1);
+    if (v2) v2.classList.toggle('active-viewer', num === 2);
     
-    // Update SpaceMouse viewer reference
     if (spaceNavController && spaceNavController.connected) {
         spaceNavController.setViewer(num === 1 ? viewer : viewer2);
+    }
+}
+
+/**
+ * Load a study into the main viewer or viewer 2
+ */
+async function loadStudy(studyId) {
+    if (compareMode && studyId !== currentStudy && !currentStudy2) {
+        const card = document.querySelector(`.study-card[data-id="${studyId}"]`);
+        const slideName = card ? card.querySelector('.study-slide-info')?.textContent || studyId.substring(0, 8) : studyId.substring(0, 8);
+        loadStudyInViewer2(studyId, slideName);
+        return;
+    }
+    
+    showLoading(true);
+    currentStudy = studyId;
+    closeMetadataModal();
+    
+    if (annotationManager) {
+        annotationManager.destroy();
+        annotationManager = null;
+    }
+    
+    const annotationsPanel = document.getElementById('annotations-panel');
+    if (annotationsPanel) annotationsPanel.classList.remove('active');
+
+    document.querySelectorAll('.study-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.id === studyId);
+    });
+
+    const placeholder = document.getElementById('viewer-placeholder');
+    if (placeholder) placeholder.style.display = 'none';
+    const toolbar = document.getElementById('viewer-toolbar');
+    if (toolbar) toolbar.style.display = 'flex';
+
+    try {
+        const studyResponse = await authFetch(`/api/studies/${studyId}`);
+        const studyData = await studyResponse.json();
+        
+        if (!studyData.Series || studyData.Series.length === 0) {
+            throw new Error('No series found in study');
+        }
+        
+        const seriesId = studyData.Series[0];
+        
+        let needsGammaCorrection = false;
+        try {
+            const seriesInfo = await authFetch(`/api/series/${seriesId}`);
+            const seriesData = await seriesInfo.json();
+            if (seriesData.Instances && seriesData.Instances.length > 0) {
+                const instanceId = seriesData.Instances[0];
+                const tagsResponse = await authFetch(`/api/instances/${instanceId}/simplified-tags`);
+                const tags = await tagsResponse.json();
+                const manufacturer = (tags.Manufacturer || '').toLowerCase();
+                if (manufacturer.includes('hamamatsu')) {
+                    needsGammaCorrection = true;
+                }
+            }
+        } catch (e) {}
+
+        let pyramidResponse = await fetch(`/wsi/pyramids/${seriesId}`);
+        let pyramid;
+        
+        if (!pyramidResponse.ok) {
+            const leicaResponse = await authFetch(`/api/leica-pyramid/${studyId}`);
+            if (leicaResponse.ok) {
+                pyramid = await leicaResponse.json();
+                if (pyramid.error) throw new Error('Not a recognized WSI format');
+            } else {
+                throw new Error('WSI pyramid not available');
+            }
+        } else {
+            pyramid = await pyramidResponse.json();
+        }
+
+        if (viewer) viewer.destroy();
+
+        const baseTileWidth = pyramid.TilesSizes[0][0];
+        const baseTileHeight = pyramid.TilesSizes[0][1];
+        const level0TilesX = pyramid.TilesCount[0][0];
+        const level0TilesY = pyramid.TilesCount[0][1];
+        
+        let compatibleLevels;
+        if (level0TilesX * level0TilesY < 200) {
+            compatibleLevels = [{
+                wsiIndex: 0,
+                scale: 1.0,
+                width: pyramid.Sizes[0][0],
+                height: pyramid.Sizes[0][1],
+                tilesX: level0TilesX,
+                tilesY: level0TilesY,
+                tileWidth: baseTileWidth,
+                tileHeight: baseTileHeight
+            }];
+        } else {
+            compatibleLevels = pyramid.Resolutions.map((res, i) => ({
+                wsiIndex: i,
+                scale: 1.0 / res,
+                width: pyramid.Sizes[i][0],
+                height: pyramid.Sizes[i][1],
+                tilesX: pyramid.TilesCount[i][0],
+                tilesY: pyramid.TilesCount[i][1],
+                tileWidth: pyramid.TilesSizes[i][0],
+                tileHeight: pyramid.TilesSizes[i][1]
+            })).filter(level => {
+                const tileMatch = level.tileWidth === baseTileWidth && level.tileHeight === baseTileHeight;
+                const imageFillsTile = level.width >= level.tileWidth || level.height >= level.tileHeight;
+                return tileMatch && imageFillsTile;
+            });
+            
+            if (compatibleLevels.length === 0) {
+                compatibleLevels = [{
+                    wsiIndex: 0, scale: 1.0, width: pyramid.Sizes[0][0], height: pyramid.Sizes[0][1],
+                    tilesX: level0TilesX, tilesY: level0TilesY, tileWidth: baseTileWidth, tileHeight: baseTileHeight
+                }];
+            }
+        }
+        
+        const wsiLevels = compatibleLevels.reverse();
+        const maxLevelIndex = wsiLevels.length - 1;
+        wsiLevels.forEach((level, idx) => {
+            const highestResLevel = wsiLevels[maxLevelIndex];
+            level.scale = level.width / highestResLevel.width;
+        });
+        
+        if (!OpenSeadragon.WsiTileSource) {
+            OpenSeadragon.WsiTileSource = function(options) {
+                this.wsiSeriesId = options.wsiSeriesId;
+                this.wsiLevels = options.wsiLevels;
+                this.pyramid = options.pyramid;
+                this.sessionId = options.sessionId;
+                this.width = options.width;
+                this.height = options.height;
+                this.aspectRatio = options.width / options.height;
+                this.dimensions = new OpenSeadragon.Point(options.width, options.height);
+                this.tileOverlap = 0;
+                this.minLevel = 0;
+                this.maxLevel = this.wsiLevels.length - 1;
+                this.ready = true;
+            };
+            OpenSeadragon.WsiTileSource.prototype = Object.create(OpenSeadragon.TileSource.prototype);
+            OpenSeadragon.WsiTileSource.prototype.constructor = OpenSeadragon.WsiTileSource;
+            OpenSeadragon.WsiTileSource.prototype.getNumLevels = function() { return this.wsiLevels.length; };
+            OpenSeadragon.WsiTileSource.prototype.getLevelScale = function(level) { return this.wsiLevels[level]?.scale || 1; };
+            OpenSeadragon.WsiTileSource.prototype.getTileWidth = function(level) { return this.wsiLevels[level]?.tileWidth || 256; };
+            OpenSeadragon.WsiTileSource.prototype.getTileHeight = function(level) { return this.wsiLevels[level]?.tileHeight || 256; };
+            OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
+                const wsi = this.wsiLevels[level];
+                if (!wsi || x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) return null;
+                if (this.pyramid?.IsVirtualPyramid && this.pyramid.Type === 'LeicaMultiFile') {
+                    const instanceId = this.pyramid.InstanceIDs[wsi.wsiIndex];
+                    const left = x * wsi.tileWidth;
+                    const top = y * wsi.tileHeight;
+                    return `/wsi/instances/${instanceId}/frames/1/rendered?left=${left}&top=${top}&width=${wsi.tileWidth}&height=${wsi.tileHeight}&_=${this.sessionId}`;
+                }
+                return `/wsi/tiles/${this.wsiSeriesId}/${wsi.wsiIndex}/${x}/${y}?_=${this.sessionId}`;
+            };
+        }
+        
+        const wsiTileSource = new OpenSeadragon.WsiTileSource({
+            width: pyramid.TotalWidth, height: pyramid.TotalHeight, sessionId: Date.now(),
+            wsiSeriesId: seriesId, wsiLevels: wsiLevels, pyramid: pyramid
+        });
+
+        let tileAuthHeaders = {};
+        try {
+            const token = await auth0Client.getTokenSilently();
+            tileAuthHeaders = { 'Authorization': `Bearer ${token}` };
+        } catch (e) {}
+
+        viewer = OpenSeadragon({
+            id: 'osd-viewer',
+            prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+            showNavigationControl: false,
+            showNavigator: true,
+            navigatorPosition: 'BOTTOM_RIGHT',
+            animationTime: 0.2,
+            blendTime: 0.1,
+            constrainDuringPan: true,
+            maxZoomPixelRatio: 4,
+            minZoomImageRatio: 0.5,
+            immediateRender: true,
+            imageLoaderLimit: 12,
+            tileSources: wsiTileSource,
+            crossOriginPolicy: 'Anonymous',
+            loadTilesWithAjax: true,
+            ajaxHeaders: tileAuthHeaders,
+            preload: true,
+        });
+
+        viewer.addHandler('zoom', (e) => {
+            const zoomEl = document.getElementById('zoom-level');
+            if (zoomEl) zoomEl.textContent = e.zoom.toFixed(1) + 'x';
+        });
+        
+        viewer.addHandler('open', () => {
+            showLoading(false);
+            connectAnnotationSync(studyId);
+
+            if (spaceNavController) {
+                spaceNavController.setViewer(viewer);
+            } else if (typeof SpaceNavigatorController !== 'undefined') {
+                spaceNavController = new SpaceNavigatorController(viewer);
+                spaceNavController.autoConnect().then(connected => {
+                    if (connected) updateSpaceNavButton(true, spaceNavController.getConnectionMode());
+                });
+            }
+            
+            if (typeof resetAnnotationToolbar === 'function') resetAnnotationToolbar();
+            const annotToolbar = document.getElementById('annotation-toolbar');
+            if (annotToolbar) annotToolbar.style.display = 'flex';
+            
+            setTimeout(() => {
+                if (typeof loadStudyAnnotations === 'function') loadStudyAnnotations(studyId);
+            }, 500);
+                
+            if (!colorCorrection && typeof ColorCorrection !== 'undefined') {
+                const canvas = document.getElementById('osd-viewer');
+                colorCorrection = new ColorCorrection(canvas);
+            }
+            
+            const viewerEl = document.getElementById('osd-viewer');
+            if (viewerEl) viewerEl.classList.remove('gamma-correct', 'color-corrected');
+            
+            if (needsGammaCorrection && colorCorrection) {
+                colorCorrection.setPreset('Hamamatsu');
+                colorCorrection.enable();
+                updateGammaBadge();
+            }
+            
+            const colorBadge = document.getElementById('color-badge');
+            if (colorBadge) colorBadge.style.display = 'block';
+            
+            checkICCProfile(currentStudy);
+        });
+
+    } catch (e) {
+        console.error('Failed to load study:', e);
+        showLoading(false);
+    }
+}
+
+/**
+ * Add study to comparison mode
+ */
+function addToCompare(studyId, slideName) {
+    if (!compareMode) {
+        enterCompareMode(studyId, slideName);
+    } else if (studyId !== currentStudy) {
+        loadStudyInViewer2(studyId, slideName);
+    }
+}
+
+/**
+ * Enter comparison mode
+ */
+function enterCompareMode(studyId, slideName) {
+    compareMode = true;
+    const container = document.querySelector('.viewer-container');
+    const compareToolbar = document.getElementById('compare-toolbar');
+    if (container) container.classList.add('compare-mode');
+    if (compareToolbar) compareToolbar.classList.add('active');
+    
+    if (currentStudy === studyId) {
+        compareSlideName1 = slideName || studyId.substring(0, 8);
+        addViewerLabel('osd-viewer', compareSlideName1);
+    } else if (!currentStudy) {
+        compareSlideName1 = slideName || studyId.substring(0, 8);
+        loadStudy(studyId);
+        addViewerLabel('osd-viewer', compareSlideName1);
+    } else {
+        const currentCard = document.querySelector(`.study-card[data-id="${currentStudy}"]`);
+        compareSlideName1 = currentCard ? currentCard.querySelector('.study-slide-info')?.textContent || currentStudy.substring(0, 8) : currentStudy.substring(0, 8);
+        addViewerLabel('osd-viewer', compareSlideName1);
+        loadStudyInViewer2(studyId, slideName);
+    }
+    
+    updateCompareButtons();
+    if (viewer && syncNavigation) setupSyncNavigation();
+}
+
+/**
+ * Load a study into the secondary viewer
+ */
+async function loadStudyInViewer2(studyId, slideName) {
+    currentStudy2 = studyId;
+    compareSlideName2 = slideName || studyId.substring(0, 8);
+    
+    const placeholder = document.getElementById('viewer-placeholder-2');
+    if (placeholder) placeholder.style.display = 'none';
+    
+    try {
+        const response = await authFetch(`/api/studies/${studyId}`);
+        const studyData = await response.json();
+        const seriesId = studyData.Series[0];
+        
+        let pyramidResponse = await fetch(`/wsi/pyramids/${seriesId}`);
+        let pyramidData;
+        
+        if (!pyramidResponse.ok) {
+            const leicaResponse = await authFetch(`/api/leica-pyramid/${studyId}`);
+            if (leicaResponse.ok) pyramidData = await leicaResponse.json();
+            else return;
+        } else {
+            pyramidData = await pyramidResponse.json();
+        }
+        
+        const baseTileWidth = pyramidData.TilesSizes[0][0];
+        const baseTileHeight = pyramidData.TilesSizes[0][1];
+        const level0TilesX = pyramidData.TilesCount[0][0];
+        const level0TilesY = pyramidData.TilesCount[0][1];
+        
+        let compatibleLevels;
+        if (level0TilesX * level0TilesY < 200) {
+            compatibleLevels = [{ wsiIndex: 0, scale: 1.0, width: pyramidData.Sizes[0][0], height: pyramidData.Sizes[0][1], tilesX: level0TilesX, tilesY: level0TilesY, tileWidth: baseTileWidth, tileHeight: baseTileHeight }];
+        } else {
+            compatibleLevels = pyramidData.Resolutions.map((res, i) => ({ wsiIndex: i, scale: 1.0 / res, width: pyramidData.Sizes[i][0], height: pyramidData.Sizes[i][1], tilesX: pyramidData.TilesCount[i][0], tilesY: pyramidData.TilesCount[i][1], tileWidth: pyramidData.TilesSizes[i][0], tileHeight: pyramidData.TilesSizes[i][1] })).filter(level => level.tileWidth === baseTileWidth && level.tileHeight === baseTileHeight && (level.width >= level.tileWidth || level.height >= level.tileHeight));
+            if (compatibleLevels.length === 0) compatibleLevels = [{ wsiIndex: 0, scale: 1.0, width: pyramidData.Sizes[0][0], height: pyramidData.Sizes[0][1], tilesX: level0TilesX, tilesY: level0TilesY, tileWidth: baseTileWidth, tileHeight: baseTileHeight }];
+        }
+        
+        const wsiLevels2 = compatibleLevels.reverse();
+        const maxLevelIndex = wsiLevels2.length - 1;
+        wsiLevels2.forEach((level, idx) => {
+            level.scale = level.width / wsiLevels2[maxLevelIndex].width;
+        });
+        
+        let authHeaders = {};
+        try {
+            const token = await auth0Client.getTokenSilently();
+            authHeaders = { 'Authorization': `Bearer ${token}` };
+        } catch (e) {}
+        
+        if (viewer2) viewer2.destroy();
+        
+        const tileSource2 = new OpenSeadragon.WsiTileSource({
+            wsiSeriesId: seriesId, wsiLevels: wsiLevels2, pyramid: pyramidData,
+            sessionId: Date.now(), width: pyramidData.TotalWidth, height: pyramidData.TotalHeight
+        });
+        
+        viewer2 = OpenSeadragon({
+            id: 'osd-viewer-2',
+            prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+            showNavigationControl: false,
+            showNavigator: true,
+            navigatorPosition: 'TOP_RIGHT',
+            immediateRender: true,
+            loadTilesWithAjax: true,
+            ajaxHeaders: authHeaders,
+            tileSources: tileSource2
+        });
+        
+        viewer2.addHandler('open', () => {
+            addViewerLabel('osd-viewer-2', compareSlideName2);
+            if (syncNavigation) setupSyncNavigation();
+        });
+        
+        document.getElementById('osd-viewer-2').addEventListener('mousedown', () => setActiveViewer(2));
+        updateCompareButtons();
+        
+    } catch (e) {
+        console.error('Failed to load viewer 2:', e);
     }
 }
 
@@ -88,22 +453,14 @@ function setActiveViewer(num) {
  */
 function setupSyncNavigation() {
     if (!viewer || !viewer2) return;
-    
     let syncing = false;
-    
     const syncFrom = (source, target) => {
         if (syncing) return;
         syncing = true;
-        
-        const sourceViewport = source.viewport;
-        const targetViewport = target.viewport;
-        
-        targetViewport.panTo(sourceViewport.getCenter());
-        targetViewport.zoomTo(sourceViewport.getZoom());
-        
+        target.viewport.panTo(source.viewport.getCenter());
+        target.viewport.zoomTo(source.viewport.getZoom());
         syncing = false;
     };
-    
     viewer.addHandler('pan', () => syncNavigation && syncFrom(viewer, viewer2));
     viewer.addHandler('zoom', () => syncNavigation && syncFrom(viewer, viewer2));
     viewer2.addHandler('pan', () => syncNavigation && syncFrom(viewer2, viewer));
@@ -115,67 +472,50 @@ function setupSyncNavigation() {
  */
 function toggleSyncNavigation() {
     syncNavigation = !syncNavigation;
-    const btn = document.getElementById('sync-btn');
+    const btn = document.getElementById('sync-nav-btn');
     if (btn) btn.classList.toggle('active', syncNavigation);
-    
     if (syncNavigation && viewer && viewer2) {
-        // Sync viewer2 to viewer1
         viewer2.viewport.panTo(viewer.viewport.getCenter());
         viewer2.viewport.zoomTo(viewer.viewport.getZoom());
     }
 }
 
 /**
- * Swap viewers in compare mode
+ * Swap viewers in comparison mode
  */
 function swapViewers() {
     if (!compareMode || !viewer2) return;
-    
-    // Swap labels
     [compareSlideName1, compareSlideName2] = [compareSlideName2, compareSlideName1];
     addViewerLabel('osd-viewer', compareSlideName1);
     addViewerLabel('osd-viewer-2', compareSlideName2);
-    
-    // Swap current study references
     [currentStudy, currentStudy2] = [currentStudy2, currentStudy];
-    
-    // Note: Actually swapping the tile sources would be complex
-    // This just swaps the labels for now
 }
 
 /**
- * Exit compare mode
+ * Exit comparison mode
  */
 function exitCompareMode() {
     compareMode = false;
+    const container = document.querySelector('.viewer-container');
+    const compareToolbar = document.getElementById('compare-toolbar');
+    if (container) container.classList.remove('compare-mode');
+    if (compareToolbar) compareToolbar.classList.remove('active');
     
-    document.querySelector('.viewer-container').classList.remove('compare-mode');
-    document.getElementById('compare-toolbar').classList.remove('active');
-    
-    // Destroy viewer2
-    if (viewer2) {
-        viewer2.destroy();
-        viewer2 = null;
-    }
+    if (viewer2) { viewer2.destroy(); viewer2 = null; }
     currentStudy2 = null;
     compareSlideName2 = '';
     
-    // Remove labels
     const label1 = document.getElementById('osd-viewer')?.querySelector('.viewer-label');
     const label2 = document.getElementById('osd-viewer-2')?.querySelector('.viewer-label');
     if (label1) label1.remove();
     if (label2) label2.remove();
     
-    // Reset SpaceMouse to main viewer
-    if (spaceNavController && spaceNavController.connected) {
-        spaceNavController.setViewer(viewer);
-    }
-    
+    if (spaceNavController) spaceNavController.setViewer(viewer);
     updateCompareButtons();
 }
 
 /**
- * Update compare buttons state
+ * Update compare buttons active state
  */
 function updateCompareButtons() {
     document.querySelectorAll('.compare-btn').forEach(btn => {
@@ -185,40 +525,27 @@ function updateCompareButtons() {
 }
 
 /**
- * Toggle gamma correction
+ * Toggle gamma correction (old method)
  */
 function toggleGamma() {
     const viewerEl = document.getElementById('osd-viewer');
-    viewerEl.classList.toggle('gamma-correct');
+    if (viewerEl) viewerEl.classList.toggle('gamma-correct');
     updateGammaBadge();
 }
 
 /**
- * Initialize color correction
+ * Update gamma badge UI
  */
-function initColorCorrection() {
-    const canvas = document.getElementById('osd-viewer');
-    if (canvas && typeof ColorCorrection !== 'undefined') {
-        colorCorrection = new ColorCorrection(canvas);
-        console.log('Color correction ready');
+function updateGammaBadge() {
+    const badge = document.getElementById('gamma-badge');
+    if (!badge) return;
+    if (colorCorrection && colorCorrection.isEnabled()) {
+        const params = colorCorrection.getParams();
+        badge.textContent = `γ ${params.gamma.toFixed(1)}`;
+        badge.style.display = 'block';
+    } else {
+        badge.style.display = 'none';
     }
-}
-
-/**
- * Open color panel
- */
-function openColorPanel() {
-    const panel = document.getElementById('color-panel');
-    if (panel) panel.classList.add('active');
-}
-
-/**
- * Close color panel
- */
-function closeColorPanel(event) {
-    if (event) event.stopPropagation();
-    const panel = document.getElementById('color-panel');
-    if (panel) panel.classList.remove('active');
 }
 
 /**
@@ -233,27 +560,21 @@ function applyColorPreset(preset) {
 }
 
 /**
- * Update color parameter
+ * Update specific color parameter
  */
 function updateColorParam(param, value) {
     if (!colorCorrection) return;
-    
-    const numValue = parseFloat(value);
-    colorCorrection.setParam(param, numValue);
-    
-    // Update display
+    colorCorrection.setParam(param, parseFloat(value));
     const display = document.getElementById(`${param}-value`);
-    if (display) display.textContent = numValue.toFixed(2);
-    
+    if (display) display.textContent = parseFloat(value).toFixed(2);
     updateGammaBadge();
 }
 
 /**
- * Update color UI sliders
+ * Update all color UI elements
  */
 function updateColorUI() {
     if (!colorCorrection) return;
-    
     const params = colorCorrection.getParams();
     ['gamma', 'brightness', 'contrast', 'saturation'].forEach(param => {
         const slider = document.getElementById(`${param}-slider`);
@@ -264,23 +585,7 @@ function updateColorUI() {
 }
 
 /**
- * Update gamma badge display
- */
-function updateGammaBadge() {
-    const badge = document.getElementById('gamma-badge');
-    if (!badge) return;
-    
-    if (colorCorrection && colorCorrection.isEnabled()) {
-        const params = colorCorrection.getParams();
-        badge.textContent = `γ ${params.gamma.toFixed(1)}`;
-        badge.style.display = 'block';
-    } else {
-        badge.style.display = 'none';
-    }
-}
-
-/**
- * Reset color correction
+ * Reset color correction to defaults
  */
 function resetColorCorrection() {
     if (colorCorrection) {
@@ -291,54 +596,99 @@ function resetColorCorrection() {
 }
 
 /**
+ * Check if study has an ICC profile and update UI
+ */
+async function checkICCProfile(studyId) {
+    const iccBadge = document.getElementById('icc-badge');
+    if (!iccBadge) return;
+    currentICCProfile = null;
+    iccApplied = false;
+    
+    try {
+        const res = await authFetch(`/api/studies/${studyId}/icc-profile?include_transform=true`);
+        if (res.ok) {
+            const data = await res.json();
+            currentICCProfile = data;
+            if (data.has_icc) {
+                const info = data.profile_info || {};
+                let typeLabel = info.preferred_cmm === 'ADBE' ? 'Adobe' : (info.preferred_cmm === 'lcms' ? 'sRGB' : 'ICC');
+                iccBadge.textContent = `ICC: ${typeLabel}`;
+                iccBadge.style.display = 'block';
+                if (colorCorrection && data.color_transform) {
+                    colorCorrection.iccData = data;
+                    colorCorrection.iccTransform = data.color_transform;
+                }
+            } else {
+                iccBadge.style.display = 'none';
+            }
+        }
+    } catch (e) {}
+}
+
+/**
+ * Toggle ICC profile application
+ */
+function toggleICC() {
+    if (!currentICCProfile?.has_icc || !colorCorrection) return;
+    const iccBadge = document.getElementById('icc-badge');
+    if (iccApplied) {
+        colorCorrection.disableICC();
+        iccApplied = false;
+        if (iccBadge) { iccBadge.style.background = ''; iccBadge.style.color = ''; }
+    } else {
+        if (colorCorrection.enableICC()) {
+            iccApplied = true;
+            if (iccBadge) { iccBadge.style.background = 'var(--accent)'; iccBadge.style.color = 'var(--bg-primary)'; }
+        }
+    }
+    updateICCStatusPanel();
+}
+
+/**
+ * Toggle ICC info or application
+ */
+function toggleICCInfo() {
+    if (currentICCProfile?.has_icc) toggleICC();
+    else alert('No ICC profile available.');
+}
+
+/**
+ * Update the ICC status panel in color settings
+ */
+function updateICCStatusPanel() {
+    const panel = document.getElementById('icc-status-panel');
+    const text = document.getElementById('icc-status-text');
+    if (!panel || !text) return;
+    if (currentICCProfile?.has_icc) {
+        panel.style.display = 'block';
+        text.innerHTML = `<strong>${currentICCProfile.profile_info?.color_space || 'RGB'}</strong> | <span style="color: ${iccApplied ? 'var(--success)' : 'var(--text-secondary)'}">${iccApplied ? 'APPLIED ✓' : 'NOT APPLIED'}</span> <button onclick="toggleICC()" class="btn-small">${iccApplied ? 'Disable' : 'Apply'}</button>`;
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+/**
+ * Navigate to next study in list
+ */
+function nextStudy() {
+    if (!currentStudy || !studyList.length) return;
+    const idx = studyList.indexOf(currentStudy);
+    if (idx !== -1 && idx < studyList.length - 1) loadStudy(studyList[idx + 1]);
+}
+
+/**
+ * Navigate to previous study in list
+ */
+function previousStudy() {
+    if (!currentStudy || !studyList.length) return;
+    const idx = studyList.indexOf(currentStudy);
+    if (idx > 0) loadStudy(studyList[idx - 1]);
+}
+
+/**
  * Toggle fullscreen mode
  */
 function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-        document.getElementById('osd-viewer').requestFullscreen();
-    } else {
-        document.exitFullscreen();
-    }
-}
-
-/**
- * Connect to annotation sync SSE
- */
-function connectAnnotationSync(studyId) {
-    // Disconnect existing connection
-    disconnectAnnotationSync();
-    
-    try {
-        annotationEventSource = new EventSource(`/api/studies/${studyId}/events`);
-        
-        annotationEventSource.onopen = () => {
-            console.log('SSE connected for annotations');
-        };
-        
-        annotationEventSource.onerror = (e) => {
-            console.log('SSE connection error, will retry...', e);
-        };
-        
-        annotationEventSource.addEventListener('annotation', (e) => {
-            try {
-                const data = JSON.parse(e.data);
-                console.log('SSE annotation event:', data);
-                // Handle real-time annotation updates here
-            } catch (err) {
-                console.error('Failed to parse SSE event:', err);
-            }
-        });
-    } catch (e) {
-        console.warn('Could not connect to annotation sync:', e);
-    }
-}
-
-/**
- * Disconnect annotation sync SSE
- */
-function disconnectAnnotationSync() {
-    if (annotationEventSource) {
-        annotationEventSource.close();
-        annotationEventSource = null;
-    }
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
 }
