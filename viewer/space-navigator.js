@@ -2223,7 +2223,6 @@ class SpaceNavigatorController {
         this._suppressHandlers = null;
         console.log('SpaceMouse: Event suppression disabled');
     }
-}
 
     // ========== STATIC PREFERENCE MANAGEMENT ==========
     
