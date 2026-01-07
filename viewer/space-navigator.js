@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.16.0';
+const SPACEMOUSE_VERSION = '1.17.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -2200,12 +2200,34 @@ class SpaceNavigatorController {
             }
         };
         
+        // Block wheel events from 3Dconnexion driver (zoom on tilt)
+        // The driver sends wheel events when you tilt north/south
+        const wheelHandler = (e) => {
+            // Check if this is on the viewer
+            const target = e.target;
+            if (target.closest('#osd-viewer') || target.closest('#osd-viewer-2') || target.closest('.openseadragon-container')) {
+                // Check if SpaceMouse has recent activity (within 100ms - driver events are fast)
+                const recentActivity = (Date.now() - this._lastInputTime) < 100;
+                // Also check if any axis is active (tilt happening)
+                const hasAxisInput = Math.abs(this.rx) > 0.05 || Math.abs(this.ry) > 0.05 || Math.abs(this.rz) > 0.05 ||
+                                     Math.abs(this.tx) > 0.05 || Math.abs(this.ty) > 0.05 || Math.abs(this.tz) > 0.05;
+                
+                if (recentActivity || hasAxisInput) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('SpaceMouse: Blocked driver wheel event');
+                    return false;
+                }
+            }
+        };
+        
         document.addEventListener('contextmenu', contextHandler, true);
         document.addEventListener('keydown', keyHandler, true);
         document.addEventListener('auxclick', auxHandler, true);
         document.addEventListener('mousedown', mouseDownHandler, true);
+        document.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
         
-        this._suppressHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler };
+        this._suppressHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler, wheelHandler };
         console.log('SpaceMouse: Event suppression enabled (blocking driver menus)');
     }
     
@@ -2219,6 +2241,9 @@ class SpaceNavigatorController {
         document.removeEventListener('keydown', this._suppressHandlers.keyHandler, true);
         document.removeEventListener('auxclick', this._suppressHandlers.auxHandler, true);
         document.removeEventListener('mousedown', this._suppressHandlers.mouseDownHandler, true);
+        if (this._suppressHandlers.wheelHandler) {
+            document.removeEventListener('wheel', this._suppressHandlers.wheelHandler, { capture: true });
+        }
         
         this._suppressHandlers = null;
         console.log('SpaceMouse: Event suppression disabled');
@@ -2310,14 +2335,40 @@ class SpaceNavigatorController {
             }
         };
         
+        // Track wheel events for driver detection
+        let lastWheelTime = 0;
+        let wheelEventCount = 0;
+        
+        const wheelHandler = (e) => {
+            const target = e.target;
+            if (target.closest('#osd-viewer') || target.closest('#osd-viewer-2') || target.closest('.openseadragon-container')) {
+                const now = Date.now();
+                // 3Dconnexion driver sends rapid wheel events
+                if (now - lastWheelTime < 50) {
+                    wheelEventCount++;
+                    // If we see 3+ rapid wheel events, it's likely the driver
+                    if (wheelEventCount >= 2) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('SpaceMouse: Blocked driver wheel zoom');
+                        return false;
+                    }
+                } else {
+                    wheelEventCount = 0;
+                }
+                lastWheelTime = now;
+            }
+        };
+        
         document.addEventListener('contextmenu', contextHandler, true);
         document.addEventListener('keydown', keyHandler, true);
         document.addEventListener('auxclick', auxHandler, true);
         document.addEventListener('mousedown', mouseDownHandler, true);
+        document.addEventListener('wheel', wheelHandler, { capture: true, passive: false });
         
-        _globalSuppressionHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler };
+        _globalSuppressionHandlers = { contextHandler, keyHandler, auxHandler, mouseDownHandler, wheelHandler };
         _globalSuppressionEnabled = true;
-        console.log('%c🎮 SpaceMouse: Global event suppression enabled', 'color: #6366f1');
+        console.log('%c🎮 SpaceMouse: Global event suppression enabled (including wheel)', 'color: #6366f1');
     }
     
     /**
@@ -2330,6 +2381,9 @@ class SpaceNavigatorController {
         document.removeEventListener('keydown', _globalSuppressionHandlers.keyHandler, true);
         document.removeEventListener('auxclick', _globalSuppressionHandlers.auxHandler, true);
         document.removeEventListener('mousedown', _globalSuppressionHandlers.mouseDownHandler, true);
+        if (_globalSuppressionHandlers.wheelHandler) {
+            document.removeEventListener('wheel', _globalSuppressionHandlers.wheelHandler, { capture: true });
+        }
         
         _globalSuppressionHandlers = null;
         _globalSuppressionEnabled = false;
