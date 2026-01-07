@@ -1428,12 +1428,16 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
             else:
                 ds.SeriesDescription = truncate_lo(f"Converted from {format_meta['format_name']}")
             
-            # Set ContentLabel from original filename (since label param removed from WsiDicomizer.open)
-            ds.ContentLabel = truncate_lo(original_filename, 64)
+            # Set ContentLabel from original filename (CS VR - max 16 chars, uppercase only)
+            # ContentLabel uses CS VR: uppercase letters, digits, space, underscore only
+            import re
+            clean_label = re.sub(r'[^A-Z0-9_ ]', '', original_filename.upper().replace('.', '_'))[:16]
+            if clean_label:
+                ds.ContentLabel = clean_label
             
             # Truncate any other LO fields that might be too long from source metadata
             lo_fields = ['InstitutionName', 'StationName', 'PatientID', 'AccessionNumber', 
-                        'SpecimenIdentifier', 'ContainerIdentifier', 'ContentLabel']
+                        'SpecimenIdentifier', 'ContainerIdentifier']
             for field in lo_fields:
                 if hasattr(ds, field):
                     val = getattr(ds, field)
