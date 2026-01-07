@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.14.0';
+const SPACEMOUSE_VERSION = '1.14.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
@@ -1167,8 +1167,11 @@ class SpaceNavigatorController {
             
         } else if (this._hasActiveInput || Math.abs(this._velocity.x) > 0.0001 || Math.abs(this._velocity.y) > 0.0001) {
             // No input but we have momentum - apply decay
-            this._velocity.x *= this._momentumDecay;
-            this._velocity.y *= this._momentumDecay;
+            // Scale decay with screen size: larger screens need faster decay to maintain same coast distance
+            // Formula: effectiveDecay = 1 - (1 - baseDecay) * screenScale
+            const scaledDecay = 1 - (1 - this._momentumDecay) * screenScale;
+            this._velocity.x *= scaledDecay;
+            this._velocity.y *= scaledDecay;
             this._smoothedPan.x = this._velocity.x;
             this._smoothedPan.y = this._velocity.y;
             this._hasActiveInput = false;
