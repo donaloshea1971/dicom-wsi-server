@@ -12,7 +12,11 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/openseadragon.min.js"></script>
     <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+    <!-- External CSS -->
+    <link rel="stylesheet" href="css/viewer.css?v=1.0.0">
+    <!-- Inline overrides if needed -->
     <style>
+        /* Any inline style overrides can go here */
         :root {
             --bg-primary: #0a0a0f;
             --bg-secondary: #12121a;
@@ -2294,15 +2298,18 @@
     <script src="color-correction.js?v=1.1.0"></script>
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.16.0"></script>
+    
+    <!-- Modular JS Components -->
+    <script src="js/auth.js?v=1.0.0"></script>
+    <script src="js/study-manager.js?v=1.0.0"></script>
+    <script src="js/viewer-main.js?v=1.0.0"></script>
+    <script src="js/ui-controllers.js?v=1.0.0"></script>
+    
     <script>
-        // Auth0 Configuration
-        const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
-        const AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
+        // NOTE: Global variables and complex functions remain here for now
+        // The modular JS files above provide reusable utilities
         
-        let auth0Client = null;
-        let currentUser = null;
-
-        // Configuration
+        // Configuration (can be overridden)
         const CONFIG = {
             orthancUrl: '/dicom-web',
             converterUrl: '/api'
