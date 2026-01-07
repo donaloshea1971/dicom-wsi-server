@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.17.0';
+const SPACEMOUSE_VERSION = '1.18.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -577,9 +577,10 @@ class SpaceNavigatorController {
         
         // Show crosshair
         this.showCrosshair();
-        
-        // NOTE: No longer disabling OSD navigation - mouse and SpaceMouse can coexist
-        // this._disableOSDNavigation();
+
+        // Disable scroll-to-zoom to block 3Dconnexion driver wheel events
+        // (mouse pan still works, SpaceMouse handles zoom)
+        this._disableScrollZoom();
 
         // Suppress events
         this.enableEventSuppression();
@@ -793,10 +794,11 @@ class SpaceNavigatorController {
             
             // Show crosshair
             this.showCrosshair();
-            
-            // NOTE: No longer disabling OSD navigation - mouse and SpaceMouse can coexist
-            // this._disableOSDNavigation();
-            
+
+            // Disable scroll-to-zoom to block 3Dconnexion driver wheel events
+            // (mouse pan still works, SpaceMouse handles zoom)
+            this._disableScrollZoom();
+
             // Suppress 3Dconnexion driver default actions (menus, shortcuts)
             this.enableEventSuppression();
             
@@ -853,9 +855,9 @@ class SpaceNavigatorController {
         
         // Remove event suppression
         this.disableEventSuppression();
-        
-        // NOTE: No longer disabling/enabling OSD navigation - mouse and SpaceMouse coexist
-        // this._enableOSDNavigation();
+
+        // Re-enable scroll zoom
+        this._enableScrollZoom();
         
         // Close WebHID device if applicable
         if (this._connectionMode === 'webhid' && this.device) {
@@ -1399,6 +1401,33 @@ class SpaceNavigatorController {
         }
     }
 
+    /**
+     * Disable scroll-to-zoom only (blocks 3Dconnexion driver wheel events)
+     * Mouse pan and drag still work
+     */
+    _disableScrollZoom() {
+        if (!this.viewer) return;
+        
+        // Save current scroll zoom setting
+        if (this.viewer.gestureSettingsMouse) {
+            this._savedScrollZoom = this.viewer.gestureSettingsMouse.scrollToZoom;
+            this.viewer.gestureSettingsMouse.scrollToZoom = false;
+            console.log('SpaceMouse: Scroll zoom disabled (blocking driver wheel events)');
+        }
+    }
+    
+    /**
+     * Re-enable scroll-to-zoom
+     */
+    _enableScrollZoom() {
+        if (!this.viewer) return;
+        
+        if (this.viewer.gestureSettingsMouse) {
+            this.viewer.gestureSettingsMouse.scrollToZoom = this._savedScrollZoom ?? true;
+            console.log('SpaceMouse: Scroll zoom re-enabled');
+        }
+    }
+    
     /**
      * Disable all OpenSeadragon navigation (mouse pan, scroll zoom, click zoom)
      * Called when SpaceMouse is connected
