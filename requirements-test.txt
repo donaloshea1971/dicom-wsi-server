@@ -1,33 +1,32 @@
 # Test Dependencies for DICOM WSI Server
+# 
+# NOTE: Tests also require the main application dependencies from converter/requirements.txt
+# At minimum, install these before running tests:
+#   pip install python-jose[cryptography] asyncpg pydantic-settings fastapi
 
 # Testing framework
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
 pytest-mock>=3.12.0
-pytest-httpx>=0.30.0
 
 # Async testing
 anyio>=4.2.0
-trio>=0.24.0
 
 # Mocking and test utilities
 responses>=0.24.0
 freezegun>=1.4.0
-faker>=22.0.0
-factory-boy>=3.3.0
-
-# Test database (SQLite for unit tests)
-aiosqlite>=0.19.0
 
 # Code quality (optional but recommended)
 coverage>=7.4.0
-mypy>=1.8.0
 
 # HTTP mocking
-httpretty>=1.1.4
 respx>=0.20.2
 
 # FastAPI testing
 httpx>=0.26.0
 starlette>=0.35.0
+
+# For TIFF compression tests (optional)
+tifffile>=2024.1.0
+# imagecodecs>=2024.1.0  # Optional: enables LZW compression tests

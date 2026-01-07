@@ -13,11 +13,29 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from contextlib import asynccontextmanager
 
 import pytest
 
 # Add converter module to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "converter"))
+
+
+def create_mock_pool(mock_conn):
+    """Create a properly mocked async database pool."""
+    mock_pool = MagicMock()
+    
+    @asynccontextmanager
+    async def mock_acquire():
+        yield mock_conn
+    
+    mock_pool.acquire = mock_acquire
+    return mock_pool
+
+
+async def mock_get_db_pool_with(mock_pool):
+    """Async function that returns the mock pool."""
+    return mock_pool
 
 
 # =============================================================================
@@ -238,11 +256,12 @@ class TestGetOrCreateUser:
         mock_conn.fetchrow = AsyncMock(return_value=sample_user)
         mock_conn.execute = AsyncMock()
         
-        mock_pool = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_pool(mock_conn)
         
-        with patch.object(auth, "get_db_pool", return_value=mock_pool):
+        async def mock_get_pool():
+            return mock_pool
+        
+        with patch.object(auth, "get_db_pool", mock_get_pool):
             user = await get_or_create_user(token)
             
             assert user.email == sample_user["email"]
@@ -272,12 +291,13 @@ class TestGetOrCreateUser:
         mock_conn.fetchrow = AsyncMock(side_effect=[None, new_user])
         mock_conn.execute = AsyncMock()
         
-        mock_pool = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_pool(mock_conn)
         
-        with patch.object(auth, "get_db_pool", return_value=mock_pool):
-            with patch.object(auth, "process_pending_shares", return_value=None):
+        async def mock_get_pool():
+            return mock_pool
+        
+        with patch.object(auth, "get_db_pool", mock_get_pool):
+            with patch.object(auth, "process_pending_shares", new=AsyncMock(return_value=None)):
                 user = await get_or_create_user(token)
                 
                 assert user.auth0_id == token.sub

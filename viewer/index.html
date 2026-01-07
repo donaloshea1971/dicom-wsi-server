@@ -2459,6 +2459,15 @@
 
         // Load a study into the viewer using Orthanc WSI plugin
         async function loadStudy(studyId) {
+            // In compare mode, if clicking a different slide, load in viewer 2
+            if (compareMode && studyId !== currentStudy && !currentStudy2) {
+                // Get slide name from the card if available
+                const card = document.querySelector(`.study-card[data-id="${studyId}"]`);
+                const slideName = card ? card.querySelector('.study-slide-info')?.textContent || studyId.substring(0, 8) : studyId.substring(0, 8);
+                loadStudyInViewer2(studyId, slideName);
+                return;
+            }
+            
             showLoading(true);
             currentStudy = studyId;
             
@@ -2919,16 +2928,26 @@
             document.querySelector('.viewer-container').classList.add('compare-mode');
             document.getElementById('compare-toolbar').classList.add('active');
             
-            // If no slide loaded yet, load this one
-            if (!currentStudy) {
+            // If clicking compare on the currently loaded slide, use it as slide 1
+            if (currentStudy === studyId) {
+                // Already loaded, just add label
+                compareSlideName1 = slideName || studyId.substring(0, 8);
+                addViewerLabel('osd-viewer', compareSlideName1);
+            } else if (!currentStudy) {
+                // No slide loaded yet, load this one
+                compareSlideName1 = slideName || studyId.substring(0, 8);
                 loadStudy(studyId);
+                addViewerLabel('osd-viewer', compareSlideName1);
+            } else {
+                // Different slide clicked - current slide becomes slide 1, clicked becomes slide 2
+                // Get current slide name from card
+                const currentCard = document.querySelector(`.study-card[data-id="${currentStudy}"]`);
+                compareSlideName1 = currentCard ? currentCard.querySelector('.study-slide-info')?.textContent || currentStudy.substring(0, 8) : currentStudy.substring(0, 8);
+                addViewerLabel('osd-viewer', compareSlideName1);
+                
+                // Load clicked slide in viewer 2
+                loadStudyInViewer2(studyId, slideName);
             }
-            
-            // Store slide 1 info
-            compareSlideName1 = slideName || studyId.substring(0, 8);
-            
-            // Add label to viewer 1
-            addViewerLabel('osd-viewer', compareSlideName1);
             
             // Update compare buttons
             updateCompareButtons();

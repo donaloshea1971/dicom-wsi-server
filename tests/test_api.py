@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from io import BytesIO
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 
 # Add converter module to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "converter"))
@@ -35,7 +35,8 @@ class TestHealthEndpoint:
         """Test health endpoint returns healthy status."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/health")
             
             assert response.status_code == 200
@@ -61,7 +62,8 @@ class TestUploadEndpoint:
         # Create a mock file
         file_content = b"FAKE SVS CONTENT"
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 "/upload",
                 files={"file": ("test_slide.svs", BytesIO(file_content))},
@@ -81,7 +83,8 @@ class TestUploadEndpoint:
         
         file_content = b"Not a WSI file"
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 "/upload",
                 files={"file": ("test.txt", BytesIO(file_content))},
@@ -96,7 +99,8 @@ class TestUploadEndpoint:
         """Test uploading empty file."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 "/upload",
                 files={"file": ("test.svs", BytesIO(b""))},
@@ -129,7 +133,8 @@ class TestJobStatusEndpoints:
         )
         conversion_jobs["test-job-123"] = job
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/jobs/test-job-123")
             
             assert response.status_code == 200
@@ -144,7 +149,8 @@ class TestJobStatusEndpoints:
         """Test getting status of non-existent job."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/jobs/non-existent-job")
             
             assert response.status_code == 404
@@ -166,7 +172,8 @@ class TestJobStatusEndpoints:
             )
             conversion_jobs[f"job-{i}"] = job
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/jobs")
             
             assert response.status_code == 200
@@ -199,7 +206,8 @@ class TestStudiesEndpoints:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/dicomweb/studies")
                 
                 # Should return 200 (empty list for unauthenticated)
@@ -229,7 +237,8 @@ class TestStudiesEndpoints:
             
             # Mock access check
             with patch("main.can_access_study", return_value=True):
-                async with AsyncClient(app=app, base_url="http://test") as client:
+                transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
                     response = await client.get(f"/dicomweb/studies/{sample_study_id}")
                     
                     assert response.status_code == 200
@@ -471,7 +480,8 @@ class TestFileFormatValidation:
         for ext in supported:
             file_content = b"FAKE CONTENT"
             
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(
                     "/upload",
                     files={"file": (f"test{ext}", BytesIO(file_content))},
@@ -489,7 +499,8 @@ class TestFileFormatValidation:
         for ext in unsupported:
             file_content = b"FAKE CONTENT"
             
-            async with AsyncClient(app=app, base_url="http://test") as client:
+            transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(
                     "/upload",
                     files={"file": (f"test{ext}", BytesIO(file_content))},
@@ -510,7 +521,8 @@ class TestCORSConfiguration:
         """Test CORS headers are present in response."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.options(
                 "/health",
                 headers={
@@ -571,7 +583,8 @@ class TestErrorHandling:
         """Test 404 for unknown routes."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/unknown/route")
             
             assert response.status_code == 404
@@ -581,7 +594,8 @@ class TestErrorHandling:
         """Test method not allowed for wrong HTTP method."""
         from main import app
         
-        async with AsyncClient(app=app, base_url="http://test") as client:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/health")
             
             assert response.status_code == 405
