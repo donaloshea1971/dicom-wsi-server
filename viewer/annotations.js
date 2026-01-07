@@ -768,6 +768,13 @@ class AnnotationManager {
     }
     
     renderLine(ctx, coords, props) {
+        // Validate coords format
+        if (!coords || !Array.isArray(coords) || coords.length < 2 ||
+            !coords[0] || !coords[1] || coords[0].length < 2 || coords[1].length < 2) {
+            console.warn('Invalid line coords:', coords);
+            return;
+        }
+        
         const start = this.imageToCanvas({ x: coords[0][0], y: coords[0][1] });
         const end = this.imageToCanvas({ x: coords[1][0], y: coords[1][1] });
         
@@ -795,6 +802,13 @@ class AnnotationManager {
     }
     
     renderRectangle(ctx, coords, props) {
+        // Validate coords format
+        if (!coords || !Array.isArray(coords) || coords.length < 2 ||
+            !coords[0] || !coords[1] || coords[0].length < 2 || coords[1].length < 2) {
+            console.warn('Invalid rectangle coords:', coords);
+            return;
+        }
+        
         const start = this.imageToCanvas({ x: coords[0][0], y: coords[0][1] });
         const end = this.imageToCanvas({ x: coords[1][0], y: coords[1][1] });
         
@@ -816,9 +830,16 @@ class AnnotationManager {
     }
     
     renderPolygon(ctx, coords, props) {
-        if (coords.length < 3) return;
+        // Validate coords format
+        if (!coords || !Array.isArray(coords) || coords.length < 3) {
+            console.warn('Invalid polygon coords:', coords);
+            return;
+        }
         
-        const canvasCoords = coords.map(c => this.imageToCanvas({ x: c[0], y: c[1] }));
+        const canvasCoords = coords.map(c => {
+            if (!c || c.length < 2) return { x: 0, y: 0 };
+            return this.imageToCanvas({ x: c[0], y: c[1] });
+        });
         
         ctx.beginPath();
         ctx.moveTo(canvasCoords[0].x, canvasCoords[0].y);
@@ -844,6 +865,12 @@ class AnnotationManager {
     }
     
     renderPoint(ctx, coords, props) {
+        // Validate coords format (point is [x, y] not [[x, y]])
+        if (!coords || coords.length < 2) {
+            console.warn('Invalid point coords:', coords);
+            return;
+        }
+        
         const point = this.imageToCanvas({ x: coords[0], y: coords[1] });
         
         // Outer ring
@@ -874,6 +901,13 @@ class AnnotationManager {
     }
     
     renderArrow(ctx, coords, props) {
+        // Validate coords format
+        if (!coords || !Array.isArray(coords) || coords.length < 2 ||
+            !coords[0] || !coords[1] || coords[0].length < 2 || coords[1].length < 2) {
+            console.warn('Invalid arrow coords:', coords);
+            return;
+        }
+        
         const start = this.imageToCanvas({ x: coords[0][0], y: coords[0][1] });
         const end = this.imageToCanvas({ x: coords[1][0], y: coords[1][1] });
         
