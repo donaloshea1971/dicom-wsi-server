@@ -4,7 +4,7 @@
  */
 
 // Current share dialog state
-let currentShareStudyId = null;
+var currentShareStudyId = null;
 
 /**
  * Open the uploader page

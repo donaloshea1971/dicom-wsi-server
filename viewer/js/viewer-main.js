@@ -3,29 +3,29 @@
  * OpenSeadragon initialization, compare mode, and viewer-related functions
  */
 
-// Global viewer state
-let viewer = null;
-let currentStudy = null;
+// Global viewer state (use var for compatibility with inline fallbacks)
+var viewer = null;
+var currentStudy = null;
 
 // Compare mode state
-let compareMode = false;
-let viewer2 = null;
-let currentStudy2 = null;
-let syncNavigation = false;
-let activeViewer = 1; // 1 or 2
-let compareSlideName1 = '';
-let compareSlideName2 = '';
+var compareMode = false;
+var viewer2 = null;
+var currentStudy2 = null;
+var syncNavigation = false;
+var activeViewer = 1; // 1 or 2
+var compareSlideName1 = '';
+var compareSlideName2 = '';
 
 // Color correction state
-let colorCorrection = null;
-let currentICCProfile = null;
+var colorCorrection = null;
+var currentICCProfile = null;
 
 // SpaceMouse controller
-let spaceNavController = null;
+var spaceNavController = null;
 
 // Annotation manager
-let annotationManager = null;
-let annotationEventSource = null;
+var annotationManager = null;
+var annotationEventSource = null;
 
 /**
  * Show/hide loading overlay

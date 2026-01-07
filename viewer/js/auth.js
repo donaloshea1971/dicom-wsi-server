@@ -4,12 +4,12 @@
  */
 
 // Auth0 Configuration
-const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
-const AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
+var AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
+var AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
 
 // Global auth state
-let auth0Client = null;
-let currentUser = null;
+var auth0Client = null;
+var currentUser = null;
 
 // Configuration (only define if not already defined)
 if (typeof CONFIG === 'undefined') {

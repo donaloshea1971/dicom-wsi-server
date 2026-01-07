@@ -4,9 +4,9 @@
  */
 
 // Global state for studies
-let studyList = [];  // Store list of study IDs for navigation
-let allStudiesCache = { owned: [], shared: [], samples: [] };
-let currentViewMode = 'flat'; // 'flat' or 'grouped'
+var studyList = [];  // Store list of study IDs for navigation
+var allStudiesCache = { owned: [], shared: [], samples: [] };
+var currentViewMode = 'flat'; // 'flat' or 'grouped'
 
 /**
  * Check if sample slides are hidden
