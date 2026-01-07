@@ -124,12 +124,10 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-orthanc}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-orthanc}
       # CORS configuration
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
-      # Email notifications (optional)
-      - SMTP_HOST=${SMTP_HOST:-}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER:-}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      # Email notifications (Brevo API)
+      - BREVO_API_KEY=${BREVO_API_KEY:-}
       - SMTP_FROM=${SMTP_FROM:-noreply@pathviewpro.com}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-PathView Pro}
       - APP_URL=${APP_URL:-https://pathviewpro.com}
     depends_on:
       orthanc:
