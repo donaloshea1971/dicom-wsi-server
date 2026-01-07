@@ -418,6 +418,40 @@ async function loadStudyInViewer2(studyId, slideName) {
         
         if (viewer2) viewer2.destroy();
         
+        // Ensure WsiTileSource is defined (may not be if viewer2 loads before viewer1)
+        if (!OpenSeadragon.WsiTileSource) {
+            OpenSeadragon.WsiTileSource = function(options) {
+                this.wsiSeriesId = options.wsiSeriesId;
+                this.wsiLevels = options.wsiLevels;
+                this.pyramid = options.pyramid;
+                this.sessionId = options.sessionId;
+                this.width = options.width;
+                this.height = options.height;
+                this.tileSize = options.wsiLevels[0]?.tileWidth || 256;
+                this.tileOverlap = 0;
+                this.minLevel = 0;
+                this.maxLevel = this.wsiLevels.length - 1;
+                this.ready = true;
+            };
+            OpenSeadragon.WsiTileSource.prototype = Object.create(OpenSeadragon.TileSource.prototype);
+            OpenSeadragon.WsiTileSource.prototype.constructor = OpenSeadragon.WsiTileSource;
+            OpenSeadragon.WsiTileSource.prototype.getNumLevels = function() { return this.wsiLevels.length; };
+            OpenSeadragon.WsiTileSource.prototype.getLevelScale = function(level) { return this.wsiLevels[level]?.scale || 1; };
+            OpenSeadragon.WsiTileSource.prototype.getTileWidth = function(level) { return this.wsiLevels[level]?.tileWidth || 256; };
+            OpenSeadragon.WsiTileSource.prototype.getTileHeight = function(level) { return this.wsiLevels[level]?.tileHeight || 256; };
+            OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
+                const wsi = this.wsiLevels[level];
+                if (!wsi || x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) return null;
+                if (this.pyramid?.IsVirtualPyramid && this.pyramid.Type === 'LeicaMultiFile') {
+                    const instanceId = this.pyramid.InstanceIDs[wsi.wsiIndex];
+                    const left = x * wsi.tileWidth;
+                    const top = y * wsi.tileHeight;
+                    return `/dicom-web/instances/${instanceId}/rendered?window=center:128,width:256&viewport=${wsi.tileWidth},${wsi.tileHeight}&region=${left},${top},${wsi.tileWidth},${wsi.tileHeight}`;
+                }
+                return `/wsi/tiles/${this.wsiSeriesId}/${wsi.wsiIndex}/${x}/${y}?_=${this.sessionId}`;
+            };
+        }
+        
         const tileSource2 = new OpenSeadragon.WsiTileSource({
             wsiSeriesId: seriesId, wsiLevels: wsiLevels2, pyramid: pyramidData,
             sessionId: Date.now(), width: pyramidData.TotalWidth, height: pyramidData.TotalHeight
