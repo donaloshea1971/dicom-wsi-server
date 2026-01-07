@@ -1,61 +1,65 @@
 """
 Email notification service for PathView Pro
+Uses Brevo HTTP API (works even when SMTP ports are blocked)
 """
 import os
-import smtplib
+import httpx
 import logging
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Email configuration from environment
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+# For Brevo API, use the API key (xkeysib-...), not SMTP key
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "noreply@pathviewpro.com")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "PathView Pro")
 APP_URL = os.getenv("APP_URL", "https://pathviewpro.com")
+
+# Brevo API endpoint
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 
 
 def is_email_configured() -> bool:
     """Check if email is properly configured"""
-    return bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
+    return bool(BREVO_API_KEY)
 
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: Optional[str] = None) -> bool:
-    """Send an email"""
+    """Send an email using Brevo HTTP API"""
     if not is_email_configured():
-        logger.warning("Email not configured - skipping send")
+        logger.warning("Email not configured (BREVO_API_KEY not set) - skipping send")
         return False
     
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = SMTP_FROM
-        msg["To"] = to_email
+        payload = {
+            "sender": {
+                "name": SMTP_FROM_NAME,
+                "email": SMTP_FROM
+            },
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": html_body
+        }
         
-        # Plain text fallback
         if text_body:
-            msg.attach(MIMEText(text_body, "plain"))
+            payload["textContent"] = text_body
         
-        # HTML body
-        msg.attach(MIMEText(html_body, "html"))
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": BREVO_API_KEY
+        }
         
-        # Use SSL for port 465, TLS for port 587
-        if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_FROM, to_email, msg.as_string())
+        with httpx.Client(timeout=30) as client:
+            response = client.post(BREVO_API_URL, json=payload, headers=headers)
+        
+        if response.status_code in (200, 201):
+            logger.info(f"Email sent to {to_email}: {subject}")
+            return True
         else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_FROM, to_email, msg.as_string())
-        
-        logger.info(f"Email sent to {to_email}: {subject}")
-        return True
+            logger.error(f"Brevo API error: {response.status_code} - {response.text}")
+            return False
         
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
