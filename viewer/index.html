@@ -2309,6 +2309,14 @@
         // NOTE: Global variables and complex functions remain here for now
         // The modular JS files above provide reusable utilities
         
+        // Auth0 Configuration (fallback if auth.js doesn't load)
+        if (typeof AUTH0_DOMAIN === 'undefined') {
+            var AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
+            var AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
+            var auth0Client = null;
+            var currentUser = null;
+        }
+        
         // Configuration (can be overridden)
         const CONFIG = {
             orthancUrl: '/dicom-web',
