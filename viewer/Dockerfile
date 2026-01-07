@@ -18,9 +18,13 @@ COPY space-navigator.js /usr/share/nginx/html/
 COPY spacemouse-calibration.html /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
 COPY demo-video.mp4 /usr/share/nginx/html/
+COPY test-auth.html /usr/share/nginx/html/
 
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
+
+# Remove default nginx config that conflicts with our custom config
+RUN rm -f /etc/nginx/conf.d/default.conf
 
 # Create SSL directory
 RUN mkdir -p /etc/nginx/ssl
