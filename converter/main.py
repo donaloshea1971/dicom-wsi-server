@@ -1428,6 +1428,9 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
             else:
                 ds.SeriesDescription = truncate_lo(f"Converted from {format_meta['format_name']}")
             
+            # Set ContentLabel from original filename (since label param removed from WsiDicomizer.open)
+            ds.ContentLabel = truncate_lo(original_filename, 64)
+            
             # Truncate any other LO fields that might be too long from source metadata
             lo_fields = ['InstitutionName', 'StationName', 'PatientID', 'AccessionNumber', 
                         'SpecimenIdentifier', 'ContainerIdentifier', 'ContentLabel']
@@ -1440,9 +1443,6 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
             
             return ds
         
-        # Truncate label for wsidicomizer (used in DICOM label/macro images)
-        truncated_label = truncate_lo(original_filename, 64)
-        
         # Convert to DICOM using wsidicomizer
         # wsidicomizer supports: SVS, NDPI, iSyntax, MRXS, SCN, CZI, TIFF, and more
         job.message = "Converting to DICOM WSI pyramid (this may take a while)..."
@@ -1454,7 +1454,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         if source_format == "philips":
             logger.info("Converting iSyntax using wsidicomizer...")
             try:
-                with WsiDicomizer.open(str(actual_file_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
+                with WsiDicomizer.open(str(actual_file_path), metadata_post_processor=metadata_post_processor) as wsi:
                     logger.info(f"Opened iSyntax: {wsi.size.width}x{wsi.size.height}")
                     num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
                     logger.info(f"Source has {num_levels} pyramid levels")
@@ -1477,7 +1477,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         else:
             # Use wsidicomizer for other formats (including multi-file from ZIP)
             try:
-                with WsiDicomizer.open(str(actual_file_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
+                with WsiDicomizer.open(str(actual_file_path), metadata_post_processor=metadata_post_processor) as wsi:
                     # Log pyramid information
                     logger.info(f"Opened WSI: {wsi.size.width}x{wsi.size.height}")
                     num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
@@ -1517,7 +1517,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
                         job.message = "Re-attempting DICOM conversion..."
                         job.progress = 35
                         
-                        with WsiDicomizer.open(str(converted_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
+                        with WsiDicomizer.open(str(converted_path), metadata_post_processor=metadata_post_processor) as wsi:
                             logger.info(f"Opened converted WSI: {wsi.size.width}x{wsi.size.height}")
                             num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
                             logger.info(f"Source has {num_levels} pyramid levels")
