@@ -5,8 +5,12 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.13.0';
+const SPACEMOUSE_VERSION = '1.14.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
+
+// Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
+// Larger screens will pan faster to maintain consistent physical motion
+const REFERENCE_WIDTH = 1920;
 
 // Log API support on load
 const _webhidSupport = 'hid' in navigator;
@@ -1118,10 +1122,16 @@ class SpaceNavigatorController {
                 const rawRY = this._rawInput?.ry || 0;
                 const rawRZ = this._rawInput?.rz || 0;
                 
+                // Calculate screen scale for debug display
+                const debugContainerSize = viewport.getContainerSize();
+                const debugPhysicalWidth = debugContainerSize.x * (window.devicePixelRatio || 1);
+                const debugScreenScale = debugPhysicalWidth / REFERENCE_WIDTH;
+                
                 console.log(`%c🎮 SpaceMouse`, 'color: #10b981; font-weight: bold',
                     `TX:${rawTX.toString().padStart(4)} TY:${rawTY.toString().padStart(4)} TZ:${rawTZ.toString().padStart(4)} | ` +
                     `RX:${rawRX.toString().padStart(4)} RY:${rawRY.toString().padStart(4)} RZ:${rawRZ.toString().padStart(4)} | ` +
-                    `pan:(${mapped.panX.toFixed(2)},${mapped.panY.toFixed(2)}) zoom:${mapped.zoom.toFixed(2)}`
+                    `pan:(${mapped.panX.toFixed(2)},${mapped.panY.toFixed(2)}) zoom:${mapped.zoom.toFixed(2)} | ` +
+                    `screen:${debugScreenScale.toFixed(2)}x`
                 );
                 this._lastDebugLog = now;
             }
@@ -1130,9 +1140,16 @@ class SpaceNavigatorController {
         // Check if any PAN input is active (after exponential curve)
         const hasPanInput = Math.abs(mapped.panX) > 0.001 || Math.abs(mapped.panY) > 0.001;
         
-        // Pan with momentum - scale by zoom level for consistent apparent speed
+        // Pan with momentum - scale by zoom level AND screen size for consistent physical motion
         const currentZoom = viewport.getZoom();
-        const panFactor = this.sensitivity.pan / currentZoom;
+        
+        // Screen resolution scaling: larger screens need faster pan to feel the same
+        // Use physical pixels (CSS pixels × devicePixelRatio) to account for OS display scaling
+        const containerSize = viewport.getContainerSize();
+        const physicalWidth = containerSize.x * (window.devicePixelRatio || 1);
+        const screenScale = physicalWidth / REFERENCE_WIDTH;
+        
+        const panFactor = (this.sensitivity.pan * screenScale) / currentZoom;
         
         if (hasPanInput) {
             // Active input: calculate target and smooth
@@ -1464,6 +1481,15 @@ class SpaceNavigatorController {
         if (this.debugMode) {
             console.log('%c🎮 SpaceMouse DEBUG MODE: ON', 'color: #10b981; font-weight: bold; font-size: 14px');
             console.log('%cConnection Mode: ' + this.getConnectionModeDisplay(), 'color: #6366f1; font-weight: bold');
+            
+            // Show screen resolution info
+            if (this.viewer && this.viewer.viewport) {
+                const cs = this.viewer.viewport.getContainerSize();
+                const physW = cs.x * (window.devicePixelRatio || 1);
+                const screenScale = (physW / REFERENCE_WIDTH).toFixed(2);
+                console.log(`%cScreen: ${Math.round(cs.x)}×${Math.round(cs.y)} CSS px, ${Math.round(physW)}px physical, scale: ${screenScale}x (ref: ${REFERENCE_WIDTH}px)`, 'color: #6366f1');
+            }
+            
             console.log('%cMove the SpaceMouse to see live values. Zoom triggers when |rawRZ| > 200', 'color: #888');
             console.log('%cType: spaceNavController.toggleDebug() to turn OFF', 'color: #888');
             
@@ -1942,6 +1968,14 @@ class SpaceNavigatorController {
                 const panX = this._smoothedPan?.x?.toFixed(3) || '0.000';
                 const panY = this._smoothedPan?.y?.toFixed(3) || '0.000';
                 
+                // Calculate screen scale for display
+                let screenScaleStr = '1.00';
+                if (this.viewer && this.viewer.viewport) {
+                    const cs = this.viewer.viewport.getContainerSize();
+                    const physW = cs.x * (window.devicePixelRatio || 1);
+                    screenScaleStr = (physW / REFERENCE_WIDTH).toFixed(2);
+                }
+                
                 // Color code based on which signal is being used
                 const txColor = Math.abs(rawTX) > Math.abs(rawRY) ? '#10b981' : '#64748b';
                 const tyColor = Math.abs(rawTY) > Math.abs(rawRX) ? '#10b981' : '#64748b';
@@ -1952,6 +1986,7 @@ class SpaceNavigatorController {
                     `<div>Translation: <span style="color:${txColor}">TX:${rawTX.toString().padStart(4)}</span> <span style="color:${tyColor}">TY:${rawTY.toString().padStart(4)}</span></div>` +
                     `<div>Tilt: <span style="color:${ryColor}">RY:${rawRY.toString().padStart(4)}</span> <span style="color:${rxColor}">RX:${rawRX.toString().padStart(4)}</span> | RZ:${rawRZ.toString().padStart(4)}</div>` +
                     `<div>Output: panX:${panX} panY:${panY}</div>` +
+                    `<div style="color:#6366f1;">Screen scale: ${screenScaleStr}x (ref: ${REFERENCE_WIDTH}px)</div>` +
                     `<div style="color:#64748b; font-size:10px;">Green=translation, Orange=tilt winning</div>`;
             }
         }, 100);

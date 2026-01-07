@@ -370,6 +370,10 @@
             <div class="metric-label">Our Jitter</div>
             <div class="metric-value" id="metric-ours-jitter">0.000</div>
         </div>
+        <div class="metric" style="grid-column: span 3; background: #1e293b;">
+            <div class="metric-label">Screen Info (for resolution scaling)</div>
+            <div class="metric-value" id="metric-screen-info" style="color: #6366f1; font-size: 14px;">Loading...</div>
+        </div>
     </div>
 
     <script>
@@ -694,8 +698,19 @@
         setupControls();
         pollGamepad();
         
+        // Display screen info for resolution scaling reference
+        const REFERENCE_WIDTH = 1920;
+        const physicalWidth = window.innerWidth * (window.devicePixelRatio || 1);
+        const screenScale = (physicalWidth / REFERENCE_WIDTH).toFixed(2);
+        document.getElementById('metric-screen-info').innerHTML = 
+            `${window.innerWidth}×${window.innerHeight} CSS px | ` +
+            `${Math.round(physicalWidth)}px physical | ` +
+            `DPR: ${window.devicePixelRatio || 1} | ` +
+            `<span style="color: #10b981;">Scale: ${screenScale}x</span> (ref: ${REFERENCE_WIDTH}px)`;
+        
         console.log('SpaceMouse Physics Comparison loaded');
         console.log('Move your SpaceMouse to compare physics implementations');
+        console.log(`Screen scale: ${screenScale}x (${physicalWidth}px physical / ${REFERENCE_WIDTH}px reference)`);
     </script>
 </body>
 </html>
