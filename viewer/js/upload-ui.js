@@ -146,10 +146,22 @@ function updateQueueUI() {
     const listEl = document.getElementById('queue-list');
     const countEl = document.getElementById('queue-count');
     const statsEl = document.getElementById('upload-stats');
+    const uploadBtn = document.getElementById('upload-btn');
     if (!queueEl || !listEl) return;
 
     queueEl.style.display = uploadQueue.length > 0 ? 'block' : 'none';
     if (countEl) countEl.textContent = uploadQueue.length;
+    
+    // Disable upload button if not logged in
+    if (uploadBtn) {
+        const isLoggedIn = !!currentUser;
+        uploadBtn.disabled = !isLoggedIn || isUploading || uploadQueue.length === 0;
+        if (!isLoggedIn) {
+            uploadBtn.title = 'Please login to start uploading';
+        } else {
+            uploadBtn.title = '';
+        }
+    }
     
     if (uploadQueue.length === 0) {
         listEl.innerHTML = '<div class="empty-queue">No files in queue</div>';

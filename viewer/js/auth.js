@@ -168,10 +168,16 @@ async function logout() {
  * Get current Auth0 access token
  */
 async function getAuthToken() {
-    if (!auth0Client) return null;
+    if (!auth0Client) {
+        console.warn('getAuthToken: auth0Client not initialized');
+        return null;
+    }
     try {
-        return await auth0Client.getTokenSilently();
+        const token = await auth0Client.getTokenSilently();
+        console.debug('✓ getAuthToken: Retrieved token');
+        return token;
     } catch (e) {
+        console.error('getAuthToken: Failed to get token', e.error || e.message);
         return null;
     }
 }
