@@ -1537,8 +1537,11 @@
 
         <!-- Compare toolbar -->
         <div class="compare-toolbar" id="compare-toolbar">
-            <button id="sync-nav-btn" class="active" onclick="toggleSyncNavigation()" title="Sync pan/zoom between viewers">
+            <button id="sync-nav-btn" onclick="toggleSyncNavigation()" title="Sync pan/zoom between viewers">
                 🔗 Sync Nav
+            </button>
+            <button id="spacemouse-viewer-btn" onclick="toggleSpaceMouseViewer()" title="Switch SpaceMouse to other viewer">
+                🎮 Left
             </button>
             <div class="divider"></div>
             <button onclick="swapViewers()" title="Swap left and right slides">
@@ -1601,10 +1604,10 @@
                     </div>
                     <div class="keyboard-section">
                         <h4>Compare Mode</h4>
-                        <div class="shortcut">⧉ button on slide to compare</div>
+                        <div class="shortcut">⧉ button to compare</div>
                         <div class="shortcut"><kbd>Esc</kbd> Exit compare</div>
-                        <div class="shortcut">Click viewer to select</div>
-                        <div class="shortcut">🔗 Toggle sync navigation</div>
+                        <div class="shortcut">🔗 Sync pan/zoom</div>
+                        <div class="shortcut">🎮 Switch SpaceMouse</div>
                     </div>
                 </div>
             </div>
@@ -1918,7 +1921,7 @@
         let compareMode = false;
         let viewer2 = null;
         let currentStudy2 = null;
-        let syncNavigation = true;
+        let syncNavigation = false;
         let activeViewer = 1; // 1 or 2
         let compareSlideName1 = '';
         let compareSlideName2 = '';
@@ -3207,6 +3210,26 @@
             console.log('Sync navigation:', syncNavigation ? 'ON' : 'OFF');
         }
         
+        let spaceMouseOnViewer = 1; // Track which viewer has SpaceMouse
+        
+        function toggleSpaceMouseViewer() {
+            if (!compareMode || !viewer2) return;
+            
+            spaceMouseOnViewer = spaceMouseOnViewer === 1 ? 2 : 1;
+            const targetViewer = spaceMouseOnViewer === 1 ? viewer : viewer2;
+            
+            // Update SpaceMouse controller to use the other viewer
+            if (spaceNavController && targetViewer) {
+                spaceNavController.setViewer(targetViewer);
+                console.log('SpaceMouse switched to viewer', spaceMouseOnViewer);
+            }
+            
+            // Update button text
+            const btn = document.getElementById('spacemouse-viewer-btn');
+            btn.textContent = spaceMouseOnViewer === 1 ? '🎮 Left' : '🎮 Right';
+            btn.classList.toggle('active', spaceMouseOnViewer === 2);
+        }
+        
         function swapViewers() {
             if (!viewer2 || !currentStudy2) return;
             
@@ -3256,6 +3279,12 @@
             // Reset active viewer
             document.getElementById('osd-viewer').classList.remove('active-viewer');
             document.getElementById('osd-viewer-2').classList.remove('active-viewer');
+            
+            // Reset SpaceMouse to main viewer
+            if (spaceNavController && viewer) {
+                spaceNavController.setViewer(viewer);
+                spaceMouseOnViewer = 1;
+            }
             
             updateCompareButtons();
         }
