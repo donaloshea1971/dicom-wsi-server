@@ -20,6 +20,10 @@ COPY sw.js /usr/share/nginx/html/
 COPY demo-video.mp4 /usr/share/nginx/html/
 COPY test-auth.html /usr/share/nginx/html/
 
+# Copy modular CSS and JS directories
+COPY css/ /usr/share/nginx/html/css/
+COPY js/ /usr/share/nginx/html/js/
+
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
 
