@@ -1474,10 +1474,17 @@
                     <circle cx="12" cy="12" r="8" stroke-dasharray="4 4"/>
                 </svg>
             </button>
-            <button class="tool-btn" id="tool-arrow" title="Arrow (A)" onclick="setAnnotationTool('arrow')">
+            <button class="tool-btn" id="tool-arrow" title="Arrow (Shift+A)" onclick="setAnnotationTool('arrow')">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="5" y1="19" x2="19" y2="5"/>
                     <polyline points="12 5 19 5 19 12"/>
+                </svg>
+            </button>
+            <button class="tool-btn" id="tool-text" title="Text Label (T)" onclick="setAnnotationTool('text')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 7V4h16v3"/>
+                    <line x1="12" y1="4" x2="12" y2="20"/>
+                    <line x1="8" y1="20" x2="16" y2="20"/>
                 </svg>
             </button>
             <div class="tool-divider"></div>
@@ -1504,9 +1511,19 @@
             <div class="annotations-panel-header">
                 <h3>📐 Annotations</h3>
                 <div style="display: flex; gap: 8px; align-items: center;">
-                    <button class="btn-icon" onclick="exportAnnotations('json')" title="Export JSON" style="padding: 4px 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">
-                        📥 Export
-                    </button>
+                    <div class="export-dropdown" style="position: relative;">
+                        <button class="btn-icon" onclick="toggleExportMenu()" title="Export Annotations" style="padding: 4px 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">
+                            📥 Export ▾
+                        </button>
+                        <div id="export-menu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100; min-width: 140px;">
+                            <button onclick="exportAnnotations('json'); toggleExportMenu();" style="display: block; width: 100%; padding: 8px 12px; border: none; background: none; color: var(--text-primary); text-align: left; cursor: pointer; font-size: 12px;">
+                                📄 JSON
+                            </button>
+                            <button onclick="exportAnnotations('geojson'); toggleExportMenu();" style="display: block; width: 100%; padding: 8px 12px; border: none; background: none; color: var(--text-primary); text-align: left; cursor: pointer; font-size: 12px; border-top: 1px solid var(--border);">
+                                🗺️ GeoJSON
+                            </button>
+                        </div>
+                    </div>
                     <button class="modal-close" onclick="toggleAnnotationsPanel()" style="font-size: 18px;">&times;</button>
                 </div>
             </div>
@@ -1709,7 +1726,7 @@
 
     <script src="dicomweb-tilesource.js?v=1.1.0"></script>
     <script src="color-correction.js?v=1.1.0"></script>
-    <script src="annotations.js?v=1.1.1"></script>
+    <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.13.0"></script>
     <script>
         // Auth0 Configuration
@@ -4010,14 +4027,28 @@
         function toggleAnnotationsPanel() {
             const panel = document.getElementById('annotations-panel');
             const listBtn = document.getElementById('tool-list');
-            
+
             panel.classList.toggle('active');
             if (listBtn) listBtn.classList.toggle('active');
-            
+
             if (panel.classList.contains('active')) {
                 updateAnnotationsList();
             }
         }
+        
+        function toggleExportMenu() {
+            const menu = document.getElementById('export-menu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        // Close export menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('export-menu');
+            const dropdown = e.target.closest('.export-dropdown');
+            if (!dropdown && menu) {
+                menu.style.display = 'none';
+            }
+        });
         
         async function exportAnnotations(format = 'json') {
             if (!currentStudy) {
@@ -4429,6 +4460,7 @@
                     case 'r': setAnnotationTool('rectangle'); break;
                     case 'g': setAnnotationTool('polygon'); break;
                     case 'm': setAnnotationTool('point'); break;
+                    case 't': setAnnotationTool('text'); break;
                     // 'a' is used for pan left, use shift+a for arrow
                     case 'escape': 
                         setAnnotationTool(null);

@@ -247,6 +247,9 @@ class AnnotationManager {
             case 'point':
                 this.createPointAnnotation(imagePoint);
                 break;
+            case 'text':
+                this.promptForText(imagePoint);
+                break;
         }
     }
     
@@ -547,6 +550,111 @@ class AnnotationManager {
         });
     }
     
+    promptForText(position) {
+        // Create a simple modal for text input
+        const modal = document.createElement('div');
+        modal.className = 'text-annotation-modal';
+        modal.innerHTML = `
+            <div class="text-annotation-dialog">
+                <h3 style="margin: 0 0 12px 0; color: var(--text-primary);">Add Text Label</h3>
+                <textarea id="text-annotation-input" 
+                    placeholder="Enter your text here..." 
+                    style="width: 100%; height: 80px; padding: 10px; border: 1px solid var(--border); 
+                           border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary);
+                           font-family: inherit; font-size: 14px; resize: none;"></textarea>
+                <div style="display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end;">
+                    <button id="text-cancel-btn" style="padding: 8px 16px; border: 1px solid var(--border); 
+                            border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button id="text-save-btn" style="padding: 8px 16px; border: none; border-radius: 6px; 
+                            background: var(--accent); color: white; cursor: pointer; font-weight: 500;">
+                        Add Label
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // Add modal styles if not already present
+        if (!document.getElementById('text-modal-styles')) {
+            const style = document.createElement('style');
+            style.id = 'text-modal-styles';
+            style.textContent = `
+                .text-annotation-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.6);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                }
+                .text-annotation-dialog {
+                    background: var(--bg-secondary);
+                    padding: 20px;
+                    border-radius: 12px;
+                    width: 350px;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(modal);
+        
+        const input = document.getElementById('text-annotation-input');
+        const saveBtn = document.getElementById('text-save-btn');
+        const cancelBtn = document.getElementById('text-cancel-btn');
+        
+        input.focus();
+        
+        const cleanup = () => {
+            modal.remove();
+        };
+        
+        saveBtn.onclick = async () => {
+            const text = input.value.trim();
+            if (text) {
+                await this.createTextAnnotation(position, text);
+            }
+            cleanup();
+        };
+        
+        cancelBtn.onclick = cleanup;
+        
+        modal.onclick = (e) => {
+            if (e.target === modal) cleanup();
+        };
+        
+        // Enter to save (Shift+Enter for newline)
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                saveBtn.click();
+            } else if (e.key === 'Escape') {
+                cleanup();
+            }
+        };
+    }
+    
+    async createTextAnnotation(position, text) {
+        await this.saveAnnotation({
+            type: 'text',
+            tool: 'text',
+            geometry: { type: 'Point', coordinates: [position.x, position.y] },
+            properties: { 
+                text: text,
+                color: '#ffffff',
+                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                fontSize: 14,
+                zoom: this.getCurrentZoom()
+            }
+        });
+    }
+    
     // Navigate to an annotation
     goToAnnotation(annotationId) {
         const annotation = this.annotations.find(a => a.id === annotationId);
@@ -762,8 +870,11 @@ class AnnotationManager {
             case 'arrow':
                 this.renderArrow(ctx, geom.coordinates, props);
                 break;
+            case 'text':
+                this.renderText(ctx, geom.coordinates, props);
+                break;
         }
-        
+
         ctx.restore();
     }
     
@@ -936,6 +1047,63 @@ class AnnotationManager {
             end.y - headLength * Math.sin(angle + Math.PI / 6)
         );
         ctx.stroke();
+    }
+    
+    renderText(ctx, coords, props) {
+        // Validate coords format (text uses Point geometry)
+        if (!coords || coords.length < 2) {
+            console.warn('Invalid text coords:', coords);
+            return;
+        }
+        
+        const point = this.imageToCanvas({ x: coords[0], y: coords[1] });
+        const text = props.text || '';
+        const fontSize = props.fontSize || 14;
+        const color = props.color || '#ffffff';
+        const bgColor = props.backgroundColor || 'rgba(0, 0, 0, 0.75)';
+        
+        if (!text) return;
+        
+        // Split text into lines
+        const lines = text.split('\n');
+        const lineHeight = fontSize * 1.3;
+        
+        ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+        
+        // Calculate max width
+        let maxWidth = 0;
+        for (const line of lines) {
+            const metrics = ctx.measureText(line);
+            maxWidth = Math.max(maxWidth, metrics.width);
+        }
+        
+        const padding = 8;
+        const boxWidth = maxWidth + padding * 2;
+        const boxHeight = lines.length * lineHeight + padding * 2 - (lineHeight - fontSize);
+        
+        // Draw background
+        ctx.fillStyle = bgColor;
+        ctx.beginPath();
+        ctx.roundRect(point.x - padding, point.y - padding, boxWidth, boxHeight, 4);
+        ctx.fill();
+        
+        // Draw border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        // Draw text
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'top';
+        for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i], point.x, point.y + i * lineHeight);
+        }
+        
+        // Draw small anchor indicator
+        ctx.fillStyle = props.color || '#10b981';
+        ctx.beginPath();
+        ctx.arc(point.x - padding - 4, point.y - padding - 4, 4, 0, Math.PI * 2);
+        ctx.fill();
     }
     
     drawLabel(ctx, x, y, text) {
