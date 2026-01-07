@@ -11,11 +11,13 @@ const AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
 let auth0Client = null;
 let currentUser = null;
 
-// Configuration
-const CONFIG = {
-    orthancUrl: '/dicom-web',
-    converterUrl: '/api'
-};
+// Configuration (only define if not already defined)
+if (typeof CONFIG === 'undefined') {
+    var CONFIG = {
+        orthancUrl: '/dicom-web',
+        converterUrl: '/api'
+    };
+}
 
 /**
  * Initialize Auth0 and check authentication

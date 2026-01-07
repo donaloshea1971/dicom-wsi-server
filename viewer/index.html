@@ -2297,13 +2297,13 @@
     <script src="dicomweb-tilesource.js?v=1.1.0"></script>
     <script src="color-correction.js?v=1.1.0"></script>
     <script src="annotations.js?v=1.2.0"></script>
-    <script src="space-navigator.js?v=1.16.0"></script>
+    <script src="space-navigator.js?v=1.16.1"></script>
     
     <!-- Modular JS Components -->
-    <script src="js/auth.js?v=1.0.0"></script>
-    <script src="js/study-manager.js?v=1.0.0"></script>
-    <script src="js/viewer-main.js?v=1.0.0"></script>
-    <script src="js/ui-controllers.js?v=1.0.0"></script>
+    <script src="js/auth.js?v=1.0.1"></script>
+    <script src="js/study-manager.js?v=1.0.1"></script>
+    <script src="js/viewer-main.js?v=1.0.1"></script>
+    <script src="js/ui-controllers.js?v=1.0.1"></script>
     
     <script>
         // NOTE: Global variables and complex functions remain here for now
@@ -2317,11 +2317,13 @@
             var currentUser = null;
         }
         
-        // Configuration (can be overridden)
-        const CONFIG = {
-            orthancUrl: '/dicom-web',
-            converterUrl: '/api'
-        };
+        // Configuration (use from auth.js or define fallback)
+        if (typeof CONFIG === 'undefined') {
+            var CONFIG = {
+                orthancUrl: '/dicom-web',
+                converterUrl: '/api'
+            };
+        }
 
         let viewer = null;
         let currentStudy = null;
