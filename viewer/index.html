@@ -2988,16 +2988,87 @@
                 const seriesId = studyData.Series[0];
                 console.log('Loading series in viewer 2:', seriesId);
                 
-                // Fetch WSI metadata directly (skip series fetch, we just need pyramid)
-                const pyramidResponse = await authFetch(`/wsi/tiles/${seriesId}/pyramid`);
+                // Fetch WSI pyramid info from Orthanc WSI plugin (same as main viewer)
+                let pyramidResponse = await fetch(`/wsi/pyramids/${seriesId}`);
+                let pyramidData;
+                
                 if (!pyramidResponse.ok) {
-                    console.error('Failed to fetch pyramid:', pyramidResponse.status);
-                    const errorText = await pyramidResponse.text();
-                    console.error('Pyramid error:', errorText);
-                    return;
+                    // Check if this is a Leica multi-file pyramid
+                    console.log('Standard WSI pyramid not found, checking for Leica format...');
+                    const leicaResponse = await authFetch(`/api/leica-pyramid/${studyId}`);
+                    
+                    if (leicaResponse.ok) {
+                        pyramidData = await leicaResponse.json();
+                        if (pyramidData.error) {
+                            console.error('Not a recognized WSI format');
+                            return;
+                        }
+                        console.log('Detected Leica multi-file pyramid for viewer 2');
+                    } else {
+                        console.error('Failed to fetch pyramid:', pyramidResponse.status);
+                        return;
+                    }
+                } else {
+                    pyramidData = await pyramidResponse.json();
                 }
-                const pyramidData = await pyramidResponse.json();
                 console.log('Pyramid data for viewer 2:', pyramidData);
+                
+                // Build WSI levels array (same logic as main viewer)
+                const baseTileWidth = pyramidData.TilesSizes[0][0];
+                const baseTileHeight = pyramidData.TilesSizes[0][1];
+                const level0TilesX = pyramidData.TilesCount[0][0];
+                const level0TilesY = pyramidData.TilesCount[0][1];
+                
+                let compatibleLevels;
+                if (level0TilesX * level0TilesY < 200) {
+                    compatibleLevels = [{
+                        wsiIndex: 0,
+                        scale: 1.0,
+                        width: pyramidData.Sizes[0][0],
+                        height: pyramidData.Sizes[0][1],
+                        tilesX: level0TilesX,
+                        tilesY: level0TilesY,
+                        tileWidth: baseTileWidth,
+                        tileHeight: baseTileHeight
+                    }];
+                } else {
+                    compatibleLevels = pyramidData.Resolutions.map((res, i) => ({
+                        wsiIndex: i,
+                        scale: 1.0 / res,
+                        width: pyramidData.Sizes[i][0],
+                        height: pyramidData.Sizes[i][1],
+                        tilesX: pyramidData.TilesCount[i][0],
+                        tilesY: pyramidData.TilesCount[i][1],
+                        tileWidth: pyramidData.TilesSizes[i][0],
+                        tileHeight: pyramidData.TilesSizes[i][1]
+                    })).filter(level => {
+                        const tileMatch = level.tileWidth === baseTileWidth && level.tileHeight === baseTileHeight;
+                        const imageFillsTile = level.width >= level.tileWidth || level.height >= level.tileHeight;
+                        return tileMatch && imageFillsTile;
+                    });
+                    
+                    if (compatibleLevels.length === 0) {
+                        compatibleLevels = [{
+                            wsiIndex: 0,
+                            scale: 1.0,
+                            width: pyramidData.Sizes[0][0],
+                            height: pyramidData.Sizes[0][1],
+                            tilesX: pyramidData.TilesCount[0][0],
+                            tilesY: pyramidData.TilesCount[0][1],
+                            tileWidth: pyramidData.TilesSizes[0][0],
+                            tileHeight: pyramidData.TilesSizes[0][1]
+                        }];
+                    }
+                }
+                
+                const wsiLevels2 = compatibleLevels.reverse();
+                const maxLevelIndex = wsiLevels2.length - 1;
+                wsiLevels2.forEach((level, idx) => {
+                    const highestResLevel = wsiLevels2[maxLevelIndex];
+                    level.scale = level.width / highestResLevel.width;
+                });
+                
+                console.log('Viewer 2 WSI Levels:', wsiLevels2.length);
                 
                 // Get auth headers
                 let authHeaders = {};
@@ -3012,6 +3083,16 @@
                 if (viewer2) {
                     viewer2.destroy();
                 }
+                
+                // Use the same WsiTileSource class as the main viewer
+                const tileSource2 = new OpenSeadragon.WsiTileSource({
+                    wsiSeriesId: seriesId,
+                    wsiLevels: wsiLevels2,
+                    pyramid: pyramidData,
+                    sessionId: Date.now(),
+                    width: pyramidData.TotalWidth,
+                    height: pyramidData.TotalHeight
+                });
                 
                 viewer2 = OpenSeadragon({
                     id: 'osd-viewer-2',
@@ -3028,7 +3109,7 @@
                     immediateRender: true,
                     loadTilesWithAjax: true,
                     ajaxHeaders: authHeaders,
-                    tileSources: createTileSource(seriesId, pyramidData, authHeaders)
+                    tileSources: tileSource2
                 });
                 
                 viewer2.addHandler('open', () => {
@@ -3051,34 +3132,6 @@
             } catch (e) {
                 console.error('Failed to load study in viewer 2:', e);
             }
-        }
-        
-        function createTileSource(seriesId, pyramidData, authHeaders) {
-            // Build tile source from pyramid data
-            const levels = pyramidData.Resolutions || [];
-            const baseWidth = pyramidData.Width || 0;
-            const baseHeight = pyramidData.Height || 0;
-            const tileWidth = pyramidData.TileWidth || 512;
-            const tileHeight = pyramidData.TileHeight || 512;
-            
-            // Filter and sort levels
-            const sortedLevels = levels
-                .filter(l => l.Width >= 256 && l.Height >= 256)
-                .sort((a, b) => a.Width - b.Width);
-            
-            return {
-                width: baseWidth,
-                height: baseHeight,
-                tileWidth: tileWidth,
-                tileHeight: tileHeight,
-                minLevel: 0,
-                maxLevel: sortedLevels.length - 1,
-                getTileUrl: function(level, x, y) {
-                    const wsiLevel = sortedLevels.length - 1 - level;
-                    const actualLevel = sortedLevels[wsiLevel]?.Level ?? wsiLevel;
-                    return `/wsi/tiles/${seriesId}/${actualLevel}/${x}/${y}?_=${Date.now()}`;
-                }
-            };
         }
         
         function addViewerLabel(viewerId, label) {
