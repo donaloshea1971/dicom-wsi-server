@@ -409,12 +409,14 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                 logger.info(f"Set study {study_id} owner to user {user_id} (forced)")
                 return True
             else:
-                # Only set if not already owned
+                # Only set if not already owned, OR if currently owned by NULL
                 result = await conn.execute(
                     """
                     INSERT INTO slides (orthanc_study_id, owner_id)
                     VALUES ($1, $2)
-                    ON CONFLICT (orthanc_study_id) DO NOTHING
+                    ON CONFLICT (orthanc_study_id) 
+                    DO UPDATE SET owner_id = $2, updated_at = CURRENT_TIMESTAMP
+                    WHERE slides.owner_id IS NULL
                     """,
                     study_id,
                     user_id

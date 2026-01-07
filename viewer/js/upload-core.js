@@ -50,7 +50,22 @@ async function uploadDicomGroup(items) {
                     const instances = Array.isArray(result) ? result : [result];
                     
                     for (const res of instances) {
-                        const studyId = res.ParentStudy;
+                        let studyId = res.ParentStudy;
+                        
+                        // Fallback: If ParentStudy is missing (e.g. instance already exists), fetch it
+                        if (!studyId && res.ID) {
+                            try {
+                                const infoRes = await fetch(`/api/instances/${res.ID}`);
+                                if (infoRes.ok) {
+                                    const info = await infoRes.json();
+                                    studyId = info.ParentStudy;
+                                    console.log(`🔍 Fetched missing study ID: ${studyId}`);
+                                }
+                            } catch (e) {
+                                console.warn('Failed to fetch parent study info', e);
+                            }
+                        }
+                        
                         if (token && studyId) {
                             try {
                                 const claimRes = await fetch(`/api/studies/${studyId}/claim`, {
