@@ -1377,24 +1377,44 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         if not original_filename or original_filename == file_path.name:
             original_filename = actual_file_path.name
         
+        # Helper to truncate strings to DICOM VR limits
+        def truncate_lo(value: str, max_len: int = 64) -> str:
+            """Truncate string to fit DICOM LO (Long String) VR limit of 64 chars"""
+            if value and len(value) > max_len:
+                return value[:max_len-3] + "..."
+            return value
+        
         # Create metadata post-processor to add source tracking
         def metadata_post_processor(ds, wsi_metadata):
             """Add source format tracking to DICOM metadata"""
             # Set manufacturer info
-            ds.Manufacturer = format_meta["manufacturer"]
-            ds.ManufacturerModelName = format_meta["model"]
+            ds.Manufacturer = truncate_lo(format_meta["manufacturer"])
+            ds.ManufacturerModelName = truncate_lo(format_meta["model"])
             ds.SoftwareVersions = ["DICOM Server Converter v1.0", f"Converted from {format_meta['format_name']}"]
             
-            # Store original filename in InstitutionName (visible in metadata)
-            ds.InstitutionName = f"Converted: {original_filename}"
+            # Store original filename in InstitutionName (visible in metadata) - truncated
+            ds.InstitutionName = truncate_lo(f"Converted: {original_filename}")
             
-            # Update series description to include source format
+            # Update series description to include source format (LO max 64)
             if hasattr(ds, 'SeriesDescription'):
-                ds.SeriesDescription = f"{ds.SeriesDescription} [Source: {format_meta['format_name']}]"
+                ds.SeriesDescription = truncate_lo(f"{ds.SeriesDescription} [Source: {format_meta['format_name']}]")
             else:
-                ds.SeriesDescription = f"Converted from {format_meta['format_name']}"
+                ds.SeriesDescription = truncate_lo(f"Converted from {format_meta['format_name']}")
+            
+            # Truncate any other LO fields that might be too long from source metadata
+            lo_fields = ['InstitutionName', 'StationName', 'PatientID', 'AccessionNumber', 
+                        'SpecimenIdentifier', 'ContainerIdentifier', 'ContentLabel']
+            for field in lo_fields:
+                if hasattr(ds, field):
+                    val = getattr(ds, field)
+                    if isinstance(val, str) and len(val) > 64:
+                        setattr(ds, field, truncate_lo(val))
+                        logger.info(f"Truncated {field} from {len(val)} to 64 chars")
             
             return ds
+        
+        # Truncate label for wsidicomizer (used in DICOM label/macro images)
+        truncated_label = truncate_lo(original_filename, 64)
         
         # Convert to DICOM using wsidicomizer
         # wsidicomizer supports: SVS, NDPI, iSyntax, MRXS, SCN, CZI, TIFF, and more
@@ -1407,7 +1427,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         if source_format == "philips":
             logger.info("Converting iSyntax using wsidicomizer...")
             try:
-                with WsiDicomizer.open(str(actual_file_path), metadata_post_processor=metadata_post_processor) as wsi:
+                with WsiDicomizer.open(str(actual_file_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
                     logger.info(f"Opened iSyntax: {wsi.size.width}x{wsi.size.height}")
                     num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
                     logger.info(f"Source has {num_levels} pyramid levels")
@@ -1430,7 +1450,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         else:
             # Use wsidicomizer for other formats (including multi-file from ZIP)
             try:
-                with WsiDicomizer.open(str(actual_file_path), metadata_post_processor=metadata_post_processor) as wsi:
+                with WsiDicomizer.open(str(actual_file_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
                     # Log pyramid information
                     logger.info(f"Opened WSI: {wsi.size.width}x{wsi.size.height}")
                     num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
@@ -1470,7 +1490,7 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
                         job.message = "Re-attempting DICOM conversion..."
                         job.progress = 35
                         
-                        with WsiDicomizer.open(str(converted_path), metadata_post_processor=metadata_post_processor) as wsi:
+                        with WsiDicomizer.open(str(converted_path), label=truncated_label, metadata_post_processor=metadata_post_processor) as wsi:
                             logger.info(f"Opened converted WSI: {wsi.size.width}x{wsi.size.height}")
                             num_levels = len(wsi.levels) if hasattr(wsi, 'levels') else 1
                             logger.info(f"Source has {num_levels} pyramid levels")
