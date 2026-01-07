@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.14.2';
+const SPACEMOUSE_VERSION = '1.15.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Reference resolution for pan speed scaling (calibrated on 1920x1080 @ 125% = 1920 physical pixels)
@@ -78,8 +78,9 @@ class SpaceNavigatorController {
         
         // Momentum/inertia for smooth deceleration
         this._velocity = { x: 0, y: 0 };
-        this._momentumDecay = 0.96;  // Decay factor per frame (0.96 = longer glide)
+        this._momentumDecay = 0.96;  // Decay factor per frame at 60fps (0.96 = longer glide)
         this._hasActiveInput = false;
+        this._lastDecayTime = 0;     // For time-based decay (frame-rate independent)
         
         // Configurable parameters (can be adjusted via config panel)
         this._curvePower = 1.2;   // Exponential curve power (1.0=linear, 1.2=gentle, 2.0=quadratic)
@@ -1166,11 +1167,18 @@ class SpaceNavigatorController {
             this._hasActiveInput = true;
             
         } else if (this._hasActiveInput || Math.abs(this._velocity.x) > 0.0001 || Math.abs(this._velocity.y) > 0.0001) {
-            // No input but we have momentum - apply decay
-            // Scale decay exponentially with screen size for consistent PERCEIVED coast
-            // Larger screens need much faster decay because velocity is also scaled
-            // Use power function: decay^screenScale gives proper scaling
-            const scaledDecay = Math.pow(this._momentumDecay, screenScale);
+            // No input but we have momentum - apply TIME-BASED decay
+            // This ensures consistent coast duration regardless of display refresh rate
+            const now = performance.now();
+            const deltaMs = this._lastDecayTime ? (now - this._lastDecayTime) : 16.67;
+            this._lastDecayTime = now;
+            
+            // Normalize to 60fps (16.67ms per frame) - if frame took longer, decay more
+            const frameMultiplier = deltaMs / 16.67;
+            
+            // Apply screen scale + time correction
+            // decay^(screenScale * frameMultiplier) handles both screen size AND frame rate
+            const scaledDecay = Math.pow(this._momentumDecay, screenScale * frameMultiplier);
             this._velocity.x *= scaledDecay;
             this._velocity.y *= scaledDecay;
             this._smoothedPan.x = this._velocity.x;
