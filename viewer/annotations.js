@@ -336,6 +336,11 @@ class AnnotationManager {
                 this.pixelSpacing = data.pixel_spacing_um;
                 this.calibrationSource = data.source;
                 console.log(`Calibration: ${this.pixelSpacing[0]} µm/px (${this.calibrationSource})`);
+            } else if (response.status === 401) {
+                console.warn('Authentication required for calibration data - using defaults');
+                // Keep default calibration values
+            } else {
+                console.warn('Failed to load calibration:', response.status, response.statusText);
             }
         } catch (e) {
             console.warn('Failed to load calibration:', e);
@@ -354,6 +359,11 @@ class AnnotationManager {
                 this.annotations = data.annotations || [];
                 console.log(`Loaded ${this.annotations.length} annotations`);
                 this.render();
+            } else if (response.status === 401) {
+                console.warn('Authentication required to load annotations - starting with empty state');
+                // User can still create annotations if they authenticate
+            } else {
+                console.warn('Failed to load annotations:', response.status, response.statusText);
             }
         } catch (e) {
             console.warn('Failed to load annotations:', e);
@@ -383,9 +393,20 @@ class AnnotationManager {
                 }
                 
                 return saved;
+            } else if (response.status === 401) {
+                console.error('Authentication required to save annotations');
+                alert('You must be logged in to save annotations. Please refresh the page and log in.');
+                return null;
+            } else {
+                console.error('Failed to save annotation:', response.status, response.statusText);
+                const errorText = await response.text().catch(() => 'Unknown error');
+                console.error('Error details:', errorText);
+                alert(`Failed to save annotation: ${response.statusText}`);
+                return null;
             }
         } catch (e) {
             console.error('Failed to save:', e);
+            alert('Network error: Unable to save annotation');
         }
         return null;
     }

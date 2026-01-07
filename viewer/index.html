@@ -1843,9 +1843,12 @@
                         ...options.headers,
                         'Authorization': `Bearer ${token}`
                     };
+                    console.debug('Auth token added to request:', url);
                 } catch (e) {
-                    // Token not available - proceed without auth
-                    console.log('No auth token available');
+                    // Token not available - log warning but proceed
+                    console.warn('Failed to get auth token for:', url, e.message);
+                    // For annotation/calibration endpoints, this will result in 401
+                    // which is expected if user is not authenticated
                 }
             }
             return fetch(url, options);
@@ -4218,6 +4221,18 @@
             }
             
             try {
+                // Verify auth before loading annotations
+                if (auth0Client) {
+                    try {
+                        const isAuthenticated = await auth0Client.isAuthenticated();
+                        if (!isAuthenticated) {
+                            console.warn('User not authenticated - annotations may not load');
+                        }
+                    } catch (e) {
+                        console.warn('Auth check failed:', e);
+                    }
+                }
+                
                 // Load calibration
                 await annotationManager.loadCalibration(studyId);
                 
@@ -4240,6 +4255,11 @@
                 
             } catch (e) {
                 console.error('Failed to load study annotations:', e);
+                // Show user-friendly error message
+                const calibrationValue = document.getElementById('calibration-value');
+                if (calibrationValue) {
+                    calibrationValue.innerHTML = '<span style="color: #ff6b6b">Auth required</span>';
+                }
             }
         }
         

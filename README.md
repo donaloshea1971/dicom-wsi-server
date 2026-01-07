@@ -118,6 +118,14 @@ REDIS_URL=redis://redis:6379
 # Upload settings
 WATCH_FOLDER=/uploads
 MAX_UPLOAD_SIZE_GB=20
+
+# Auth0 configuration (required for annotations & sharing)
+AUTH0_DOMAIN=dev-jkm887wawwxknno6.us.auth0.com
+AUTH0_AUDIENCE=https://pathviewpro.com/api
+AUTH0_CLIENT_ID=your_client_id
+
+# Database for user management
+DATABASE_URL=postgresql://orthanc:password@postgres:5432/orthanc
 ```
 
 ### Orthanc Settings
@@ -194,6 +202,56 @@ docker-compose build --no-cache converter
 docker-compose up -d
 ```
 
+## Authentication & Annotations
+
+PathView Pro uses Auth0 for user authentication. Authentication is required for:
+- **Saving and loading annotations** (measurements, drawings)
+- **Sharing slides** with other users
+- **Managing cases and blocks** (hierarchical organization)
+
+### Setup Authentication
+
+1. **Configure Auth0** (see [AUTHENTICATION.md](AUTHENTICATION.md) for details)
+   - Create Auth0 tenant and application
+   - Set environment variables in `docker-compose.yml`
+   - Configure callback URLs
+
+2. **Verify Configuration**
+   ```bash
+   # Check environment variables
+   docker-compose config | grep AUTH0
+   
+   # Test authentication flow
+   python test_auth_flow.py
+   
+   # Or use the web-based test page
+   # Open: http://localhost/test-auth.html
+   ```
+
+3. **Troubleshooting Auth Issues**
+   - See [AUTHENTICATION.md](AUTHENTICATION.md) - Comprehensive troubleshooting guide
+   - See [ANNOTATION_AUTH_FIX.md](ANNOTATION_AUTH_FIX.md) - Recent authentication fixes
+   - Use the diagnostic tool: `/test-auth.html`
+
+### Common Authentication Errors
+
+**401 Unauthorized on annotation endpoints**:
+```bash
+# 1. Check if user is logged in (browser console)
+# 2. Verify Auth0 configuration
+docker-compose config | grep AUTH0
+
+# 3. Check converter logs
+docker logs dicom-converter -f | grep -i auth
+
+# 4. Test with diagnostic page
+# Open: http://localhost/test-auth.html
+```
+
+For detailed troubleshooting, see:
+- **[AUTHENTICATION.md](AUTHENTICATION.md)** - Complete troubleshooting guide
+- **[ANNOTATION_AUTH_FIX.md](ANNOTATION_AUTH_FIX.md)** - Recent authentication improvements
+
 ## Troubleshooting
 
 ### Orthanc won't start
@@ -222,6 +280,23 @@ curl -I http://localhost:3000/dicom-web/studies
 # Verify Orthanc has the study
 curl http://localhost:8042/studies -u admin:orthanc
 ```
+
+### Authentication issues
+```bash
+# Run authentication test
+python test_auth_flow.py
+
+# Check backend logs
+docker logs dicom-converter | grep -i "auth\|token"
+
+# Use web-based diagnostic tool
+# Open: http://localhost/test-auth.html
+```
+
+For comprehensive troubleshooting:
+- **[AUTHENTICATION.md](AUTHENTICATION.md)** - Auth troubleshooting guide
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Production deployment guide
+- **[PROJECT_DOCUMENTATION.md](docs/PROJECT_DOCUMENTATION.md)** - Architecture & design
 
 ## Deployment
 

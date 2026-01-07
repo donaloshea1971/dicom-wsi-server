@@ -74,10 +74,19 @@ async def get_jwks():
 async def verify_token(token: str) -> TokenPayload:
     """Verify Auth0 JWT token and extract payload"""
     try:
+        # Check if Auth0 is configured
+        if not AUTH0_DOMAIN or not AUTH0_AUDIENCE:
+            logger.error("Auth0 not configured - AUTH0_DOMAIN or AUTH0_AUDIENCE missing")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service not configured"
+            )
+        
         jwks = await get_jwks()
         
         # Get the key ID from token header
         unverified_header = jwt.get_unverified_header(token)
+        logger.debug(f"Token header: {unverified_header}")
         rsa_key = {}
         
         for key in jwks["keys"]:
@@ -92,6 +101,7 @@ async def verify_token(token: str) -> TokenPayload:
                 break
         
         if not rsa_key:
+            logger.error(f"No matching key found for kid: {unverified_header.get('kid')}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to find appropriate key"
@@ -106,6 +116,8 @@ async def verify_token(token: str) -> TokenPayload:
             issuer=f"https://{AUTH0_DOMAIN}/"
         )
         
+        logger.debug(f"Token verified successfully for user: {payload.get('sub')}")
+        
         return TokenPayload(
             sub=payload.get("sub"),
             email=payload.get("email") or payload.get(f"https://{AUTH0_DOMAIN}/email"),
@@ -118,6 +130,12 @@ async def verify_token(token: str) -> TokenPayload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during token verification: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token verification failed"
         )
 
 
@@ -293,16 +311,19 @@ async def get_current_user(
     Returns None if no valid token (allows public access with filtering)
     """
     if credentials is None:
+        logger.debug("No credentials provided")
         return None
     
     try:
         token_payload = await verify_token(credentials.credentials)
         user = await get_or_create_user(token_payload)
+        logger.debug(f"User authenticated: {user.email} (id={user.id})")
         return user
-    except HTTPException:
+    except HTTPException as e:
+        logger.warning(f"HTTPException in get_current_user: {e.detail}")
         return None
     except Exception as e:
-        logger.error(f"Error getting current user: {e}")
+        logger.error(f"Error getting current user: {e}", exc_info=True)
         return None
 
 
@@ -314,14 +335,28 @@ async def require_user(
     Raises 401 if not authenticated.
     """
     if credentials is None:
+        logger.warning("require_user: No credentials provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            detail="Authentication required - no token provided",
+            headers={"WWW-Authenticate": "Bearer"}
         )
     
-    token_payload = await verify_token(credentials.credentials)
-    user = await get_or_create_user(token_payload)
-    return user
+    try:
+        token_payload = await verify_token(credentials.credentials)
+        user = await get_or_create_user(token_payload)
+        logger.debug(f"require_user: User authenticated: {user.email} (id={user.id})")
+        return user
+    except HTTPException:
+        # Re-raise HTTP exceptions from verify_token
+        raise
+    except Exception as e:
+        logger.error(f"require_user: Unexpected error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 
 async def require_admin(user: User = Depends(require_user)) -> User:
