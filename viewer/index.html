@@ -1739,7 +1739,9 @@
                         redirect_uri: 'https://pathviewpro.com/callback',
                         audience: 'https://pathviewpro.com/api'
                     },
-                    cacheLocation: 'localstorage'
+                    cacheLocation: 'localstorage',
+                    useRefreshTokens: true,
+                    useRefreshTokensFallback: true
                 });
 
                 const isAuthenticated = await auth0Client.isAuthenticated();
@@ -1845,10 +1847,24 @@
                     };
                     console.debug('Auth token added to request:', url);
                 } catch (e) {
-                    // Token not available - log warning but proceed
-                    console.warn('Failed to get auth token for:', url, e.message);
-                    // For annotation/calibration endpoints, this will result in 401
-                    // which is expected if user is not authenticated
+                    console.error('Token retrieval error:', e.error || e.message, e);
+                    
+                    // Handle specific Auth0 errors that require re-authentication
+                    const errorCode = e.error || e.message || '';
+                    if (errorCode.includes('login_required') || 
+                        errorCode.includes('consent_required') ||
+                        errorCode.includes('invalid_grant') ||
+                        errorCode.includes('missing_refresh_token')) {
+                        console.warn('Session expired or invalid - redirecting to login');
+                        // Clear any stale state and redirect to login
+                        await auth0Client.loginWithRedirect({
+                            appState: { returnTo: window.location.pathname }
+                        });
+                        return new Response(null, { status: 401 }); // Return empty response while redirecting
+                    }
+                    
+                    // For other errors, log and proceed without token
+                    console.warn('Failed to get auth token for:', url, '- proceeding without auth');
                 }
             }
             return fetch(url, options);
