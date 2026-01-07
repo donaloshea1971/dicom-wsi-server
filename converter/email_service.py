@@ -43,10 +43,16 @@ def send_email(to_email: str, subject: str, html_body: str, text_body: Optional[
         # HTML body
         msg.attach(MIMEText(html_body, "html"))
         
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM, to_email, msg.as_string())
+        # Use SSL for port 465, TLS for port 587
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_FROM, to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_FROM, to_email, msg.as_string())
         
         logger.info(f"Email sent to {to_email}: {subject}")
         return True
