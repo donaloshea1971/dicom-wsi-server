@@ -669,12 +669,140 @@
             right: 0;
             bottom: 0;
             background: var(--bg-primary);
+            display: flex;
         }
 
         #osd-viewer {
-            width: 100%;
+            flex: 1;
             height: 100%;
             background: #000;
+            position: relative;
+        }
+
+        /* Compare Mode Styles */
+        .viewer-container.compare-mode {
+            gap: 2px;
+        }
+
+        .viewer-container.compare-mode #osd-viewer,
+        .viewer-container.compare-mode #osd-viewer-2 {
+            flex: 1;
+            border: 2px solid transparent;
+        }
+
+        .viewer-container.compare-mode #osd-viewer.active-viewer {
+            border-color: var(--accent);
+        }
+
+        .viewer-container.compare-mode #osd-viewer-2.active-viewer {
+            border-color: var(--accent);
+        }
+
+        #osd-viewer-2 {
+            display: none;
+            flex: 1;
+            height: 100%;
+            background: #111;
+            position: relative;
+        }
+
+        .viewer-container.compare-mode #osd-viewer-2 {
+            display: block;
+        }
+
+        .viewer-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: var(--text-primary);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            z-index: 10;
+            max-width: calc(100% - 16px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Compare Toolbar */
+        .compare-toolbar {
+            position: fixed;
+            top: 64px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 6px 12px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 95;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .compare-toolbar.active {
+            display: flex;
+        }
+
+        .compare-toolbar button {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s;
+        }
+
+        .compare-toolbar button:hover {
+            border-color: var(--accent);
+            background: var(--bg-secondary);
+        }
+
+        .compare-toolbar button.active {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+
+        .compare-toolbar .divider {
+            width: 1px;
+            height: 20px;
+            background: var(--border);
+        }
+
+        /* Compare button on study cards */
+        .compare-btn {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .compare-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .compare-btn.comparing {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
         }
         
         /* OpenSeadragon Navigator (minimap) styling */
@@ -789,6 +917,13 @@
             justify-content: center;
             height: 100%;
             color: var(--text-secondary);
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            z-index: 5;
         }
 
         .viewer-placeholder svg {
@@ -1388,6 +1523,32 @@
             </div>
         </div>
 
+        <!-- Second viewer for comparison mode -->
+        <div id="osd-viewer-2">
+            <div class="viewer-placeholder" id="viewer-placeholder-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <h3>Click a slide to compare</h3>
+                <p>Select another slide from the sidebar</p>
+            </div>
+        </div>
+
+        <!-- Compare toolbar -->
+        <div class="compare-toolbar" id="compare-toolbar">
+            <button id="sync-nav-btn" class="active" onclick="toggleSyncNavigation()" title="Sync pan/zoom between viewers">
+                🔗 Sync Nav
+            </button>
+            <div class="divider"></div>
+            <button onclick="swapViewers()" title="Swap left and right slides">
+                ⇄ Swap
+            </button>
+            <button onclick="exitCompareMode()" title="Exit comparison mode">
+                ✕ Close
+            </button>
+        </div>
+
         <!-- Status bar - minimal essential info only -->
         <div class="status-bar">
             <div class="status-badge" id="zoom-level">1.0x</div>
@@ -1437,6 +1598,13 @@
                         <div class="shortcut"><kbd>M</kbd> Point marker</div>
                         <div class="shortcut"><kbd>Shift</kbd>+<kbd>A</kbd> Arrow</div>
                         <div class="shortcut"><kbd>Esc</kbd> Cancel/Pan</div>
+                    </div>
+                    <div class="keyboard-section">
+                        <h4>Compare Mode</h4>
+                        <div class="shortcut">⧉ button on slide to compare</div>
+                        <div class="shortcut"><kbd>Esc</kbd> Exit compare</div>
+                        <div class="shortcut">Click viewer to select</div>
+                        <div class="shortcut">🔗 Toggle sync navigation</div>
                     </div>
                 </div>
             </div>
@@ -1745,6 +1913,15 @@
         let viewer = null;
         let currentStudy = null;
         let studyList = [];  // Store list of study IDs for navigation
+
+        // Compare mode state
+        let compareMode = false;
+        let viewer2 = null;
+        let currentStudy2 = null;
+        let syncNavigation = true;
+        let activeViewer = 1; // 1 or 2
+        let compareSlideName1 = '';
+        let compareSlideName2 = '';
 
         // Initialize Auth0 and check authentication
         async function initAuth() {
@@ -2239,12 +2416,18 @@
                        </svg>
                    </button>`
                 : '';
+            
+            // Compare button - available for all slides
+            const compareBtn = `<button class="compare-btn" onclick="event.stopPropagation(); addToCompare('${study.ID}', '${slideName.replace(/'/g, "\\'")}')" title="Compare with another slide" data-compare-id="${study.ID}">
+                ⧉
+            </button>`;
                         
             return `
                 <div class="study-card ${ownershipType === 'sample' ? 'sample-study' : ''} ${ownershipType === 'shared' ? 'shared-study' : ''}" onclick="loadStudy('${study.ID}')" data-id="${study.ID}">
                     <div class="study-header">
                         <div class="study-uid">${uid} ${badge}</div>
                         <div class="card-actions">
+                            ${compareBtn}
                             ${editBtn}
                             ${shareBtn}
                         </div>
@@ -2711,6 +2894,303 @@
                 showLoading(false);
             }
         }
+
+        // =========================================
+        // Compare Mode Functions
+        // =========================================
+        
+        function addToCompare(studyId, slideName) {
+            console.log('Compare clicked:', studyId, slideName);
+            
+            if (!compareMode) {
+                // First slide - enter compare mode
+                enterCompareMode(studyId, slideName);
+            } else if (studyId !== currentStudy) {
+                // Second slide - load in viewer 2
+                loadStudyInViewer2(studyId, slideName);
+            }
+        }
+        
+        function enterCompareMode(studyId, slideName) {
+            console.log('Entering compare mode with:', studyId);
+            compareMode = true;
+            
+            // Add compare mode class to container
+            document.querySelector('.viewer-container').classList.add('compare-mode');
+            document.getElementById('compare-toolbar').classList.add('active');
+            
+            // If no slide loaded yet, load this one
+            if (!currentStudy) {
+                loadStudy(studyId);
+            }
+            
+            // Store slide 1 info
+            compareSlideName1 = slideName || studyId.substring(0, 8);
+            
+            // Add label to viewer 1
+            addViewerLabel('osd-viewer', compareSlideName1);
+            
+            // Update compare buttons
+            updateCompareButtons();
+            
+            // Set up sync navigation
+            if (viewer && syncNavigation) {
+                setupSyncNavigation();
+            }
+            
+            console.log('Compare mode active - select another slide');
+        }
+        
+        async function loadStudyInViewer2(studyId, slideName) {
+            console.log('Loading in viewer 2:', studyId);
+            currentStudy2 = studyId;
+            compareSlideName2 = slideName || studyId.substring(0, 8);
+            
+            // Hide placeholder
+            const placeholder = document.getElementById('viewer-placeholder-2');
+            if (placeholder) placeholder.style.display = 'none';
+            
+            try {
+                // Fetch study metadata
+                const response = await authFetch(`/api/studies/${studyId}`);
+                const studyData = await response.json();
+                
+                // Get first series
+                if (!studyData.Series || studyData.Series.length === 0) {
+                    console.error('No series found in study');
+                    return;
+                }
+                
+                const seriesId = studyData.Series[0];
+                const seriesResponse = await authFetch(`/api/series/${seriesId}`);
+                const seriesData = await seriesResponse.json();
+                
+                // Fetch WSI metadata
+                const pyramidResponse = await authFetch(`/wsi/tiles/${seriesId}/pyramid`);
+                const pyramidData = await pyramidResponse.json();
+                
+                // Get auth headers
+                let authHeaders = {};
+                try {
+                    const token = await auth0Client.getTokenSilently();
+                    authHeaders = { 'Authorization': `Bearer ${token}` };
+                } catch (e) {
+                    console.warn('Could not get auth token for viewer 2:', e);
+                }
+                
+                // Create second OpenSeadragon viewer
+                if (viewer2) {
+                    viewer2.destroy();
+                }
+                
+                viewer2 = OpenSeadragon({
+                    id: 'osd-viewer-2',
+                    prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+                    showNavigator: true,
+                    navigatorPosition: 'TOP_RIGHT',
+                    navigatorSizeRatio: 0.15,
+                    maxZoomPixelRatio: 40,
+                    minZoomLevel: 0.1,
+                    visibilityRatio: 0.5,
+                    constrainDuringPan: true,
+                    animationTime: 0.3,
+                    blendTime: 0.1,
+                    immediateRender: true,
+                    loadTilesWithAjax: true,
+                    ajaxHeaders: authHeaders,
+                    tileSources: createTileSource(seriesId, pyramidData, authHeaders)
+                });
+                
+                viewer2.addHandler('open', () => {
+                    console.log('Viewer 2 opened:', studyId);
+                    addViewerLabel('osd-viewer-2', compareSlideName2);
+                    
+                    // Set up sync navigation
+                    if (syncNavigation) {
+                        setupSyncNavigation();
+                    }
+                });
+                
+                // Track active viewer on click
+                document.getElementById('osd-viewer-2').addEventListener('mousedown', () => {
+                    setActiveViewer(2);
+                });
+                
+                updateCompareButtons();
+                
+            } catch (e) {
+                console.error('Failed to load study in viewer 2:', e);
+            }
+        }
+        
+        function createTileSource(seriesId, pyramidData, authHeaders) {
+            // Build tile source from pyramid data
+            const levels = pyramidData.Resolutions || [];
+            const baseWidth = pyramidData.Width || 0;
+            const baseHeight = pyramidData.Height || 0;
+            const tileWidth = pyramidData.TileWidth || 512;
+            const tileHeight = pyramidData.TileHeight || 512;
+            
+            // Filter and sort levels
+            const sortedLevels = levels
+                .filter(l => l.Width >= 256 && l.Height >= 256)
+                .sort((a, b) => a.Width - b.Width);
+            
+            return {
+                width: baseWidth,
+                height: baseHeight,
+                tileWidth: tileWidth,
+                tileHeight: tileHeight,
+                minLevel: 0,
+                maxLevel: sortedLevels.length - 1,
+                getTileUrl: function(level, x, y) {
+                    const wsiLevel = sortedLevels.length - 1 - level;
+                    const actualLevel = sortedLevels[wsiLevel]?.Level ?? wsiLevel;
+                    return `/wsi/tiles/${seriesId}/${actualLevel}/${x}/${y}?_=${Date.now()}`;
+                }
+            };
+        }
+        
+        function addViewerLabel(viewerId, label) {
+            const container = document.getElementById(viewerId);
+            // Remove existing label
+            const existing = container.querySelector('.viewer-label');
+            if (existing) existing.remove();
+            
+            const labelEl = document.createElement('div');
+            labelEl.className = 'viewer-label';
+            labelEl.textContent = label;
+            container.appendChild(labelEl);
+        }
+        
+        function setActiveViewer(num) {
+            activeViewer = num;
+            document.getElementById('osd-viewer').classList.toggle('active-viewer', num === 1);
+            document.getElementById('osd-viewer-2').classList.toggle('active-viewer', num === 2);
+        }
+        
+        function setupSyncNavigation() {
+            if (!viewer || !viewer2) return;
+            
+            // Remove existing handlers to avoid duplicates
+            viewer.removeAllHandlers('viewport-change');
+            viewer2.removeAllHandlers('viewport-change');
+            
+            let syncing = false;
+            
+            viewer.addHandler('viewport-change', () => {
+                if (!syncNavigation || syncing || !viewer2) return;
+                syncing = true;
+                try {
+                    const center = viewer.viewport.getCenter();
+                    const zoom = viewer.viewport.getZoom();
+                    viewer2.viewport.zoomTo(zoom, null, true);
+                    viewer2.viewport.panTo(center, true);
+                } finally {
+                    setTimeout(() => { syncing = false; }, 10);
+                }
+            });
+            
+            viewer2.addHandler('viewport-change', () => {
+                if (!syncNavigation || syncing || !viewer) return;
+                syncing = true;
+                try {
+                    const center = viewer2.viewport.getCenter();
+                    const zoom = viewer2.viewport.getZoom();
+                    viewer.viewport.zoomTo(zoom, null, true);
+                    viewer.viewport.panTo(center, true);
+                } finally {
+                    setTimeout(() => { syncing = false; }, 10);
+                }
+            });
+            
+            console.log('Sync navigation enabled');
+        }
+        
+        function toggleSyncNavigation() {
+            syncNavigation = !syncNavigation;
+            const btn = document.getElementById('sync-nav-btn');
+            btn.classList.toggle('active', syncNavigation);
+            
+            if (syncNavigation && viewer && viewer2) {
+                setupSyncNavigation();
+                // Sync to current viewer 1 position
+                const center = viewer.viewport.getCenter();
+                const zoom = viewer.viewport.getZoom();
+                viewer2.viewport.zoomTo(zoom, null, true);
+                viewer2.viewport.panTo(center, true);
+            }
+            
+            console.log('Sync navigation:', syncNavigation ? 'ON' : 'OFF');
+        }
+        
+        function swapViewers() {
+            if (!viewer2 || !currentStudy2) return;
+            
+            // Swap study IDs
+            const tempStudy = currentStudy;
+            const tempName = compareSlideName1;
+            
+            currentStudy = currentStudy2;
+            compareSlideName1 = compareSlideName2;
+            currentStudy2 = tempStudy;
+            compareSlideName2 = tempName;
+            
+            // Reload both viewers
+            loadStudy(currentStudy);
+            setTimeout(() => {
+                loadStudyInViewer2(currentStudy2, compareSlideName2);
+            }, 100);
+            
+            console.log('Viewers swapped');
+        }
+        
+        function exitCompareMode() {
+            console.log('Exiting compare mode');
+            compareMode = false;
+            
+            // Remove compare mode class
+            document.querySelector('.viewer-container').classList.remove('compare-mode');
+            document.getElementById('compare-toolbar').classList.remove('active');
+            
+            // Destroy viewer 2
+            if (viewer2) {
+                viewer2.destroy();
+                viewer2 = null;
+            }
+            currentStudy2 = null;
+            
+            // Remove labels
+            const label1 = document.querySelector('#osd-viewer .viewer-label');
+            if (label1) label1.remove();
+            const label2 = document.querySelector('#osd-viewer-2 .viewer-label');
+            if (label2) label2.remove();
+            
+            // Show placeholder in viewer 2
+            const placeholder = document.getElementById('viewer-placeholder-2');
+            if (placeholder) placeholder.style.display = 'flex';
+            
+            // Reset active viewer
+            document.getElementById('osd-viewer').classList.remove('active-viewer');
+            document.getElementById('osd-viewer-2').classList.remove('active-viewer');
+            
+            updateCompareButtons();
+        }
+        
+        function updateCompareButtons() {
+            // Update all compare buttons in sidebar
+            document.querySelectorAll('.compare-btn').forEach(btn => {
+                const id = btn.dataset.compareId;
+                const isComparing = compareMode && (id === currentStudy || id === currentStudy2);
+                btn.classList.toggle('comparing', isComparing);
+                btn.textContent = isComparing ? '✓' : '⧉';
+            });
+        }
+        
+        // Track active viewer on main viewer click
+        document.getElementById('osd-viewer')?.addEventListener('mousedown', () => {
+            if (compareMode) setActiveViewer(1);
+        });
 
         function showLoading(show) {
             document.getElementById('loading').classList.toggle('active', show);
@@ -4347,12 +4827,23 @@
             const key = e.key.toLowerCase();
             
             // Navigation shortcuts (work even without annotation manager)
-            if (viewer) {
+            // In compare mode, use the active viewer
+            const activeViewerObj = compareMode && activeViewer === 2 && viewer2 ? viewer2 : viewer;
+            
+            if (activeViewerObj) {
                 const panAmount = 0.1; // Pan 10% of viewport
-                const viewport = viewer.viewport;
+                const viewport = activeViewerObj.viewport;
                 const center = viewport.getCenter();
                 
                 switch (key) {
+                    // Compare mode shortcuts
+                    case 'escape':
+                        if (compareMode) {
+                            exitCompareMode();
+                            e.preventDefault();
+                            return;
+                        }
+                        break;
                     // WASD navigation
                     case 'w':
                         viewport.panTo(new OpenSeadragon.Point(center.x, center.y - panAmount));
