@@ -307,6 +307,14 @@ async def get_annotations(study_id: str, user: User = Depends(require_user)):
                 except:
                     geometry = {"type": "Unknown", "coordinates": []}
             
+            # Parse properties if it's a string
+            properties = row["properties"] or {}
+            if isinstance(properties, str):
+                try:
+                    properties = json.loads(properties)
+                except:
+                    properties = {}
+            
             # Skip annotations with missing coordinates
             if not geometry or not geometry.get("coordinates"):
                 logger.warning(f"Skipping annotation {row['id']} with invalid geometry")
@@ -318,7 +326,7 @@ async def get_annotations(study_id: str, user: User = Depends(require_user)):
                 "type": row["type"],
                 "tool": row["tool"],
                 "geometry": geometry,
-                "properties": row["properties"] or {},
+                "properties": properties,
                 "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                 "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
             })
