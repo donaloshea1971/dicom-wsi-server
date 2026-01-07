@@ -1589,17 +1589,22 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
         job.completed_at = datetime.utcnow()
         
         # Set study owner if user was authenticated during upload
+        logger.info(f"🔍 Ownership check: study_uid={study_uid}, job.owner_id={job.owner_id}")
         if study_uid and job.owner_id:
             try:
                 success = await set_study_owner(study_uid, job.owner_id)
                 if success:
                     logger.info(f"✅ Set owner of study {study_uid} to user {job.owner_id}")
                 else:
-                    logger.warning(f"⚠️ Failed to set study owner - set_study_owner returned False")
+                    logger.warning(f"⚠️ Failed to set study owner - set_study_owner returned False (study may already be owned)")
             except Exception as e:
-                logger.warning(f"❌ Failed to set study owner: {e}")
+                logger.error(f"❌ Failed to set study owner: {e}", exc_info=True)
         else:
             logger.warning(f"⚠️ Study ownership NOT set - study_uid={study_uid}, owner_id={job.owner_id}")
+            if not study_uid:
+                logger.warning(f"   → study_uid is missing - check Orthanc upload response")
+            if not job.owner_id:
+                logger.warning(f"   → owner_id is missing - user was not authenticated during upload")
         
         # Move original to completed
         completed_path = Path(settings.watch_folder) / "completed" / file_path.name
@@ -3017,7 +3022,13 @@ async def init_chunked_upload(
             "upload_dir": str(upload_dir)
         }
         
-        logger.info(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+        # Log auth state for debugging ownership issues
+        if current_user:
+            logger.info(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+            logger.info(f"   👤 Auth: user={current_user.email}, db_id={current_user.id}, owner_id stored={chunked_uploads[upload_id]['owner_id']}")
+        else:
+            logger.warning(f"📦 Chunked upload initialized: {upload_id} for {request.filename} ({total_chunks} chunks)")
+            logger.warning(f"   ⚠️ Auth: NO USER - upload will be anonymous/unowned")
     except HTTPException:
         raise
     except Exception as e:
@@ -3183,10 +3194,10 @@ async def assemble_and_convert(upload_id: str):
         upload["progress"] = 60
         upload["job_id"] = job_id
         
-        logger.info(f"📦 Assembly complete for {upload_id}, starting conversion job {job_id}")
-        
         # Create conversion job
         owner_id = upload.get("owner_id")
+        logger.info(f"📦 Assembly complete for {upload_id}, starting conversion job {job_id}")
+        logger.info(f"   👤 Owner ID from upload session: {owner_id}")
         job = ConversionJob(
             job_id=job_id,
             filename=upload["filename"],

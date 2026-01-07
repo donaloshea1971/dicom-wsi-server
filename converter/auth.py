@@ -388,9 +388,11 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
     Returns:
         True if ownership was set, False if already owned (when force=False) or error
     """
+    logger.info(f"🔐 set_study_owner called: study_id={study_id}, user_id={user_id}, force={force}")
+    
     pool = await get_db_pool()
     if pool is None:
-        logger.error("Database pool not available for set_study_owner")
+        logger.error("🔐 Database pool not available for set_study_owner")
         return False
     
     async with pool.acquire() as conn:
@@ -422,21 +424,25 @@ async def set_study_owner(study_id: str, user_id: int, force: bool = False) -> b
                     user_id
                 )
                 # Check if insert happened (result format: "INSERT 0 1" or "INSERT 0 0")
+                logger.info(f"🔐 SQL result: {result}")
                 rows_affected = int(result.split()[-1])
                 if rows_affected > 0:
-                    logger.info(f"Set study {study_id} owner to user {user_id}")
+                    logger.info(f"🔐 ✅ Successfully set study {study_id} owner to user {user_id}")
                     return True
                 else:
-                    # Study already has an owner
+                    # Study already has an owner - check who
                     existing = await conn.fetchrow(
                         "SELECT owner_id FROM slides WHERE orthanc_study_id = $1",
                         study_id
                     )
                     if existing and existing["owner_id"] == user_id:
-                        logger.debug(f"Study {study_id} already owned by user {user_id}")
+                        logger.info(f"🔐 Study {study_id} already owned by user {user_id} (no change needed)")
                         return True  # Already owned by same user
+                    elif existing:
+                        logger.warning(f"🔐 ⚠️ Study {study_id} already owned by different user {existing['owner_id']}")
+                        return False
                     else:
-                        logger.warning(f"Study {study_id} already owned by user {existing['owner_id'] if existing else 'unknown'}")
+                        logger.warning(f"🔐 ⚠️ INSERT had 0 rows but no existing record found - strange!")
                         return False
         except Exception as e:
             logger.error(f"Failed to set study owner: {e}")
