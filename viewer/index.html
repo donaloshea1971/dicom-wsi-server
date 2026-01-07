@@ -2325,18 +2325,17 @@
             };
         }
 
-        let viewer = null;
-        let currentStudy = null;
-        let studyList = [];  // Store list of study IDs for navigation
-
-        // Compare mode state
-        let compareMode = false;
-        let viewer2 = null;
-        let currentStudy2 = null;
-        let syncNavigation = false;
-        let activeViewer = 1; // 1 or 2
-        let compareSlideName1 = '';
-        let compareSlideName2 = '';
+        // Global state (only define if not already defined by viewer-main.js)
+        if (typeof viewer === 'undefined') var viewer = null;
+        if (typeof currentStudy === 'undefined') var currentStudy = null;
+        if (typeof studyList === 'undefined') var studyList = [];
+        if (typeof compareMode === 'undefined') var compareMode = false;
+        if (typeof viewer2 === 'undefined') var viewer2 = null;
+        if (typeof currentStudy2 === 'undefined') var currentStudy2 = null;
+        if (typeof syncNavigation === 'undefined') var syncNavigation = false;
+        if (typeof activeViewer === 'undefined') var activeViewer = 1;
+        if (typeof compareSlideName1 === 'undefined') var compareSlideName1 = '';
+        if (typeof compareSlideName2 === 'undefined') var compareSlideName2 = '';
 
         // Initialize Auth0 and check authentication
         async function initAuth() {
