@@ -2341,6 +2341,9 @@
         if (typeof spaceNavController === 'undefined') var spaceNavController = null;
         if (typeof annotationManager === 'undefined') var annotationManager = null;
         if (typeof annotationEventSource === 'undefined') var annotationEventSource = null;
+        if (typeof currentShareStudyId === 'undefined') var currentShareStudyId = null;
+        if (typeof allStudiesCache === 'undefined') var allStudiesCache = { owned: [], shared: [], samples: [] };
+        if (typeof currentViewMode === 'undefined') var currentViewMode = 'flat';
 
         // Initialize Auth0 and check authentication
         async function initAuth() {
@@ -4012,8 +4015,7 @@
         // =========================================
         // Sharing System
         // =========================================
-        
-        let currentShareStudyId = null;
+
         let shareSearchTimeout = null;
         
         // =============================================================================
@@ -5491,9 +5493,7 @@
         }
         
         // Search/filter studies
-        let allStudiesCache = { owned: [], shared: [], samples: [] };
-        let currentViewMode = 'flat'; // 'flat' or 'grouped'
-        
+
         function filterStudies(query) {
             const studyList = document.getElementById('study-list');
             const cards = studyList.querySelectorAll('.study-card');
