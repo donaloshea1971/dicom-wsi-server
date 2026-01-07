@@ -190,6 +190,89 @@ CREATE TABLE IF NOT EXISTS annotations (
 CREATE INDEX IF NOT EXISTS idx_annotations_slide ON annotations(slide_id);
 
 -- =============================================================================
+-- PUBLIC SHARES - Anonymous link-based access (no login required)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public_shares (
+    id SERIAL PRIMARY KEY,
+    token VARCHAR(64) UNIQUE NOT NULL,      -- Random URL-safe token
+    
+    -- Target (one of these)
+    slide_id INTEGER REFERENCES slides(id) ON DELETE CASCADE,
+    case_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+    
+    -- Share settings
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission VARCHAR(50) DEFAULT 'view',   -- 'view' or 'annotate'
+    password_hash VARCHAR(255),              -- Optional password protection
+    
+    -- Expiration
+    expires_at TIMESTAMP,                    -- NULL = never expires
+    max_views INTEGER,                       -- NULL = unlimited
+    view_count INTEGER DEFAULT 0,
+    
+    -- Metadata
+    title VARCHAR(255),                      -- Custom title for link
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed_at TIMESTAMP,
+    
+    CONSTRAINT public_shares_target_check CHECK (
+        (slide_id IS NOT NULL AND case_id IS NULL) OR 
+        (slide_id IS NULL AND case_id IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_public_shares_token ON public_shares(token);
+CREATE INDEX IF NOT EXISTS idx_public_shares_owner ON public_shares(owner_id);
+CREATE INDEX IF NOT EXISTS idx_public_shares_slide ON public_shares(slide_id);
+CREATE INDEX IF NOT EXISTS idx_public_shares_case ON public_shares(case_id);
+
+-- =============================================================================
+-- ANNOTATION COMMENTS - Discussion threads on annotations
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS annotation_comments (
+    id SERIAL PRIMARY KEY,
+    annotation_id VARCHAR(32) NOT NULL REFERENCES annotations(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    
+    -- For public/anonymous comments
+    guest_name VARCHAR(100),
+    
+    -- Comment content
+    content TEXT NOT NULL,
+    
+    -- Threading (reply to another comment)
+    parent_id INTEGER REFERENCES annotation_comments(id) ON DELETE CASCADE,
+    
+    -- Status
+    is_resolved BOOLEAN DEFAULT FALSE,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_annotation ON annotation_comments(annotation_id);
+CREATE INDEX IF NOT EXISTS idx_comments_user ON annotation_comments(user_id);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON annotation_comments(parent_id);
+
+-- =============================================================================
+-- ANNOTATION EVENTS - For real-time sync and activity tracking
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS annotation_events (
+    id SERIAL PRIMARY KEY,
+    slide_id INTEGER NOT NULL REFERENCES slides(id) ON DELETE CASCADE,
+    annotation_id VARCHAR(32),               -- May be NULL for delete events
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    
+    event_type VARCHAR(50) NOT NULL,         -- 'create', 'update', 'delete', 'comment'
+    event_data JSONB,                        -- Full annotation data or diff
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_slide ON annotation_events(slide_id);
+CREATE INDEX IF NOT EXISTS idx_events_created ON annotation_events(created_at DESC);
+
+-- =============================================================================
 -- HELPER FUNCTIONS
 -- =============================================================================
 

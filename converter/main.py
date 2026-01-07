@@ -32,6 +32,9 @@ from auth import (
     get_slide_access_info, delete_pending_slide_share, delete_pending_case_share
 )
 
+# Alias for optional authentication (returns None if not authenticated)
+optional_user = get_current_user
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -268,6 +271,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+async def owns_study(user_id: int, study_id: str) -> bool:
+    """Check if user owns a specific study"""
+    owner_id = await get_study_owner(study_id)
+    return owner_id == user_id
+
+
+async def get_slide_id_from_orthanc(study_id: str) -> Optional[int]:
+    """Get the internal slide ID from the Orthanc study ID"""
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+    
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        return row["id"] if row else None
 
 
 # =============================================================================
@@ -3443,6 +3470,571 @@ async def secure_dicomweb_proxy(path: str, request: Request, user: User = Depend
     except httpx.HTTPError as e:
         logger.error(f"DICOMweb proxy error: {e}")
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")
+
+
+# =============================================================================
+# PUBLIC SHARING - Anonymous link-based access
+# =============================================================================
+
+import secrets
+from datetime import datetime, timedelta
+
+class PublicLinkCreate(BaseModel):
+    """Request to create a public share link"""
+    expires_in_days: Optional[int] = None  # None = never expires
+    max_views: Optional[int] = None  # None = unlimited
+    title: Optional[str] = None
+    password: Optional[str] = None  # Optional password protection
+
+
+class PublicLinkResponse(BaseModel):
+    """Public link details"""
+    id: int
+    token: str
+    url: str
+    title: Optional[str]
+    expires_at: Optional[str]
+    max_views: Optional[int]
+    view_count: int
+    created_at: str
+
+
+@app.post("/studies/{study_id}/public-link")
+async def create_public_link(study_id: str, request: PublicLinkCreate, user: User = Depends(require_user)):
+    """Create a public shareable link for a study (no login required to view)"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    # Check ownership
+    if not await owns_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Only the owner can create public links")
+    
+    # Get slide ID
+    slide_id = await get_slide_id_from_orthanc(study_id)
+    if not slide_id:
+        raise HTTPException(status_code=404, detail="Study not found in database")
+    
+    # Generate secure token
+    token = secrets.token_urlsafe(32)
+    
+    # Calculate expiry
+    expires_at = None
+    if request.expires_in_days:
+        expires_at = datetime.utcnow() + timedelta(days=request.expires_in_days)
+    
+    # Hash password if provided
+    password_hash = None
+    if request.password:
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+    
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.fetchrow("""
+                INSERT INTO public_shares (token, slide_id, owner_id, title, expires_at, max_views, password_hash)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id, token, created_at
+            """, token, slide_id, user.id, request.title, expires_at, request.max_views, password_hash)
+            
+            # Build public URL
+            public_url = f"/viewer/public/{token}"
+            
+            return {
+                "id": result["id"],
+                "token": result["token"],
+                "url": public_url,
+                "title": request.title,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "max_views": request.max_views,
+                "view_count": 0,
+                "created_at": result["created_at"].isoformat(),
+                "has_password": bool(password_hash)
+            }
+    except Exception as e:
+        logger.error(f"Failed to create public link: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create public link")
+
+
+@app.get("/studies/{study_id}/public-links")
+async def list_public_links(study_id: str, user: User = Depends(require_user)):
+    """List all public links for a study"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    # Check ownership
+    if not await owns_study(user.id, study_id):
+        raise HTTPException(status_code=403, detail="Only the owner can view public links")
+    
+    slide_id = await get_slide_id_from_orthanc(study_id)
+    if not slide_id:
+        raise HTTPException(status_code=404, detail="Study not found")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, token, title, expires_at, max_views, view_count, 
+                       password_hash IS NOT NULL as has_password, created_at, last_accessed_at
+                FROM public_shares
+                WHERE slide_id = $1 AND owner_id = $2
+                ORDER BY created_at DESC
+            """, slide_id, user.id)
+            
+            links = []
+            for row in rows:
+                links.append({
+                    "id": row["id"],
+                    "token": row["token"],
+                    "url": f"/viewer/public/{row['token']}",
+                    "title": row["title"],
+                    "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+                    "max_views": row["max_views"],
+                    "view_count": row["view_count"],
+                    "has_password": row["has_password"],
+                    "created_at": row["created_at"].isoformat(),
+                    "last_accessed_at": row["last_accessed_at"].isoformat() if row["last_accessed_at"] else None,
+                    "is_expired": row["expires_at"] and row["expires_at"] < datetime.utcnow()
+                })
+            
+            return {"links": links, "count": len(links)}
+    except Exception as e:
+        logger.error(f"Failed to list public links: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list public links")
+
+
+@app.delete("/studies/{study_id}/public-link/{link_id}")
+async def delete_public_link(study_id: str, link_id: int, user: User = Depends(require_user)):
+    """Delete a public link"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM public_shares
+                WHERE id = $1 AND owner_id = $2
+            """, link_id, user.id)
+            
+            if result == "DELETE 0":
+                raise HTTPException(status_code=404, detail="Link not found or not owned by you")
+            
+            return {"message": "Public link deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete public link: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete public link")
+
+
+# Public access endpoint (NO AUTH REQUIRED)
+@app.get("/public/{token}")
+async def access_public_link(token: str, password: Optional[str] = None):
+    """
+    Access a publicly shared study - NO LOGIN REQUIRED.
+    Returns study info and access token for tile loading.
+    """
+    try:
+        async with db_pool.acquire() as conn:
+            # Get the public share
+            share = await conn.fetchrow("""
+                SELECT ps.*, s.orthanc_study_id, s.display_name, s.stain,
+                       u.name as owner_name
+                FROM public_shares ps
+                JOIN slides s ON ps.slide_id = s.id
+                JOIN users u ON ps.owner_id = u.id
+                WHERE ps.token = $1
+            """, token)
+            
+            if not share:
+                raise HTTPException(status_code=404, detail="Link not found or expired")
+            
+            # Check expiration
+            if share["expires_at"] and share["expires_at"] < datetime.utcnow():
+                raise HTTPException(status_code=410, detail="This link has expired")
+            
+            # Check view limit
+            if share["max_views"] and share["view_count"] >= share["max_views"]:
+                raise HTTPException(status_code=410, detail="This link has reached its view limit")
+            
+            # Check password
+            if share["password_hash"]:
+                if not password:
+                    return {"requires_password": True, "title": share["title"]}
+                
+                import hashlib
+                if hashlib.sha256(password.encode()).hexdigest() != share["password_hash"]:
+                    raise HTTPException(status_code=401, detail="Incorrect password")
+            
+            # Update view count and last accessed
+            await conn.execute("""
+                UPDATE public_shares
+                SET view_count = view_count + 1, last_accessed_at = NOW()
+                WHERE id = $1
+            """, share["id"])
+            
+            # Return study info
+            return {
+                "study_id": share["orthanc_study_id"],
+                "display_name": share["display_name"] or share["title"] or "Shared Slide",
+                "stain": share["stain"],
+                "owner_name": share["owner_name"],
+                "permission": share["permission"],
+                "public_token": token,  # Used for tile access
+                "title": share["title"]
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to access public link: {e}")
+        raise HTTPException(status_code=500, detail="Failed to access link")
+
+
+# Public tile access (NO AUTH - uses token)
+@app.get("/public/{token}/tiles/{series_id}/{level}/{x}/{y}")
+async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int):
+    """Fetch a tile for a publicly shared study - no auth required"""
+    try:
+        # Validate token
+        async with db_pool.acquire() as conn:
+            share = await conn.fetchrow("""
+                SELECT ps.id, ps.expires_at, ps.max_views, ps.view_count, s.orthanc_study_id
+                FROM public_shares ps
+                JOIN slides s ON ps.slide_id = s.id
+                WHERE ps.token = $1
+            """, token)
+            
+            if not share:
+                raise HTTPException(status_code=404, detail="Invalid token")
+            
+            # Check expiration
+            if share["expires_at"] and share["expires_at"] < datetime.utcnow():
+                raise HTTPException(status_code=410, detail="Link expired")
+            
+            if share["max_views"] and share["view_count"] > share["max_views"]:
+                raise HTTPException(status_code=410, detail="View limit reached")
+        
+        # Fetch tile from Orthanc
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/wsi/tiles/{series_id}/{level}/{x}/{y}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            
+            if response.status_code in (403, 404):
+                return Response(content=b'', status_code=404)
+            
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                media_type=response.headers.get("content-type", "image/jpeg"),
+                headers={"Cache-Control": "public, max-age=604800"}
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Public tile error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Public pyramid metadata (NO AUTH - uses token)
+@app.get("/public/{token}/pyramid/{series_id}")
+async def get_public_pyramid(token: str, series_id: str):
+    """Get pyramid metadata for a publicly shared study"""
+    try:
+        # Validate token
+        async with db_pool.acquire() as conn:
+            share = await conn.fetchrow("""
+                SELECT ps.id FROM public_shares ps
+                JOIN slides s ON ps.slide_id = s.id
+                WHERE ps.token = $1
+            """, token)
+            
+            if not share:
+                raise HTTPException(status_code=404, detail="Invalid token")
+        
+        # Fetch pyramid from Orthanc
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.orthanc_url}/wsi/pyramids/{series_id}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=30.0
+            )
+            response.raise_for_status()
+            return response.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Public pyramid error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# ANNOTATION COMMENTS
+# =============================================================================
+
+class CommentCreate(BaseModel):
+    """Create a comment on an annotation"""
+    content: str
+    parent_id: Optional[int] = None  # For replies
+    guest_name: Optional[str] = None  # For public viewers
+
+
+class CommentUpdate(BaseModel):
+    """Update a comment"""
+    content: Optional[str] = None
+    is_resolved: Optional[bool] = None
+
+
+@app.get("/annotations/{annotation_id}/comments")
+async def get_annotation_comments(annotation_id: str, user: Optional[User] = Depends(optional_user)):
+    """Get all comments on an annotation"""
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT c.*, u.name as user_name, u.picture as user_picture
+                FROM annotation_comments c
+                LEFT JOIN users u ON c.user_id = u.id
+                WHERE c.annotation_id = $1
+                ORDER BY c.created_at ASC
+            """, annotation_id)
+            
+            comments = []
+            for row in rows:
+                comments.append({
+                    "id": row["id"],
+                    "annotation_id": row["annotation_id"],
+                    "user_id": row["user_id"],
+                    "user_name": row["user_name"] or row["guest_name"] or "Anonymous",
+                    "user_picture": row["user_picture"],
+                    "content": row["content"],
+                    "parent_id": row["parent_id"],
+                    "is_resolved": row["is_resolved"],
+                    "created_at": row["created_at"].isoformat(),
+                    "updated_at": row["updated_at"].isoformat()
+                })
+            
+            return {"comments": comments, "count": len(comments)}
+    except Exception as e:
+        logger.error(f"Failed to get comments: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get comments")
+
+
+@app.post("/annotations/{annotation_id}/comments")
+async def create_comment(annotation_id: str, comment: CommentCreate, user: Optional[User] = Depends(optional_user)):
+    """Add a comment to an annotation (works for logged-in users and public viewers)"""
+    if not comment.content.strip():
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    
+    user_id = user.id if user else None
+    guest_name = comment.guest_name if not user_id else None
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Verify annotation exists
+            ann = await conn.fetchrow("SELECT id FROM annotations WHERE id = $1", annotation_id)
+            if not ann:
+                raise HTTPException(status_code=404, detail="Annotation not found")
+            
+            result = await conn.fetchrow("""
+                INSERT INTO annotation_comments (annotation_id, user_id, guest_name, content, parent_id)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id, created_at
+            """, annotation_id, user_id, guest_name, comment.content.strip(), comment.parent_id)
+            
+            return {
+                "id": result["id"],
+                "annotation_id": annotation_id,
+                "content": comment.content.strip(),
+                "created_at": result["created_at"].isoformat(),
+                "user_name": user.name if user else guest_name or "Anonymous"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create comment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create comment")
+
+
+@app.put("/comments/{comment_id}")
+async def update_comment(comment_id: int, update: CommentUpdate, user: User = Depends(require_user)):
+    """Update a comment (only owner can edit, anyone can resolve)"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Get existing comment
+            existing = await conn.fetchrow("""
+                SELECT user_id FROM annotation_comments WHERE id = $1
+            """, comment_id)
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="Comment not found")
+            
+            # Only owner can edit content
+            if update.content and existing["user_id"] != user.id:
+                raise HTTPException(status_code=403, detail="Only comment owner can edit")
+            
+            # Build update query
+            updates = []
+            values = []
+            param_num = 1
+            
+            if update.content is not None:
+                updates.append(f"content = ${param_num}")
+                values.append(update.content.strip())
+                param_num += 1
+            
+            if update.is_resolved is not None:
+                updates.append(f"is_resolved = ${param_num}")
+                values.append(update.is_resolved)
+                param_num += 1
+            
+            if not updates:
+                raise HTTPException(status_code=400, detail="No updates provided")
+            
+            updates.append("updated_at = NOW()")
+            values.append(comment_id)
+            
+            await conn.execute(f"""
+                UPDATE annotation_comments
+                SET {', '.join(updates)}
+                WHERE id = ${param_num}
+            """, *values)
+            
+            return {"message": "Comment updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update comment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update comment")
+
+
+@app.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: int, user: User = Depends(require_user)):
+    """Delete a comment (only owner can delete)"""
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM annotation_comments
+                WHERE id = $1 AND user_id = $2
+            """, comment_id, user.id)
+            
+            if result == "DELETE 0":
+                raise HTTPException(status_code=404, detail="Comment not found or not owned by you")
+            
+            return {"message": "Comment deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete comment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete comment")
+
+
+# =============================================================================
+# REAL-TIME ANNOTATION EVENTS (Server-Sent Events)
+# =============================================================================
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
+
+# Store active SSE connections per study
+active_connections: dict[str, list] = {}
+
+
+async def annotation_event_generator(study_id: str, last_event_id: Optional[int] = None):
+    """Generator for SSE annotation events"""
+    # Get initial events if last_event_id provided (catch-up)
+    if last_event_id:
+        try:
+            async with db_pool.acquire() as conn:
+                slide_id = await get_slide_id_from_orthanc(study_id)
+                if slide_id:
+                    events = await conn.fetch("""
+                        SELECT id, event_type, event_data, user_id, created_at
+                        FROM annotation_events
+                        WHERE slide_id = $1 AND id > $2
+                        ORDER BY id ASC
+                        LIMIT 100
+                    """, slide_id, last_event_id)
+                    
+                    for event in events:
+                        yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
+        except Exception as e:
+            logger.error(f"SSE catch-up error: {e}")
+    
+    # Keep connection alive with heartbeat
+    last_check = datetime.utcnow()
+    last_seen_id = last_event_id or 0
+    
+    while True:
+        try:
+            # Check for new events every 2 seconds
+            await asyncio.sleep(2)
+            
+            async with db_pool.acquire() as conn:
+                slide_id = await get_slide_id_from_orthanc(study_id)
+                if slide_id:
+                    events = await conn.fetch("""
+                        SELECT id, event_type, event_data, user_id, created_at
+                        FROM annotation_events
+                        WHERE slide_id = $1 AND id > $2
+                        ORDER BY id ASC
+                        LIMIT 50
+                    """, slide_id, last_seen_id)
+                    
+                    for event in events:
+                        last_seen_id = event['id']
+                        yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
+            
+            # Send heartbeat every 30 seconds
+            if (datetime.utcnow() - last_check).seconds > 30:
+                yield f": heartbeat\n\n"
+                last_check = datetime.utcnow()
+                
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"SSE error: {e}")
+            break
+
+
+@app.get("/studies/{study_id}/events")
+async def annotation_events_stream(study_id: str, request: Request, last_event_id: Optional[int] = None, user: Optional[User] = Depends(optional_user)):
+    """
+    Server-Sent Events stream for real-time annotation updates.
+    Connect to receive live annotation changes from other users.
+    """
+    # For authenticated users, check access
+    if user and user.id:
+        if not await can_access_study(user.id, study_id):
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    return StreamingResponse(
+        annotation_event_generator(study_id, last_event_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
+
+
+async def record_annotation_event(slide_id: int, annotation_id: str, user_id: Optional[int], event_type: str, event_data: dict):
+    """Record an annotation event for real-time sync"""
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO annotation_events (slide_id, annotation_id, user_id, event_type, event_data)
+                VALUES ($1, $2, $3, $4, $5)
+            """, slide_id, annotation_id, user_id, event_type, json.dumps(event_data))
+    except Exception as e:
+        logger.error(f"Failed to record annotation event: {e}")
 
 
 if __name__ == "__main__":

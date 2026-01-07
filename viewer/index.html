@@ -623,6 +623,265 @@
             margin-top: 16px;
         }
 
+        /* Public Link Section */
+        .public-link-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .public-link-section h4 {
+            margin: 0 0 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .public-link-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .public-link-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .public-link-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .public-link-title {
+            color: var(--text-primary);
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .public-link-meta {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .public-link-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .public-link-actions button {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .public-link-actions button:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent);
+        }
+
+        .public-link-create {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .public-link-create select,
+        .public-link-create input {
+            flex: 1;
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .public-link-create button {
+            padding: 8px 16px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: var(--bg-dark);
+            cursor: pointer;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        /* Annotation Comments Panel */
+        .comments-panel {
+            position: fixed;
+            right: 20px;
+            top: 100px;
+            width: 320px;
+            max-height: calc(100vh - 200px);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .comments-panel.visible {
+            display: flex;
+        }
+
+        .comments-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .comments-header h4 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .comments-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 18px;
+        }
+
+        .comments-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            min-height: 100px;
+        }
+
+        .comment-item {
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .comment-author {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .comment-time {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .comment-content {
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .comment-actions {
+            margin-top: 6px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .comment-actions button {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 11px;
+            padding: 2px 4px;
+        }
+
+        .comment-actions button:hover {
+            color: var(--accent);
+        }
+
+        .comments-input {
+            padding: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .comments-input textarea {
+            width: 100%;
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            resize: none;
+            margin-bottom: 8px;
+        }
+
+        .comments-input button {
+            width: 100%;
+            padding: 8px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: var(--bg-dark);
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        /* Real-time sync indicator */
+        .sync-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            z-index: 100;
+        }
+
+        .sync-indicator .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        .sync-indicator.disconnected .dot {
+            background: #ef4444;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
         /* Access source badges */
         .access-badge {
             display: inline-flex;
@@ -2893,6 +3152,9 @@
                     console.log('Viewer opened successfully');
                     showLoading(false);
                     
+                    // Connect to real-time annotation sync
+                    connectAnnotationSync(studyId);
+
                     // Update SpaceMouse viewer reference if connected, or try auto-connect
                     if (spaceNavController && spaceNavController.connected) {
                         spaceNavController.setViewer(viewer);
@@ -4061,6 +4323,24 @@
                     <h4>Currently shared with</h4>
                     <div id="current-shares">Loading...</div>
                 </div>
+                
+                <!-- Public Links Section -->
+                <div class="public-link-section">
+                    <h4>🌐 Public Links (No Login Required)</h4>
+                    <div class="public-link-list" id="public-links-list">
+                        Loading...
+                    </div>
+                    <div class="public-link-create">
+                        <select id="public-link-expiry">
+                            <option value="">Never expires</option>
+                            <option value="1">1 day</option>
+                            <option value="7">7 days</option>
+                            <option value="30">30 days</option>
+                            <option value="90">90 days</option>
+                        </select>
+                        <button onclick="createPublicLink()">🔗 Create Link</button>
+                    </div>
+                </div>
             ` : `
                 <div style="color: var(--text-muted); text-align: center; padding: 20px;">
                     Only the slide owner can manage sharing.
@@ -4087,6 +4367,7 @@
             // Load current shares if owner
             if (isOwner) {
                 loadCurrentShares(studyId);
+                loadPublicLinks(studyId);
                 // Focus search input
                 document.getElementById('share-search').focus();
             }
@@ -4296,6 +4577,324 @@
             }
         }
 
+        // =========================================
+        // Public Links
+        // =========================================
+        
+        async function loadPublicLinks(studyId) {
+            const container = document.getElementById('public-links-list');
+            if (!container) return;
+            
+            try {
+                const response = await authFetch(`/api/studies/${studyId}/public-links`);
+                if (!response.ok) throw new Error('Failed to load public links');
+                
+                const data = await response.json();
+                const links = data.links || [];
+                
+                if (links.length === 0) {
+                    container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 10px;">
+                        No public links yet. Create one below!
+                    </div>`;
+                    return;
+                }
+                
+                container.innerHTML = links.map(link => {
+                    const expiryText = link.expires_at 
+                        ? (link.is_expired ? '⚠️ Expired' : `Expires: ${new Date(link.expires_at).toLocaleDateString()}`)
+                        : 'Never expires';
+                    const viewText = link.max_views 
+                        ? `${link.view_count}/${link.max_views} views` 
+                        : `${link.view_count} views`;
+                    
+                    return `
+                        <div class="public-link-item ${link.is_expired ? 'expired' : ''}">
+                            <div class="public-link-info">
+                                <div class="public-link-title">${link.title || 'Public Link'}</div>
+                                <div class="public-link-meta">${expiryText} • ${viewText}${link.has_password ? ' • 🔒' : ''}</div>
+                            </div>
+                            <div class="public-link-actions">
+                                <button onclick="copyPublicLink('${link.token}')" title="Copy link">📋</button>
+                                <button onclick="deletePublicLink(${link.id})" title="Delete">🗑️</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (e) {
+                container.innerHTML = `<div style="color: var(--danger); font-size: 13px;">
+                    ${e.message}
+                </div>`;
+            }
+        }
+        
+        async function createPublicLink() {
+            if (!currentShareStudyId) return;
+            
+            const expirySelect = document.getElementById('public-link-expiry');
+            const expiresInDays = expirySelect.value ? parseInt(expirySelect.value) : null;
+            
+            try {
+                const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        expires_in_days: expiresInDays,
+                        title: `Shared on ${new Date().toLocaleDateString()}`
+                    })
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({ detail: 'Failed to create link' }));
+                    throw new Error(err.detail);
+                }
+                
+                const result = await response.json();
+                
+                // Copy to clipboard
+                const fullUrl = window.location.origin + '/viewer/public/' + result.token;
+                await navigator.clipboard.writeText(fullUrl);
+                alert('✅ Public link created and copied to clipboard!\n\n' + fullUrl);
+                
+                // Reload list
+                loadPublicLinks(currentShareStudyId);
+                
+            } catch (e) {
+                alert('Failed to create public link: ' + e.message);
+            }
+        }
+        
+        async function copyPublicLink(token) {
+            const fullUrl = window.location.origin + '/viewer/public/' + token;
+            try {
+                await navigator.clipboard.writeText(fullUrl);
+                alert('✅ Link copied to clipboard!\n\n' + fullUrl);
+            } catch (e) {
+                // Fallback for older browsers
+                prompt('Copy this link:', fullUrl);
+            }
+        }
+        
+        async function deletePublicLink(linkId) {
+            if (!currentShareStudyId) return;
+            if (!confirm('Delete this public link? Anyone with this link will lose access.')) return;
+            
+            try {
+                const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link/${linkId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) throw new Error('Failed to delete');
+                loadPublicLinks(currentShareStudyId);
+                
+            } catch (e) {
+                alert('Failed to delete: ' + e.message);
+            }
+        }
+        
+        // =========================================
+        // Annotation Comments
+        // =========================================
+        
+        let currentCommentsAnnotationId = null;
+        
+        function showCommentsPanel(annotationId) {
+            currentCommentsAnnotationId = annotationId;
+            
+            // Create or get panel
+            let panel = document.getElementById('comments-panel');
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = 'comments-panel';
+                panel.className = 'comments-panel';
+                panel.innerHTML = `
+                    <div class="comments-header">
+                        <h4>💬 Comments</h4>
+                        <button class="comments-close" onclick="hideCommentsPanel()">×</button>
+                    </div>
+                    <div class="comments-list" id="comments-list">
+                        Loading...
+                    </div>
+                    <div class="comments-input">
+                        <textarea id="comment-input" placeholder="Add a comment..." rows="2"></textarea>
+                        <button onclick="addComment()">Post Comment</button>
+                    </div>
+                `;
+                document.body.appendChild(panel);
+            }
+            
+            panel.classList.add('visible');
+            loadComments(annotationId);
+        }
+        
+        function hideCommentsPanel() {
+            const panel = document.getElementById('comments-panel');
+            if (panel) panel.classList.remove('visible');
+            currentCommentsAnnotationId = null;
+        }
+        
+        async function loadComments(annotationId) {
+            const container = document.getElementById('comments-list');
+            if (!container) return;
+            
+            try {
+                const response = await authFetch(`/api/annotations/${annotationId}/comments`);
+                if (!response.ok) throw new Error('Failed to load comments');
+                
+                const data = await response.json();
+                const comments = data.comments || [];
+                
+                if (comments.length === 0) {
+                    container.innerHTML = `<div style="color: var(--text-muted); text-align: center; padding: 20px;">
+                        No comments yet. Be the first!
+                    </div>`;
+                    return;
+                }
+                
+                container.innerHTML = comments.map(comment => `
+                    <div class="comment-item" data-id="${comment.id}">
+                        <div class="comment-header">
+                            <span class="comment-author">${comment.user_name}</span>
+                            <span class="comment-time">${formatTimeAgo(comment.created_at)}</span>
+                        </div>
+                        <div class="comment-content">${escapeHtml(comment.content)}</div>
+                        <div class="comment-actions">
+                            <button onclick="replyToComment(${comment.id})">Reply</button>
+                            ${comment.is_resolved ? '<span style="color: #10b981;">✓ Resolved</span>' : 
+                              `<button onclick="resolveComment(${comment.id})">Mark Resolved</button>`}
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (e) {
+                container.innerHTML = `<div style="color: var(--danger);">${e.message}</div>`;
+            }
+        }
+        
+        async function addComment() {
+            if (!currentCommentsAnnotationId) return;
+            
+            const input = document.getElementById('comment-input');
+            const content = input.value.trim();
+            if (!content) return;
+            
+            try {
+                const response = await authFetch(`/api/annotations/${currentCommentsAnnotationId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                
+                if (!response.ok) throw new Error('Failed to post comment');
+                
+                input.value = '';
+                loadComments(currentCommentsAnnotationId);
+                
+            } catch (e) {
+                alert('Failed to post comment: ' + e.message);
+            }
+        }
+        
+        async function resolveComment(commentId) {
+            try {
+                const response = await authFetch(`/api/comments/${commentId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_resolved: true })
+                });
+                
+                if (!response.ok) throw new Error('Failed to resolve');
+                loadComments(currentCommentsAnnotationId);
+                
+            } catch (e) {
+                alert('Failed to resolve: ' + e.message);
+            }
+        }
+        
+        function formatTimeAgo(isoDate) {
+            const date = new Date(isoDate);
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000);
+            
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+            return date.toLocaleDateString();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // =========================================
+        // Real-Time Annotation Sync (SSE)
+        // =========================================
+        
+        let annotationEventSource = null;
+        
+        function connectAnnotationSync(studyId) {
+            // Close any existing connection
+            if (annotationEventSource) {
+                annotationEventSource.close();
+            }
+            
+            // Create sync indicator
+            let indicator = document.getElementById('sync-indicator');
+            if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'sync-indicator';
+                indicator.className = 'sync-indicator';
+                indicator.innerHTML = '<div class="dot"></div><span>Live sync</span>';
+                document.body.appendChild(indicator);
+            }
+            
+            try {
+                annotationEventSource = new EventSource(`/api/studies/${studyId}/events`);
+                
+                annotationEventSource.onopen = () => {
+                    console.log('SSE connected for annotations');
+                    indicator.classList.remove('disconnected');
+                    indicator.querySelector('span').textContent = 'Live sync';
+                };
+                
+                annotationEventSource.addEventListener('annotation', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Annotation event:', data);
+                        
+                        // Reload annotations when we receive an update from another user
+                        if (annotationManager) {
+                            annotationManager.loadAnnotations();
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse annotation event:', e);
+                    }
+                });
+                
+                annotationEventSource.onerror = (e) => {
+                    console.warn('SSE connection error, will retry...', e);
+                    indicator.classList.add('disconnected');
+                    indicator.querySelector('span').textContent = 'Reconnecting...';
+                };
+                
+            } catch (e) {
+                console.error('Failed to connect SSE:', e);
+            }
+        }
+        
+        function disconnectAnnotationSync() {
+            if (annotationEventSource) {
+                annotationEventSource.close();
+                annotationEventSource = null;
+            }
+            
+            const indicator = document.getElementById('sync-indicator');
+            if (indicator) indicator.remove();
+        }
+        
         // =========================================
         // Annotation System
         // =========================================
@@ -5085,7 +5684,10 @@
                 <div class="annotation-item" data-id="${a.id}">
                     <div class="annotation-item-header">
                         <span class="annotation-item-type">${getToolIcon(a.tool)} ${a.label || a.tool}</span>
-                        <button class="annotation-item-delete" data-delete="${a.id}" title="Delete">×</button>
+                        <div style="display: flex; gap: 4px;">
+                            <button class="annotation-item-comment" data-comment="${a.id}" title="Comments" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px; font-size: 12px;">💬</button>
+                            <button class="annotation-item-delete" data-delete="${a.id}" title="Delete">×</button>
+                        </div>
                     </div>
                     ${a.measurement ? `<div class="annotation-item-measurement">${a.measurement}</div>` : ''}
                     ${a.description ? `<div style="color: var(--text-secondary); font-size: 11px; margin-top: 4px; font-style: italic;">${a.description}</div>` : ''}
@@ -5095,13 +5697,22 @@
             // Attach event listeners (more reliable than inline onclick)
             list.querySelectorAll('.annotation-item').forEach(item => {
                 const id = item.dataset.id;
-                
+
                 // Click to navigate and edit
                 item.addEventListener('click', (e) => {
-                    if (e.target.closest('.annotation-item-delete')) return; // Let delete button handle itself
+                    if (e.target.closest('.annotation-item-delete') || e.target.closest('.annotation-item-comment')) return;
                     console.log('Annotation clicked:', id);
                     selectAnnotation(id);
                 });
+                
+                // Comment button
+                const commentBtn = item.querySelector('.annotation-item-comment');
+                if (commentBtn) {
+                    commentBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        showCommentsPanel(id);
+                    });
+                }
                 
                 // Hover to highlight on viewer
                 item.addEventListener('mouseenter', () => {
