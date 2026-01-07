@@ -553,23 +553,47 @@ async def export_annotations(study_id: str, format: str = "json", user: User = D
             study_id
         )
         
+        # Parse all rows with proper JSON handling
+        parsed_annotations = []
+        for row in rows:
+            geom = row["geometry"]
+            if isinstance(geom, str):
+                try:
+                    geom = json.loads(geom)
+                except:
+                    geom = {"type": "Unknown", "coordinates": []}
+            
+            props = row["properties"] or {}
+            if isinstance(props, str):
+                try:
+                    props = json.loads(props)
+                except:
+                    props = {}
+            
+            parsed_annotations.append({
+                "id": row["id"],
+                "study_id": row["study_id"],
+                "type": row["type"],
+                "tool": row["tool"],
+                "geometry": geom,
+                "properties": props,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+            })
+        
         if format == "geojson":
             # Export as GeoJSON FeatureCollection
             features = []
-            for row in rows:
-                geom = row["geometry"]
-                if isinstance(geom, str):
-                    geom = json.loads(geom)
-                
+            for ann in parsed_annotations:
                 feature = {
                     "type": "Feature",
-                    "id": row["id"],
-                    "geometry": geom,
+                    "id": ann["id"],
+                    "geometry": ann["geometry"],
                     "properties": {
-                        **(row["properties"] or {}),
-                        "tool": row["tool"],
-                        "annotation_type": row["type"],
-                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                        **ann["properties"],
+                        "tool": ann["tool"],
+                        "annotation_type": ann["type"],
+                        "created_at": ann["created_at"]
                     }
                 }
                 features.append(feature)
@@ -585,26 +609,12 @@ async def export_annotations(study_id: str, format: str = "json", user: User = D
             }
         else:
             # Export as PathView Pro JSON format
-            annotations = [
-                {
-                    "id": row["id"],
-                    "study_id": row["study_id"],
-                    "type": row["type"],
-                    "tool": row["tool"],
-                    "geometry": row["geometry"],
-                    "properties": row["properties"] or {},
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
-                }
-                for row in rows
-            ]
-            
             return {
                 "version": "1.0",
                 "study_id": study_id,
-                "count": len(annotations),
+                "count": len(parsed_annotations),
                 "exported_at": datetime.utcnow().isoformat(),
-                "annotations": annotations
+                "annotations": parsed_annotations
             }
 
 

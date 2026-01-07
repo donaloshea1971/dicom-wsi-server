@@ -4057,8 +4057,13 @@
             }
             
             try {
+                console.log('Exporting annotations for:', currentStudy, 'format:', format);
                 const response = await authFetch(`/api/studies/${currentStudy}/annotations/export?format=${format}`);
-                if (!response.ok) throw new Error('Export failed');
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => 'Unknown error');
+                    console.error('Export failed:', response.status, errorText);
+                    throw new Error(`Export failed: ${response.status} - ${errorText}`);
+                }
                 
                 const data = await response.json();
                 
