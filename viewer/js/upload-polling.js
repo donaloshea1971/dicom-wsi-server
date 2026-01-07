@@ -29,6 +29,24 @@ async function pollChunkedUploadStatus(item, uploadId, initialToken) {
             if (status.status === 'completed') {
                 item.status = 'complete';
                 item.progress = 100;
+                
+                // Backup: claim the study from client side in case backend claim failed
+                if (status.study_id && token) {
+                    try {
+                        const claimRes = await fetch(`/api/studies/${status.study_id}/claim`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (claimRes.ok) {
+                            console.log(`✅ Client claimed converted study: ${status.study_id}`);
+                        } else {
+                            console.log(`ℹ️ Study claim returned ${claimRes.status} (may already be owned)`);
+                        }
+                    } catch (e) {
+                        console.warn('Client claim attempt failed:', e.message);
+                    }
+                }
+                
                 return;
             }
             
@@ -81,6 +99,25 @@ async function pollConversionStatus(item, initialToken) {
             if (job.status === 'completed') {
                 item.status = 'complete';
                 item.progress = 100;
+                
+                // Backup: claim the study from client side
+                const studyId = job.study_id || job.study_uid;
+                if (studyId && token) {
+                    try {
+                        const claimRes = await fetch(`/api/studies/${studyId}/claim`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (claimRes.ok) {
+                            console.log(`✅ Client claimed converted study: ${studyId}`);
+                        } else {
+                            console.log(`ℹ️ Study claim returned ${claimRes.status} (may already be owned)`);
+                        }
+                    } catch (e) {
+                        console.warn('Client claim attempt failed:', e.message);
+                    }
+                }
+                
                 return;
             }
             

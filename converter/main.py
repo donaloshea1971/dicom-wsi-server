@@ -3238,6 +3238,13 @@ async def get_chunked_upload_status(upload_id: str):
             elif job.status == "failed":
                 upload["status"] = "failed"
     
+    # Get study_id from completed job
+    study_id = None
+    if upload["job_id"]:
+        job = conversion_jobs.get(upload["job_id"])
+        if job and job.study_id:
+            study_id = job.study_id
+    
     return {
         "upload_id": upload["upload_id"],
         "filename": upload["filename"],
@@ -3250,6 +3257,7 @@ async def get_chunked_upload_status(upload_id: str):
         "progress": upload["progress"],
         "message": upload["message"],
         "job_id": upload["job_id"],
+        "study_id": study_id,
         "created_at": upload["created_at"].isoformat(),
     }
 
