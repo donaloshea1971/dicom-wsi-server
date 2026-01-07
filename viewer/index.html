@@ -2336,6 +2336,11 @@
         if (typeof activeViewer === 'undefined') var activeViewer = 1;
         if (typeof compareSlideName1 === 'undefined') var compareSlideName1 = '';
         if (typeof compareSlideName2 === 'undefined') var compareSlideName2 = '';
+        if (typeof colorCorrection === 'undefined') var colorCorrection = null;
+        if (typeof currentICCProfile === 'undefined') var currentICCProfile = null;
+        if (typeof spaceNavController === 'undefined') var spaceNavController = null;
+        if (typeof annotationManager === 'undefined') var annotationManager = null;
+        if (typeof annotationEventSource === 'undefined') var annotationEventSource = null;
 
         // Initialize Auth0 and check authentication
         async function initAuth() {
@@ -3708,7 +3713,6 @@
         }
 
         // Color Correction System
-        let colorCorrection = null;
         
         function initColorCorrection() {
             if (typeof ColorCorrectionFilter !== 'undefined') {
@@ -3814,7 +3818,6 @@
         }
         
         // ICC Profile Tracking
-        let currentICCProfile = null;
         let iccApplied = false;
         
         async function checkICCProfile(studyId) {
@@ -4850,9 +4853,7 @@
         // =========================================
         // Real-Time Annotation Sync (SSE)
         // =========================================
-        
-        let annotationEventSource = null;
-        
+
         function connectAnnotationSync(studyId) {
             // Close any existing connection
             if (annotationEventSource) {
@@ -4916,9 +4917,7 @@
         // =========================================
         // Annotation System
         // =========================================
-        let annotationManager = null;
         let currentAnnotationTool = null;
-        let spaceNavController = null;
         let spaceMouseDebugEnabled = false;  // Persists debug mode
         
         // Global debug toggle - works even when not connected
