@@ -3304,6 +3304,16 @@ async def secure_wsi_proxy(path: str, request: Request, user: Optional[User] = D
                 timeout=60.0
             )
             
+            # Handle missing tiles (Orthanc returns 403/404 for non-existent frames)
+            if response.status_code in (403, 404) and '/tiles/' in path:
+                # Return 404 for missing tiles (clearer than 403)
+                logger.debug(f"Tile not found in Orthanc: {path}")
+                return Response(
+                    content=b'',
+                    status_code=404,
+                    headers={"Cache-Control": "no-cache"}
+                )
+            
             # Return response with caching headers for tiles
             headers = {
                 "Cache-Control": "public, max-age=604800",

@@ -2645,9 +2645,20 @@
                 
                 // Tile loading stats with cache tracking
                 let tileStats = { loaded: 0, cached: 0, failed: 0 };
+                const failedTiles = new Set();
                 
                 viewer.addHandler('tile-load-failed', (e) => {
                     tileStats.failed++;
+                    const tileKey = `${e.tile.level}/${e.tile.x}_${e.tile.y}`;
+                    if (!failedTiles.has(tileKey)) {
+                        failedTiles.add(tileKey);
+                        // Only log unique failures (avoid spam)
+                        if (failedTiles.size <= 5) {
+                            console.warn(`Tile missing: ${tileKey} (may be incomplete WSI data)`);
+                        } else if (failedTiles.size === 6) {
+                            console.warn('Additional missing tiles suppressed...');
+                        }
+                    }
                 });
                 
                 viewer.addHandler('tile-loaded', (e) => {
