@@ -442,9 +442,6 @@
     <script src="space-navigator.js?v=1.18.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
-    <script src="js/upload-core.js?v=1.0.0"></script>
-    <script src="js/upload-polling.js?v=1.0.0"></script>
-    <script src="js/upload-ui.js?v=1.0.0"></script>
     <script src="js/study-manager.js?v=1.1.0"></script>
     <script src="js/viewer-main.js?v=1.1.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
@@ -461,7 +458,6 @@
             
             checkServerStatus();
             initSpaceNavigator();
-            if (typeof initUploadUI === 'function') initUploadUI();
             await refreshStudies();
             
             const params = new URLSearchParams(window.location.search);

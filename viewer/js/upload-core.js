@@ -44,6 +44,22 @@ async function uploadDicomGroup(items) {
                 });
                 
                 if (response.ok) {
+                    const result = await response.json();
+                    const studyId = result.ParentStudy;
+                    
+                    // Explicitly claim ownership if authenticated
+                    if (token && studyId) {
+                        try {
+                            await fetch(`/api/studies/${studyId}/claim`, {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            console.log(`✅ Claimed ownership of study: ${studyId}`);
+                        } catch (claimErr) {
+                            console.warn(`⚠️ Failed to claim study ${studyId}:`, claimErr);
+                        }
+                    }
+                    
                     item.status = 'complete';
                     item.progress = 100;
                     item.message = '';

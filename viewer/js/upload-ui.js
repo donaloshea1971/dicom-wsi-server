@@ -232,7 +232,23 @@ async function startUpload() {
     
     const completed = uploadQueue.filter(f => f.status === 'complete').length;
     const failed = uploadQueue.filter(f => f.status === 'error').length;
-    alert(`Upload finished. ${completed} succeeded, ${failed} failed.`);
+    
+    if (completed > 0) {
+        const listEl = document.getElementById('queue-list');
+        const successMsg = document.createElement('div');
+        successMsg.className = 'upload-success-message';
+        successMsg.style.cssText = 'background: rgba(0, 212, 170, 0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 20px; margin-bottom: 20px; text-align: center;';
+        successMsg.innerHTML = `
+            <h3 style="color: var(--accent); margin-bottom: 8px;">✓ Upload Complete</h3>
+            <p style="font-size: 14px; margin-bottom: 16px;">${completed} files are now on the server.</p>
+            <a href="/" class="btn btn-primary" style="text-decoration: none; display: inline-block;">Go to Slide Viewer</a>
+        `;
+        listEl.prepend(successMsg);
+    }
+    
+    if (failed > 0) {
+        alert(`Upload finished with ${failed} errors.`);
+    }
 }
 
 /**
