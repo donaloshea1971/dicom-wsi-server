@@ -39,9 +39,13 @@ class AnnotationManager {
             line: { stroke: '#00d4aa', strokeWidth: 2 },
             rectangle: { stroke: '#ff6b6b', strokeWidth: 2, fill: 'rgba(255,107,107,0.1)' },
             polygon: { stroke: '#ffd93d', strokeWidth: 2, fill: 'rgba(255,217,61,0.1)' },
+            ellipse: { stroke: '#9b59b6', strokeWidth: 2, fill: 'rgba(155,89,182,0.1)' },
             point: { fill: '#00d4aa', radius: 6 },
             arrow: { stroke: '#00d4aa', strokeWidth: 2 }
         };
+        
+        // Current annotation color (can be changed via color picker)
+        this.currentColor = '#00d4aa';
     }
     
     /**
@@ -214,6 +218,12 @@ class AnnotationManager {
         this.render();
     }
     
+    // Set annotation color (from color picker)
+    setColor(color) {
+        this.currentColor = color;
+        console.log('Annotation color set to:', color);
+    }
+    
     // Check if manager is ready for interaction
     isReady() {
         return this.initialized && this.canvas && this.ctx;
@@ -237,6 +247,7 @@ class AnnotationManager {
             case 'line':
             case 'arrow':
             case 'rectangle':
+            case 'ellipse':
                 this.isDrawing = true;
                 this.startPoint = imagePoint;
                 break;
@@ -308,6 +319,9 @@ class AnnotationManager {
                     break;
                 case 'rectangle':
                     await this.createRectangleAnnotation(start, imagePoint);
+                    break;
+                case 'ellipse':
+                    await this.createEllipseAnnotation(start, imagePoint);
                     break;
             }
         } catch (err) {
@@ -482,6 +496,18 @@ class AnnotationManager {
         }
     }
     
+    // Calculate ellipse area (π * a * b)
+    calculateEllipseArea(p1, p2) {
+        const a = Math.abs(p2.x - p1.x) / 2 * this.pixelSpacing[0]; // semi-major axis
+        const b = Math.abs(p2.y - p1.y) / 2 * this.pixelSpacing[1]; // semi-minor axis
+        const areaUm2 = Math.PI * a * b;
+
+        if (areaUm2 >= 1000000) {
+            return { value: areaUm2 / 1000000, unit: 'mm²', display: `${(areaUm2 / 1000000).toFixed(3)} mm²` };
+        }
+        return { value: areaUm2, unit: 'µm²', display: `${areaUm2.toFixed(0)} µm²` };
+    }
+    
     // Create annotations (with zoom level capture)
     async createLineAnnotation(start, end) {
         const measurement = this.calculateDistance(start, end);
@@ -490,7 +516,7 @@ class AnnotationManager {
             tool: 'line',
             geometry: { type: 'LineString', coordinates: [[start.x, start.y], [end.x, end.y]] },
             properties: { 
-                color: this.styles.line.stroke, 
+                color: this.currentColor || this.styles.line.stroke, 
                 measurement,
                 zoom: this.getCurrentZoom()
             }
@@ -504,7 +530,7 @@ class AnnotationManager {
             tool: 'rectangle',
             geometry: { type: 'Rectangle', coordinates: [[start.x, start.y], [end.x, end.y]] },
             properties: { 
-                color: this.styles.rectangle.stroke, 
+                color: this.currentColor || this.styles.rectangle.stroke, 
                 measurement,
                 zoom: this.getCurrentZoom()
             }
@@ -518,7 +544,7 @@ class AnnotationManager {
             tool: 'polygon',
             geometry: { type: 'Polygon', coordinates: points.map(p => [p.x, p.y]) },
             properties: { 
-                color: this.styles.polygon.stroke, 
+                color: this.currentColor || this.styles.polygon.stroke, 
                 measurement,
                 zoom: this.getCurrentZoom()
             }
@@ -531,7 +557,7 @@ class AnnotationManager {
             tool: 'point',
             geometry: { type: 'Point', coordinates: [point.x, point.y] },
             properties: { 
-                color: this.styles.point.fill, 
+                color: this.currentColor || this.styles.point.fill, 
                 label: `Point ${this.annotations.length + 1}`,
                 zoom: this.getCurrentZoom()
             }
@@ -544,7 +570,21 @@ class AnnotationManager {
             tool: 'arrow',
             geometry: { type: 'LineString', coordinates: [[start.x, start.y], [end.x, end.y]] },
             properties: { 
-                color: this.styles.arrow.stroke,
+                color: this.currentColor || this.styles.arrow.stroke,
+                zoom: this.getCurrentZoom()
+            }
+        });
+    }
+    
+    async createEllipseAnnotation(start, end) {
+        const measurement = this.calculateEllipseArea(start, end);
+        await this.saveAnnotation({
+            type: 'measurement',
+            tool: 'ellipse',
+            geometry: { type: 'Ellipse', coordinates: [[start.x, start.y], [end.x, end.y]] },
+            properties: { 
+                color: this.currentColor || this.styles.ellipse.stroke, 
+                measurement,
                 zoom: this.getCurrentZoom()
             }
         });
@@ -807,6 +847,26 @@ class AnnotationManager {
                 const area = this.calculateArea(this.startPoint, this.currentEndPoint);
                 this.drawLabel(ctx, x + w/2, y + h/2, area.display);
                 break;
+                
+            case 'ellipse':
+                ctx.strokeStyle = this.styles.ellipse.stroke;
+                const ex = Math.min(start.x, end.x);
+                const ey = Math.min(start.y, end.y);
+                const ew = Math.abs(end.x - start.x);
+                const eh = Math.abs(end.y - start.y);
+                const ecx = ex + ew / 2;
+                const ecy = ey + eh / 2;
+                const erx = ew / 2;
+                const ery = eh / 2;
+                
+                ctx.beginPath();
+                ctx.ellipse(ecx, ecy, erx, ery, 0, 0, 2 * Math.PI);
+                ctx.stroke();
+                
+                // Preview area (π * a * b)
+                const ellipseArea = this.calculateEllipseArea(this.startPoint, this.currentEndPoint);
+                this.drawLabel(ctx, ecx, ecy, ellipseArea.display);
+                break;
         }
         
         ctx.restore();
@@ -863,6 +923,9 @@ class AnnotationManager {
                 break;
             case 'polygon':
                 this.renderPolygon(ctx, geom.coordinates, props);
+                break;
+            case 'ellipse':
+                this.renderEllipse(ctx, geom.coordinates, props);
                 break;
             case 'point':
                 this.renderPoint(ctx, geom.coordinates, props);
@@ -937,6 +1000,41 @@ class AnnotationManager {
         
         if (props.measurement) {
             this.drawLabel(ctx, x + w/2, y + h/2, props.measurement.display);
+        }
+    }
+    
+    renderEllipse(ctx, coords, props) {
+        // Validate coords format
+        if (!coords || !Array.isArray(coords) || coords.length < 2 ||
+            !coords[0] || !coords[1] || coords[0].length < 2 || coords[1].length < 2) {
+            console.warn('Invalid ellipse coords:', coords);
+            return;
+        }
+        
+        const start = this.imageToCanvas({ x: coords[0][0], y: coords[0][1] });
+        const end = this.imageToCanvas({ x: coords[1][0], y: coords[1][1] });
+        
+        const x = Math.min(start.x, end.x);
+        const y = Math.min(start.y, end.y);
+        const w = Math.abs(end.x - start.x);
+        const h = Math.abs(end.y - start.y);
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const rx = w / 2;
+        const ry = h / 2;
+        
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+        
+        ctx.fillStyle = 'rgba(155, 89, 182, 0.1)';
+        ctx.fill();
+        
+        ctx.strokeStyle = props.color || this.styles.ellipse.stroke;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        if (props.measurement) {
+            this.drawLabel(ctx, cx, cy, props.measurement.display);
         }
     }
     

@@ -1496,6 +1496,11 @@
     <aside class="sidebar">
         <div class="sidebar-header">
             <h2>🔬 Slides</h2>
+            <div class="search-box" style="margin-top: 12px;">
+                <input type="text" id="study-search" placeholder="🔍 Search slides..." 
+                       oninput="filterStudies(this.value)"
+                       style="width: 100%; padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+            </div>
         </div>
         <div class="study-list" id="study-list">
             <div class="empty-state">
@@ -1598,6 +1603,7 @@
                         <div class="shortcut"><kbd>L</kbd> Line/Distance</div>
                         <div class="shortcut"><kbd>R</kbd> Rectangle/Area</div>
                         <div class="shortcut"><kbd>G</kbd> Polygon</div>
+                        <div class="shortcut"><kbd>E</kbd> Ellipse/Circle</div>
                         <div class="shortcut"><kbd>M</kbd> Point marker</div>
                         <div class="shortcut"><kbd>Shift</kbd>+<kbd>A</kbd> Arrow</div>
                         <div class="shortcut"><kbd>Esc</kbd> Cancel/Pan</div>
@@ -1638,6 +1644,11 @@
                     <path d="M12 2l9 7-3.5 10h-11L3 9z"/>
                 </svg>
             </button>
+            <button class="tool-btn" id="tool-ellipse" title="Ellipse/Circle (E)" onclick="setAnnotationTool('ellipse')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="12" rx="9" ry="6"/>
+                </svg>
+            </button>
             <div class="tool-divider"></div>
             <button class="tool-btn" id="tool-point" title="Point Marker (M)" onclick="setAnnotationTool('point')">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1675,6 +1686,13 @@
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                 </svg>
             </button>
+            <div class="tool-divider"></div>
+            <div class="color-picker-wrapper" style="position: relative;">
+                <input type="color" id="annotation-color" value="#00d4aa" 
+                       onchange="setAnnotationColor(this.value)" 
+                       title="Annotation Color"
+                       style="width: 32px; height: 32px; border: none; border-radius: 6px; cursor: pointer; background: transparent;">
+            </div>
         </div>
 
         <!-- Annotations Panel (right side) -->
@@ -1682,6 +1700,10 @@
             <div class="annotations-panel-header">
                 <h3>📐 Annotations</h3>
                 <div style="display: flex; gap: 8px; align-items: center;">
+                    <button class="btn-icon" onclick="triggerImportAnnotations()" title="Import Annotations" style="padding: 4px 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">
+                        📤 Import
+                    </button>
+                    <input type="file" id="import-annotations-file" accept=".json,.geojson" style="display: none;" onchange="importAnnotationsFile(event)">
                     <div class="export-dropdown" style="position: relative;">
                         <button class="btn-icon" onclick="toggleExportMenu()" title="Export Annotations" style="padding: 4px 8px; font-size: 11px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">
                             📥 Export ▾
@@ -4678,6 +4700,114 @@
             }
         }
         
+        // Annotation color picker
+        function setAnnotationColor(color) {
+            if (annotationManager) {
+                annotationManager.setColor(color);
+                console.log('Annotation color set to:', color);
+            }
+        }
+        
+        // Import annotations
+        function triggerImportAnnotations() {
+            document.getElementById('import-annotations-file').click();
+        }
+        
+        async function importAnnotationsFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (!currentStudy) {
+                alert('Please load a slide first');
+                return;
+            }
+            
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                // Detect format (GeoJSON has "type": "FeatureCollection")
+                let annotations = [];
+                if (data.type === 'FeatureCollection' && data.features) {
+                    // GeoJSON format
+                    annotations = data.features.map(feature => ({
+                        type: feature.properties?.annotation_type || feature.geometry?.type || 'unknown',
+                        tool: feature.properties?.tool || feature.geometry?.type?.toLowerCase() || 'unknown',
+                        geometry: feature.geometry,
+                        properties: feature.properties || {}
+                    }));
+                } else if (data.annotations) {
+                    // PathView Pro JSON format
+                    annotations = data.annotations;
+                } else if (Array.isArray(data)) {
+                    // Plain array of annotations
+                    annotations = data;
+                }
+                
+                if (annotations.length === 0) {
+                    alert('No annotations found in file');
+                    return;
+                }
+                
+                // Import each annotation
+                let imported = 0;
+                for (const ann of annotations) {
+                    try {
+                        const response = await authFetch(`/api/studies/${currentStudy}/annotations`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                type: ann.type || 'region',
+                                tool: ann.tool || 'rectangle',
+                                geometry: ann.geometry,
+                                properties: ann.properties || {}
+                            })
+                        });
+                        if (response.ok) imported++;
+                    } catch (e) {
+                        console.warn('Failed to import annotation:', e);
+                    }
+                }
+                
+                // Reload annotations
+                if (annotationManager) {
+                    await annotationManager.loadAnnotations(currentStudy);
+                }
+                updateAnnotationsList();
+                
+                alert(`Imported ${imported} of ${annotations.length} annotations`);
+                console.log(`Imported ${imported} annotations from ${file.name}`);
+                
+            } catch (e) {
+                console.error('Import error:', e);
+                alert('Failed to import annotations: ' + e.message);
+            }
+            
+            // Reset file input
+            event.target.value = '';
+        }
+        
+        // Search/filter studies
+        let allStudiesCache = [];
+        
+        function filterStudies(query) {
+            const studyList = document.getElementById('study-list');
+            const cards = studyList.querySelectorAll('.study-card');
+            const q = query.toLowerCase().trim();
+            
+            if (!q) {
+                // Show all
+                cards.forEach(card => card.style.display = '');
+                return;
+            }
+            
+            cards.forEach(card => {
+                const text = card.textContent.toLowerCase();
+                const matches = text.includes(q);
+                card.style.display = matches ? '' : 'none';
+            });
+        }
+        
         function toggleKeyboardHelp() {
             const help = document.getElementById('keyboard-help');
             if (help.style.display === 'none') {
@@ -5067,6 +5197,7 @@
                     case 'l': setAnnotationTool('line'); break;
                     case 'r': setAnnotationTool('rectangle'); break;
                     case 'g': setAnnotationTool('polygon'); break;
+                    case 'e': setAnnotationTool('ellipse'); break;
                     case 'm': setAnnotationTool('point'); break;
                     case 't': setAnnotationTool('text'); break;
                     // 'a' is used for pan left, use shift+a for arrow
