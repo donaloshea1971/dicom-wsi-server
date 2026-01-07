@@ -3529,7 +3529,11 @@ async def create_public_link(study_id: str, request: PublicLinkCreate, user: Use
         password_hash = hashlib.sha256(request.password.encode()).hexdigest()
     
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             result = await conn.fetchrow("""
                 INSERT INTO public_shares (token, slide_id, owner_id, title, expires_at, max_views, password_hash)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -3570,7 +3574,11 @@ async def list_public_links(study_id: str, user: User = Depends(require_user)):
         raise HTTPException(status_code=404, detail="Study not found")
     
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT id, token, title, expires_at, max_views, view_count, 
                        password_hash IS NOT NULL as has_password, created_at, last_accessed_at
@@ -3608,7 +3616,11 @@ async def delete_public_link(study_id: str, link_id: int, user: User = Depends(r
         raise HTTPException(status_code=400, detail="User not fully registered")
     
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             result = await conn.execute("""
                 DELETE FROM public_shares
                 WHERE id = $1 AND owner_id = $2
@@ -3633,7 +3645,11 @@ async def access_public_link(token: str, password: Optional[str] = None):
     Returns study info and access token for tile loading.
     """
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             # Get the public share
             share = await conn.fetchrow("""
                 SELECT ps.*, s.orthanc_study_id, s.display_name, s.stain,
@@ -3694,7 +3710,11 @@ async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int
     """Fetch a tile for a publicly shared study - no auth required"""
     try:
         # Validate token
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             share = await conn.fetchrow("""
                 SELECT ps.id, ps.expires_at, ps.max_views, ps.view_count, s.orthanc_study_id
                 FROM public_shares ps
@@ -3742,7 +3762,11 @@ async def get_public_pyramid(token: str, series_id: str):
     """Get pyramid metadata for a publicly shared study"""
     try:
         # Validate token
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             share = await conn.fetchrow("""
                 SELECT ps.id FROM public_shares ps
                 JOIN slides s ON ps.slide_id = s.id
@@ -3789,7 +3813,11 @@ class CommentUpdate(BaseModel):
 async def get_annotation_comments(annotation_id: str, user: Optional[User] = Depends(optional_user)):
     """Get all comments on an annotation"""
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT c.*, u.name as user_name, u.picture as user_picture
                 FROM annotation_comments c
@@ -3829,7 +3857,11 @@ async def create_comment(annotation_id: str, comment: CommentCreate, user: Optio
     guest_name = comment.guest_name if not user_id else None
     
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             # Verify annotation exists
             ann = await conn.fetchrow("SELECT id FROM annotations WHERE id = $1", annotation_id)
             if not ann:
@@ -3860,9 +3892,13 @@ async def update_comment(comment_id: int, update: CommentUpdate, user: User = De
     """Update a comment (only owner can edit, anyone can resolve)"""
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
-    
+
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             # Get existing comment
             existing = await conn.fetchrow("""
                 SELECT user_id FROM annotation_comments WHERE id = $1
@@ -3917,7 +3953,11 @@ async def delete_comment(comment_id: int, user: User = Depends(require_user)):
         raise HTTPException(status_code=400, detail="User not fully registered")
     
     try:
-        async with db_pool.acquire() as conn:
+        pool = await get_db_pool()
+        if pool is None:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        
+        async with pool.acquire() as conn:
             result = await conn.execute("""
                 DELETE FROM annotation_comments
                 WHERE id = $1 AND user_id = $2
@@ -3951,19 +3991,21 @@ async def annotation_event_generator(study_id: str, last_event_id: Optional[int]
     # Get initial events if last_event_id provided (catch-up)
     if last_event_id:
         try:
-            async with db_pool.acquire() as conn:
-                slide_id = await get_slide_id_from_orthanc(study_id)
-                if slide_id:
-                    events = await conn.fetch("""
-                        SELECT id, event_type, event_data, user_id, created_at
-                        FROM annotation_events
-                        WHERE slide_id = $1 AND id > $2
-                        ORDER BY id ASC
-                        LIMIT 100
-                    """, slide_id, last_event_id)
-                    
-                    for event in events:
-                        yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
+            pool = await get_db_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    slide_id = await get_slide_id_from_orthanc(study_id)
+                    if slide_id:
+                        events = await conn.fetch("""
+                            SELECT id, event_type, event_data, user_id, created_at
+                            FROM annotation_events
+                            WHERE slide_id = $1 AND id > $2
+                            ORDER BY id ASC
+                            LIMIT 100
+                        """, slide_id, last_event_id)
+                        
+                        for event in events:
+                            yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
         except Exception as e:
             logger.error(f"SSE catch-up error: {e}")
     
@@ -3976,20 +4018,22 @@ async def annotation_event_generator(study_id: str, last_event_id: Optional[int]
             # Check for new events every 2 seconds
             await asyncio.sleep(2)
             
-            async with db_pool.acquire() as conn:
-                slide_id = await get_slide_id_from_orthanc(study_id)
-                if slide_id:
-                    events = await conn.fetch("""
-                        SELECT id, event_type, event_data, user_id, created_at
-                        FROM annotation_events
-                        WHERE slide_id = $1 AND id > $2
-                        ORDER BY id ASC
-                        LIMIT 50
-                    """, slide_id, last_seen_id)
-                    
-                    for event in events:
-                        last_seen_id = event['id']
-                        yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
+            pool = await get_db_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    slide_id = await get_slide_id_from_orthanc(study_id)
+                    if slide_id:
+                        events = await conn.fetch("""
+                            SELECT id, event_type, event_data, user_id, created_at
+                            FROM annotation_events
+                            WHERE slide_id = $1 AND id > $2
+                            ORDER BY id ASC
+                            LIMIT 50
+                        """, slide_id, last_seen_id)
+                        
+                        for event in events:
+                            last_seen_id = event['id']
+                            yield f"id: {event['id']}\nevent: annotation\ndata: {json.dumps({'type': event['event_type'], 'data': event['event_data'], 'timestamp': event['created_at'].isoformat()})}\n\n"
             
             # Send heartbeat every 30 seconds
             if (datetime.utcnow() - last_check).seconds > 30:
@@ -4028,11 +4072,13 @@ async def annotation_events_stream(study_id: str, request: Request, last_event_i
 async def record_annotation_event(slide_id: int, annotation_id: str, user_id: Optional[int], event_type: str, event_data: dict):
     """Record an annotation event for real-time sync"""
     try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO annotation_events (slide_id, annotation_id, user_id, event_type, event_data)
-                VALUES ($1, $2, $3, $4, $5)
-            """, slide_id, annotation_id, user_id, event_type, json.dumps(event_data))
+        pool = await get_db_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO annotation_events (slide_id, annotation_id, user_id, event_type, event_data)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, slide_id, annotation_id, user_id, event_type, json.dumps(event_data))
     except Exception as e:
         logger.error(f"Failed to record annotation event: {e}")
 
