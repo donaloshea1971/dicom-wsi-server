@@ -1,0 +1,16 @@
+{
+  "name": "pathview-pro-viewer",
+  "version": "1.1.0",
+  "description": "PathView Pro WSI Viewer - E2E Tests",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "test:report": "npx playwright show-report",
+    "test:codegen": "npx playwright codegen https://pathviewpro.com/viewer"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
