@@ -3115,6 +3115,7 @@
                 viewer = OpenSeadragon({
                     id: 'osd-viewer',
                     prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+                    showNavigationControl: false,  // Hide zoom/home/fullscreen buttons
                     showNavigator: true,
                     navigatorPosition: 'BOTTOM_RIGHT',
                     animationTime: 0.2,
@@ -3471,6 +3472,7 @@
                 viewer2 = OpenSeadragon({
                     id: 'osd-viewer-2',
                     prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
+                    showNavigationControl: false,  // Hide zoom/home/fullscreen buttons
                     showNavigator: true,
                     navigatorPosition: 'TOP_RIGHT',
                     navigatorSizeRatio: 0.15,
