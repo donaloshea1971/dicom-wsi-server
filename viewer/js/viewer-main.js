@@ -806,15 +806,21 @@ function resetColorCorrection() {
  * Check if study has an ICC profile and update UI
  */
 async function checkICCProfile(studyId) {
+    console.log('🎨 checkICCProfile called for:', studyId);
     const iccBadge = document.getElementById('icc-badge');
-    if (!iccBadge) return;
+    if (!iccBadge) {
+        console.warn('🎨 ICC badge element not found');
+        return;
+    }
     currentICCProfile = null;
     iccApplied = false;
     
     try {
         const res = await authFetch(`/api/studies/${studyId}/icc-profile?include_transform=true`);
+        console.log('🎨 ICC profile response status:', res.status);
         if (res.ok) {
             const data = await res.json();
+            console.log('🎨 ICC profile data:', { has_icc: data.has_icc, has_transform: !!data.color_transform });
             currentICCProfile = data;
             if (data.has_icc) {
                 const info = data.profile_info || {};
@@ -824,28 +830,52 @@ async function checkICCProfile(studyId) {
                 if (colorCorrection && data.color_transform) {
                     colorCorrection.iccData = data;
                     colorCorrection.iccTransform = data.color_transform;
+                    console.log('🎨 ICC transform loaded into colorCorrection');
+                } else {
+                    console.warn('🎨 colorCorrection not ready or no transform data');
                 }
             } else {
                 iccBadge.style.display = 'none';
+                console.log('🎨 No ICC profile in slide');
             }
+        } else {
+            console.warn('🎨 ICC profile fetch failed:', res.status);
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error('🎨 ICC profile check error:', e);
+    }
 }
 
 /**
  * Toggle ICC profile application
  */
 function toggleICC() {
-    if (!currentICCProfile?.has_icc || !colorCorrection) return;
+    console.log('🎨 toggleICC called', { 
+        currentICCProfile: currentICCProfile,
+        hasIcc: currentICCProfile?.has_icc, 
+        colorCorrection: !!colorCorrection,
+        iccTransform: !!colorCorrection?.iccTransform
+    });
+    
+    if (!currentICCProfile?.has_icc || !colorCorrection) {
+        console.warn('🎨 toggleICC: cannot toggle - missing profile or colorCorrection');
+        return;
+    }
+    
     const iccBadge = document.getElementById('icc-badge');
     if (iccApplied) {
+        console.log('🎨 Disabling ICC');
         colorCorrection.disableICC();
         iccApplied = false;
         if (iccBadge) { iccBadge.style.background = ''; iccBadge.style.color = ''; }
     } else {
+        console.log('🎨 Enabling ICC');
         if (colorCorrection.enableICC()) {
             iccApplied = true;
+            console.log('🎨 ICC enabled successfully');
             if (iccBadge) { iccBadge.style.background = 'var(--accent)'; iccBadge.style.color = 'var(--bg-primary)'; }
+        } else {
+            console.warn('🎨 ICC enableICC() returned false');
         }
     }
     updateICCStatusPanel();
@@ -855,8 +885,9 @@ function toggleICC() {
  * Toggle ICC info or application
  */
 function toggleICCInfo() {
+    console.log('🎨 toggleICCInfo called', { hasIcc: currentICCProfile?.has_icc });
     if (currentICCProfile?.has_icc) toggleICC();
-    else alert('No ICC profile available.');
+    else alert('No ICC profile available for this slide.');
 }
 
 /**
