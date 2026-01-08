@@ -13,8 +13,8 @@ const CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
  * Upload a DICOM group via REST API
  */
 async function uploadDicomGroup(items) {
-    const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
-    console.log('🔐 DICOM upload - Auth token available:', !!token);
+    const doFetch = (typeof authFetch === 'function') ? authFetch : fetch;
+    console.log('🔐 DICOM upload - Using fetch helper:', (doFetch === authFetch) ? 'authFetch' : 'fetch');
 
     for (const item of items) {
         item.status = 'uploading';
@@ -30,22 +30,13 @@ async function uploadDicomGroup(items) {
                 item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
                 if (typeof updateQueueUI === 'function') updateQueueUI();
 
-                const headers = {
-                    'Content-Type': 'application/dicom'
-                };
-
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                    console.log('🔐 DICOM upload - Using auth token');
-                } else {
-                    console.log('🔐 DICOM upload - No auth token available');
-                }
-
                 console.log('🔐 DICOM upload - Making request to /api/instances');
-                const response = await fetch('/api/instances', {
+                const response = await doFetch('/api/instances', {
                     method: 'POST',
                     body: item.file,
-                    headers: headers
+                    headers: {
+                        'Content-Type': 'application/dicom'
+                    }
                 });
                 
                 if (response.ok) {
@@ -60,7 +51,7 @@ async function uploadDicomGroup(items) {
                         // Fallback: If ParentStudy is missing (e.g. instance already exists), fetch it
                         if (!studyId && res.ID) {
                             try {
-                                const infoRes = await fetch(`/api/instances/${res.ID}`);
+                                const infoRes = await doFetch(`/api/instances/${res.ID}`);
                                 if (infoRes.ok) {
                                     const info = await infoRes.json();
                                     studyId = info.ParentStudy;
@@ -71,12 +62,9 @@ async function uploadDicomGroup(items) {
                             }
                         }
                         
-                        if (token && studyId) {
+                        if (studyId) {
                             try {
-                                const claimRes = await fetch(`/api/studies/${studyId}/claim`, {
-                                    method: 'POST',
-                                    headers: { 'Authorization': `Bearer ${token}` }
-                                });
+                                const claimRes = await doFetch(`/api/studies/${studyId}/claim`, { method: 'POST' });
                                 if (claimRes.ok) {
                                     console.log(`✅ Claimed study: ${studyId}`);
                                 } else {

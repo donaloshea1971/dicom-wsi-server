@@ -29,7 +29,9 @@ def print_status(message, status="INFO"):
         "ERROR": "\033[91m",  # Red
         "RESET": "\033[0m"
     }
-    print(f"{colors.get(status, colors['INFO'])}[{status}]{colors['RESET']} {message}")
+    # Clean message of unicode checkmarks for Windows compatibility
+    clean_message = message.replace("✓", "[OK]").replace("✗", "[FAIL]")
+    print(f"{colors.get(status, colors['INFO'])}[{status}]{colors['RESET']} {clean_message}")
 
 
 async def check_auth0_config():

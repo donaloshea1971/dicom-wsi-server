@@ -3,6 +3,7 @@
 
 import sys
 import requests
+import os
 from pathlib import Path
 from pydicom import dcmread
 
@@ -10,8 +11,11 @@ from pydicom import dcmread
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-ORTHANC_URL = "http://localhost:8042"
-ORTHANC_AUTH = ("admin", "orthanc")
+# Authentication configuration
+ORTHANC_URL = os.getenv("ORTHANC_URL", "http://localhost:8042")
+ORTHANC_USERNAME = os.getenv("ORTHANC_USERNAME", "admin")
+ORTHANC_PASSWORD = os.getenv("ORTHANC_PASSWORD", "orthanc")
+ORTHANC_AUTH = (ORTHANC_USERNAME, ORTHANC_PASSWORD)
 
 def upload_file(file_path):
     """Upload file via REST API"""
@@ -20,13 +24,14 @@ def upload_file(file_path):
         ds = dcmread(file_path, force=True)
         patient = str(ds.get("PatientName", "Unknown"))
         modality = ds.get("Modality", "Unknown")
-        
+
         print(f"Uploading: {patient} ({modality}) - {file_path.name}")
-        
+        print(f"  → Auth: {ORTHANC_USERNAME}:***@{ORTHANC_URL}")
+
         # Read file bytes
         with open(file_path, 'rb') as f:
             dicom_bytes = f.read()
-        
+
         # Upload
         response = requests.post(
             f"{ORTHANC_URL}/instances",
@@ -34,14 +39,17 @@ def upload_file(file_path):
             data=dicom_bytes,
             headers={"Content-Type": "application/dicom"}
         )
-        
+
+        print(f"  → Response: {response.status_code}")
         if response.status_code == 200:
             print("  ✓ Success")
             return True
         else:
             print(f"  ✗ Failed: {response.status_code}")
+            if response.text:
+                print(f"    Response: {response.text[:200]}")
             return False
-            
+
     except Exception as e:
         print(f"  ✗ Error: {e}")
         return False

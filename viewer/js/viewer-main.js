@@ -1022,11 +1022,13 @@ function updateFocusParam(param, value) {
         colorCorrection.setFocusOpacity(numValue);
     } else if (param === 'threshold') {
         colorCorrection.setFocusThreshold(numValue);
+    } else if (param === 'smoothing') {
+        colorCorrection.setFocusSmoothing(numValue);
     }
     
     // Update display
     const display = document.getElementById(`focus-${param}-value`);
-    if (display) display.textContent = numValue.toFixed(2);
+    if (display) display.textContent = numValue.toFixed(param === 'smoothing' ? 1 : 2);
 }
 
 /**
@@ -1050,13 +1052,17 @@ function updateFocusUI() {
     }
     
     // Update sliders
+    const smoothingSlider = document.getElementById('focus-smoothing-slider');
     const opacitySlider = document.getElementById('focus-opacity-slider');
     const thresholdSlider = document.getElementById('focus-threshold-slider');
+    const smoothingValue = document.getElementById('focus-smoothing-value');
     const opacityValue = document.getElementById('focus-opacity-value');
     const thresholdValue = document.getElementById('focus-threshold-value');
     
+    if (smoothingSlider) smoothingSlider.value = colorCorrection.focusParams.smoothing;
     if (opacitySlider) opacitySlider.value = colorCorrection.focusParams.opacity;
     if (thresholdSlider) thresholdSlider.value = colorCorrection.focusParams.threshold;
+    if (smoothingValue) smoothingValue.textContent = colorCorrection.focusParams.smoothing.toFixed(1);
     if (opacityValue) opacityValue.textContent = colorCorrection.focusParams.opacity.toFixed(2);
     if (thresholdValue) thresholdValue.textContent = colorCorrection.focusParams.threshold.toFixed(2);
 }

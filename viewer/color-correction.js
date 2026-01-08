@@ -31,7 +31,8 @@ class ColorCorrectionFilter {
         // Focus quality heatmap parameters
         this.focusParams = {
             opacity: 0.5,         // Overlay opacity (0-1)
-            threshold: 0.1,       // Min gradient to show color (0-1)
+            threshold: 0.05,      // Min gradient to show color (0-1)
+            smoothing: 3.0,       // Kernel scale for smoothing (1-8)
             colormap: 'thermal',  // 'thermal' | 'viridis' | 'grayscale'
         };
         this.focusEnabled = false;
@@ -836,7 +837,17 @@ class ColorCorrectionFilter {
      * Set focus detection threshold (0-1)
      */
     setFocusThreshold(value) {
-        this.focusParams.threshold = Math.max(0, Math.min(1, parseFloat(value)));
+        this.focusParams.threshold = Math.max(0, Math.min(0.5, parseFloat(value)));
+        if (this.focusEnabled) {
+            this._applyFocusQuality();
+        }
+    }
+    
+    /**
+     * Set focus smoothing kernel scale (1-8)
+     */
+    setFocusSmoothing(value) {
+        this.focusParams.smoothing = Math.max(1, Math.min(8, parseFloat(value)));
         if (this.focusEnabled) {
             this._applyFocusQuality();
         }
@@ -902,7 +913,7 @@ class ColorCorrectionFilter {
             }
         `;
         
-        // Fragment shader: Sobel gradient magnitude with thermal colormap
+        // Fragment shader: Smoothed Sobel with Gaussian pre-blur and averaging
         const fsSource = `
             precision highp float;
             
@@ -910,6 +921,7 @@ class ColorCorrectionFilter {
             uniform vec2 u_texelSize;  // 1/width, 1/height
             uniform float u_opacity;
             uniform float u_threshold;
+            uniform float u_smoothing;  // 1.0-5.0 kernel scale
             
             varying vec2 v_texCoord;
             
@@ -918,9 +930,38 @@ class ColorCorrectionFilter {
                 return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
             }
             
+            // Gaussian-weighted sample (approximation)
+            float gaussianSample(vec2 center, float scale) {
+                vec2 ts = u_texelSize * scale;
+                
+                // 5x5 Gaussian kernel weights (sigma ≈ 1)
+                // Simplified: sample 9 points with Gaussian weighting
+                float sum = 0.0;
+                float weight = 0.0;
+                
+                // Center (weight 4)
+                sum += luminance(texture2D(u_image, center).rgb) * 4.0;
+                weight += 4.0;
+                
+                // Adjacent (weight 2)
+                sum += luminance(texture2D(u_image, center + vec2(-1.0, 0.0) * ts).rgb) * 2.0;
+                sum += luminance(texture2D(u_image, center + vec2( 1.0, 0.0) * ts).rgb) * 2.0;
+                sum += luminance(texture2D(u_image, center + vec2( 0.0,-1.0) * ts).rgb) * 2.0;
+                sum += luminance(texture2D(u_image, center + vec2( 0.0, 1.0) * ts).rgb) * 2.0;
+                weight += 8.0;
+                
+                // Diagonal (weight 1)
+                sum += luminance(texture2D(u_image, center + vec2(-1.0,-1.0) * ts).rgb);
+                sum += luminance(texture2D(u_image, center + vec2( 1.0,-1.0) * ts).rgb);
+                sum += luminance(texture2D(u_image, center + vec2(-1.0, 1.0) * ts).rgb);
+                sum += luminance(texture2D(u_image, center + vec2( 1.0, 1.0) * ts).rgb);
+                weight += 4.0;
+                
+                return sum / weight;
+            }
+            
             // Thermal colormap: blue (cold/blur) -> red (hot/sharp)
             vec3 thermalColormap(float t) {
-                // Blue -> Cyan -> Green -> Yellow -> Red
                 vec3 c;
                 if (t < 0.25) {
                     c = mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.5, 1.0), t * 4.0);
@@ -935,31 +976,33 @@ class ColorCorrectionFilter {
             }
             
             void main() {
-                // Sample 3x3 neighborhood for Sobel
-                float tl = luminance(texture2D(u_image, v_texCoord + vec2(-1.0, -1.0) * u_texelSize).rgb);
-                float tm = luminance(texture2D(u_image, v_texCoord + vec2( 0.0, -1.0) * u_texelSize).rgb);
-                float tr = luminance(texture2D(u_image, v_texCoord + vec2( 1.0, -1.0) * u_texelSize).rgb);
-                float ml = luminance(texture2D(u_image, v_texCoord + vec2(-1.0,  0.0) * u_texelSize).rgb);
-                float mr = luminance(texture2D(u_image, v_texCoord + vec2( 1.0,  0.0) * u_texelSize).rgb);
-                float bl = luminance(texture2D(u_image, v_texCoord + vec2(-1.0,  1.0) * u_texelSize).rgb);
-                float bm = luminance(texture2D(u_image, v_texCoord + vec2( 0.0,  1.0) * u_texelSize).rgb);
-                float br = luminance(texture2D(u_image, v_texCoord + vec2( 1.0,  1.0) * u_texelSize).rgb);
+                vec2 ts = u_texelSize * u_smoothing;
+                
+                // Sample with Gaussian pre-blur at 3x3 positions for Sobel
+                float tl = gaussianSample(v_texCoord + vec2(-1.0, -1.0) * ts, u_smoothing);
+                float tm = gaussianSample(v_texCoord + vec2( 0.0, -1.0) * ts, u_smoothing);
+                float tr = gaussianSample(v_texCoord + vec2( 1.0, -1.0) * ts, u_smoothing);
+                float ml = gaussianSample(v_texCoord + vec2(-1.0,  0.0) * ts, u_smoothing);
+                float mr = gaussianSample(v_texCoord + vec2( 1.0,  0.0) * ts, u_smoothing);
+                float bl = gaussianSample(v_texCoord + vec2(-1.0,  1.0) * ts, u_smoothing);
+                float bm = gaussianSample(v_texCoord + vec2( 0.0,  1.0) * ts, u_smoothing);
+                float br = gaussianSample(v_texCoord + vec2( 1.0,  1.0) * ts, u_smoothing);
                 
                 // Sobel operators
                 float gx = -tl - 2.0*ml - bl + tr + 2.0*mr + br;
                 float gy = -tl - 2.0*tm - tr + bl + 2.0*bm + br;
                 
-                // Gradient magnitude (Tenengrad measure)
+                // Gradient magnitude (Tenengrad)
                 float gradient = sqrt(gx*gx + gy*gy);
                 
-                // Normalize and apply threshold
-                float sharpness = clamp((gradient - u_threshold) / (1.0 - u_threshold), 0.0, 1.0);
+                // Normalize with smooth falloff
+                float sharpness = smoothstep(u_threshold, u_threshold + 0.3, gradient);
                 
                 // Apply colormap
                 vec3 heatColor = thermalColormap(sharpness);
                 
-                // Only show overlay where there's significant signal
-                float alpha = gradient > u_threshold ? u_opacity : 0.0;
+                // Smooth alpha transition
+                float alpha = sharpness * u_opacity;
                 
                 gl_FragColor = vec4(heatColor, alpha);
             }
@@ -1015,6 +1058,7 @@ class ColorCorrectionFilter {
                 texelSize: gl.getUniformLocation(program, 'u_texelSize'),
                 opacity: gl.getUniformLocation(program, 'u_opacity'),
                 threshold: gl.getUniformLocation(program, 'u_threshold'),
+                smoothing: gl.getUniformLocation(program, 'u_smoothing'),
             },
             texture: gl.createTexture(),
         };
@@ -1098,6 +1142,7 @@ class ColorCorrectionFilter {
         gl.uniform2f(uniforms.texelSize, 1.0 / sourceCanvas.width, 1.0 / sourceCanvas.height);
         gl.uniform1f(uniforms.opacity, this.focusParams.opacity);
         gl.uniform1f(uniforms.threshold, this.focusParams.threshold);
+        gl.uniform1f(uniforms.smoothing, this.focusParams.smoothing);
         
         // Draw
         gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
