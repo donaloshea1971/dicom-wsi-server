@@ -11,6 +11,24 @@ function openUploader() {
 }
 
 /**
+ * Open the Performance Evaluation page (BYOD evidence capture)
+ * Pass currentStudy when available so the page can optionally sample real WSI tile timings.
+ */
+function openPerformanceEvaluation() {
+    try {
+        const url = new URL('/performance-eval.html', window.location.origin);
+        if (typeof currentStudy !== 'undefined' && currentStudy) {
+            url.searchParams.set('study', currentStudy);
+        }
+        window.location.href = url.toString();
+    } catch (e) {
+        // Fallback for older browsers
+        const study = (typeof currentStudy !== 'undefined' && currentStudy) ? `?study=${encodeURIComponent(currentStudy)}` : '';
+        window.location.href = `/performance-eval.html${study}`;
+    }
+}
+
+/**
  * Open color correction panel
  */
 function openColorPanel() {
