@@ -993,6 +993,74 @@ function updateStainUI() {
     setStainView(settings.stainParams.viewMode);
 }
 
+// =========================================================================
+// Focus Quality Heatmap Controls
+// =========================================================================
+
+/**
+ * Toggle focus quality heatmap
+ */
+function toggleFocusQuality() {
+    if (!colorCorrection) {
+        console.warn('🔍 colorCorrection not initialized');
+        return;
+    }
+    
+    const enabled = colorCorrection.toggleFocusQuality();
+    updateFocusUI();
+    console.log(`🔍 Focus quality: ${enabled ? 'ON' : 'OFF'}`);
+}
+
+/**
+ * Update focus quality parameter
+ */
+function updateFocusParam(param, value) {
+    if (!colorCorrection) return;
+    
+    const numValue = parseFloat(value);
+    if (param === 'opacity') {
+        colorCorrection.setFocusOpacity(numValue);
+    } else if (param === 'threshold') {
+        colorCorrection.setFocusThreshold(numValue);
+    }
+    
+    // Update display
+    const display = document.getElementById(`focus-${param}-value`);
+    if (display) display.textContent = numValue.toFixed(2);
+}
+
+/**
+ * Update focus quality UI
+ */
+function updateFocusUI() {
+    if (!colorCorrection) return;
+    
+    const toggleBtn = document.getElementById('focus-toggle-btn');
+    const controls = document.getElementById('focus-controls');
+    const enabled = colorCorrection.focusEnabled;
+    
+    if (toggleBtn) {
+        toggleBtn.textContent = enabled ? 'ON' : 'OFF';
+        toggleBtn.classList.toggle('btn-primary', enabled);
+    }
+    
+    if (controls) {
+        controls.style.opacity = enabled ? '1' : '0.5';
+        controls.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+    
+    // Update sliders
+    const opacitySlider = document.getElementById('focus-opacity-slider');
+    const thresholdSlider = document.getElementById('focus-threshold-slider');
+    const opacityValue = document.getElementById('focus-opacity-value');
+    const thresholdValue = document.getElementById('focus-threshold-value');
+    
+    if (opacitySlider) opacitySlider.value = colorCorrection.focusParams.opacity;
+    if (thresholdSlider) thresholdSlider.value = colorCorrection.focusParams.threshold;
+    if (opacityValue) opacityValue.textContent = colorCorrection.focusParams.opacity.toFixed(2);
+    if (thresholdValue) thresholdValue.textContent = colorCorrection.focusParams.threshold.toFixed(2);
+}
+
 /**
  * Check if study has an ICC profile and update UI
  */

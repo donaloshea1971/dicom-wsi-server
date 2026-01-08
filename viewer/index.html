@@ -398,6 +398,29 @@
                     </div>
                 </div>
                 
+                <!-- Focus Quality Heatmap -->
+                <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🔍 FOCUS QUALITY</span>
+                        <button id="focus-toggle-btn" class="btn" onclick="toggleFocusQuality()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
+                    </div>
+                    <div id="focus-controls" style="opacity: 0.5; pointer-events: none;">
+                        <div style="margin-bottom: 10px;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">OPACITY: <span id="focus-opacity-value">0.50</span></label>
+                            <input type="range" id="focus-opacity-slider" min="0.1" max="1" step="0.05" value="0.5" oninput="updateFocusParam('opacity', this.value)" style="width: 100%;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">THRESHOLD: <span id="focus-threshold-value">0.10</span></label>
+                            <input type="range" id="focus-threshold-slider" min="0" max="0.5" step="0.01" value="0.1" oninput="updateFocusParam('threshold', this.value)" style="width: 100%;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text-secondary); margin-top: 8px;">
+                            <span style="color: #0000ff;">●</span> Blur
+                            <span style="color: #00ff00;">●</span> Mid
+                            <span style="color: #ff0000;">●</span> Sharp
+                        </div>
+                    </div>
+                </div>
+                
                 <div id="icc-status-panel" style="margin-top: 16px; padding: 10px; background: var(--bg-primary); border-radius: 6px; font-size: 11px; color: var(--text-secondary); display: none;">
                     <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
                 </div>
@@ -473,13 +496,13 @@
 
     <!-- Core App Logic -->
     <script src="dicomweb-tilesource.js?v=1.1.0"></script>
-    <script src="color-correction.js?v=2.1.0"></script>
+    <script src="color-correction.js?v=2.2.0"></script>
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.7.0"></script>
+    <script src="js/viewer-main.js?v=1.8.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
     <script src="js/ui-controllers.js?v=1.1.5"></script>
 

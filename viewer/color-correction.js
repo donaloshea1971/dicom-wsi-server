@@ -28,6 +28,16 @@ class ColorCorrectionFilter {
         };
         this.stainEnabled = false;
         
+        // Focus quality heatmap parameters
+        this.focusParams = {
+            opacity: 0.5,         // Overlay opacity (0-1)
+            threshold: 0.1,       // Min gradient to show color (0-1)
+            colormap: 'thermal',  // 'thermal' | 'viridis' | 'grayscale'
+        };
+        this.focusEnabled = false;
+        this.focusWebGL = null;
+        this.focusCanvas = null;
+        
         // Ruifrok & Johnston stain vectors (optical density, normalized)
         // Reference: Quantification of histochemical staining (2001)
         this.stainMatrices = {
@@ -774,6 +784,348 @@ class ColorCorrectionFilter {
         };
         if (this.stainEnabled) {
             this._applyStainAdjustment();
+        }
+    }
+    
+    // =========================================================================
+    // Focus Quality Heatmap (Tenengrad/Sobel gradient magnitude)
+    // =========================================================================
+    
+    /**
+     * Enable focus quality heatmap overlay
+     */
+    enableFocusQuality() {
+        this.focusEnabled = true;
+        this._initFocusQuality();
+        console.log('🔍 Focus quality heatmap enabled');
+        return true;
+    }
+    
+    /**
+     * Disable focus quality heatmap
+     */
+    disableFocusQuality() {
+        this.focusEnabled = false;
+        this._stopFocusRendering();
+        console.log('🔍 Focus quality heatmap disabled');
+    }
+    
+    /**
+     * Toggle focus quality heatmap
+     */
+    toggleFocusQuality() {
+        if (this.focusEnabled) {
+            this.disableFocusQuality();
+        } else {
+            this.enableFocusQuality();
+        }
+        return this.focusEnabled;
+    }
+    
+    /**
+     * Set focus heatmap opacity (0-1)
+     */
+    setFocusOpacity(value) {
+        this.focusParams.opacity = Math.max(0, Math.min(1, parseFloat(value)));
+        if (this.focusEnabled) {
+            this._applyFocusQuality();
+        }
+    }
+    
+    /**
+     * Set focus detection threshold (0-1)
+     */
+    setFocusThreshold(value) {
+        this.focusParams.threshold = Math.max(0, Math.min(1, parseFloat(value)));
+        if (this.focusEnabled) {
+            this._applyFocusQuality();
+        }
+    }
+    
+    /**
+     * Initialize focus quality WebGL
+     */
+    _initFocusQuality() {
+        // Create canvas overlay
+        if (!this.focusCanvas) {
+            this.focusCanvas = document.createElement('canvas');
+            this.focusCanvas.id = 'focus-quality-canvas';
+            this.focusCanvas.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 11;
+            `;
+        }
+        
+        if (this.viewerElement && !this.viewerElement.contains(this.focusCanvas)) {
+            this.viewerElement.appendChild(this.focusCanvas);
+        }
+        
+        // Initialize WebGL
+        this._initFocusWebGL();
+        
+        // Hook into viewer updates
+        if (this.viewer) {
+            this._focusUpdateHandler = () => this._applyFocusQuality();
+            this.viewer.addHandler('animation-finish', this._focusUpdateHandler);
+            this.viewer.addHandler('update-viewport', this._focusUpdateHandler);
+            setTimeout(() => this._applyFocusQuality(), 100);
+        }
+    }
+    
+    /**
+     * Initialize WebGL shader for focus quality (Sobel/Tenengrad)
+     */
+    _initFocusWebGL() {
+        const gl = this.focusCanvas.getContext('webgl', {
+            preserveDrawingBuffer: true,
+            premultipliedAlpha: false
+        });
+        
+        if (!gl) {
+            console.warn('🔍 WebGL not available for focus quality');
+            this.focusWebGL = null;
+            return;
+        }
+        
+        const vsSource = `
+            attribute vec2 a_position;
+            attribute vec2 a_texCoord;
+            varying vec2 v_texCoord;
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+                v_texCoord = a_texCoord;
+            }
+        `;
+        
+        // Fragment shader: Sobel gradient magnitude with thermal colormap
+        const fsSource = `
+            precision highp float;
+            
+            uniform sampler2D u_image;
+            uniform vec2 u_texelSize;  // 1/width, 1/height
+            uniform float u_opacity;
+            uniform float u_threshold;
+            
+            varying vec2 v_texCoord;
+            
+            // Convert to grayscale luminance
+            float luminance(vec3 c) {
+                return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+            }
+            
+            // Thermal colormap: blue (cold/blur) -> red (hot/sharp)
+            vec3 thermalColormap(float t) {
+                // Blue -> Cyan -> Green -> Yellow -> Red
+                vec3 c;
+                if (t < 0.25) {
+                    c = mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.5, 1.0), t * 4.0);
+                } else if (t < 0.5) {
+                    c = mix(vec3(0.0, 0.5, 1.0), vec3(0.0, 1.0, 0.0), (t - 0.25) * 4.0);
+                } else if (t < 0.75) {
+                    c = mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 1.0, 0.0), (t - 0.5) * 4.0);
+                } else {
+                    c = mix(vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (t - 0.75) * 4.0);
+                }
+                return c;
+            }
+            
+            void main() {
+                // Sample 3x3 neighborhood for Sobel
+                float tl = luminance(texture2D(u_image, v_texCoord + vec2(-1.0, -1.0) * u_texelSize).rgb);
+                float tm = luminance(texture2D(u_image, v_texCoord + vec2( 0.0, -1.0) * u_texelSize).rgb);
+                float tr = luminance(texture2D(u_image, v_texCoord + vec2( 1.0, -1.0) * u_texelSize).rgb);
+                float ml = luminance(texture2D(u_image, v_texCoord + vec2(-1.0,  0.0) * u_texelSize).rgb);
+                float mr = luminance(texture2D(u_image, v_texCoord + vec2( 1.0,  0.0) * u_texelSize).rgb);
+                float bl = luminance(texture2D(u_image, v_texCoord + vec2(-1.0,  1.0) * u_texelSize).rgb);
+                float bm = luminance(texture2D(u_image, v_texCoord + vec2( 0.0,  1.0) * u_texelSize).rgb);
+                float br = luminance(texture2D(u_image, v_texCoord + vec2( 1.0,  1.0) * u_texelSize).rgb);
+                
+                // Sobel operators
+                float gx = -tl - 2.0*ml - bl + tr + 2.0*mr + br;
+                float gy = -tl - 2.0*tm - tr + bl + 2.0*bm + br;
+                
+                // Gradient magnitude (Tenengrad measure)
+                float gradient = sqrt(gx*gx + gy*gy);
+                
+                // Normalize and apply threshold
+                float sharpness = clamp((gradient - u_threshold) / (1.0 - u_threshold), 0.0, 1.0);
+                
+                // Apply colormap
+                vec3 heatColor = thermalColormap(sharpness);
+                
+                // Only show overlay where there's significant signal
+                float alpha = gradient > u_threshold ? u_opacity : 0.0;
+                
+                gl_FragColor = vec4(heatColor, alpha);
+            }
+        `;
+        
+        const vs = this._compileStainShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fs = this._compileStainShader(gl, gl.FRAGMENT_SHADER, fsSource);
+        
+        if (!vs || !fs) {
+            console.warn('🔍 Focus shader compilation failed');
+            this.focusWebGL = null;
+            return;
+        }
+        
+        const program = gl.createProgram();
+        gl.attachShader(program, vs);
+        gl.attachShader(program, fs);
+        gl.linkProgram(program);
+        
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('🔍 Focus program link failed:', gl.getProgramInfoLog(program));
+            this.focusWebGL = null;
+            return;
+        }
+        
+        // Set up buffers (same as stain shader)
+        const positions = new Float32Array([
+            -1, -1,   1, -1,   -1, 1,
+            -1,  1,   1, -1,    1, 1,
+        ]);
+        const texCoords = new Float32Array([
+            0, 1,   1, 1,   0, 0,
+            0, 0,   1, 1,   1, 0,
+        ]);
+        
+        const posBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+        
+        const texBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+        
+        this.focusWebGL = {
+            gl,
+            program,
+            posBuffer,
+            texBuffer,
+            posLoc: gl.getAttribLocation(program, 'a_position'),
+            texLoc: gl.getAttribLocation(program, 'a_texCoord'),
+            uniforms: {
+                image: gl.getUniformLocation(program, 'u_image'),
+                texelSize: gl.getUniformLocation(program, 'u_texelSize'),
+                opacity: gl.getUniformLocation(program, 'u_opacity'),
+                threshold: gl.getUniformLocation(program, 'u_threshold'),
+            },
+            texture: gl.createTexture(),
+        };
+        
+        console.log('🔍 Focus quality WebGL shader ready');
+    }
+    
+    /**
+     * Apply focus quality heatmap
+     */
+    _applyFocusQuality() {
+        if (!this.focusEnabled || !this.viewer || !this.focusCanvas) return;
+        
+        // Get source canvas
+        let sourceCanvas = null;
+        if (this.viewer.drawer?.canvas && this.viewer.drawer.canvas.width > 1) {
+            sourceCanvas = this.viewer.drawer.canvas;
+        } else if (this.viewer.canvas) {
+            const canvases = this.viewer.canvas.getElementsByTagName('canvas');
+            for (const c of canvases) {
+                if (c.width > 1 && c.height > 1 && c !== this.focusCanvas && c !== this.stainCanvas) {
+                    sourceCanvas = c;
+                    break;
+                }
+            }
+        }
+        
+        if (!sourceCanvas || sourceCanvas.width <= 1) {
+            setTimeout(() => this._applyFocusQuality(), 200);
+            return;
+        }
+        
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        
+        if (this.focusCanvas.width !== width || this.focusCanvas.height !== height) {
+            this.focusCanvas.width = width;
+            this.focusCanvas.height = height;
+        }
+        
+        if (this.focusWebGL) {
+            this._applyFocusWebGL(sourceCanvas);
+            this.focusCanvas.style.display = 'block';
+        }
+    }
+    
+    /**
+     * WebGL focus quality rendering
+     */
+    _applyFocusWebGL(sourceCanvas) {
+        const { gl, program, posBuffer, texBuffer, posLoc, texLoc, uniforms, texture } = this.focusWebGL;
+        
+        gl.viewport(0, 0, this.focusCanvas.width, this.focusCanvas.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        // Enable blending for transparency
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        
+        gl.useProgram(program);
+        
+        // Upload texture
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        
+        try {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+        } catch (e) {
+            console.warn('🔍 Focus texture upload failed:', e.message);
+            return;
+        }
+        
+        // Set uniforms
+        gl.uniform1i(uniforms.image, 0);
+        gl.uniform2f(uniforms.texelSize, 1.0 / sourceCanvas.width, 1.0 / sourceCanvas.height);
+        gl.uniform1f(uniforms.opacity, this.focusParams.opacity);
+        gl.uniform1f(uniforms.threshold, this.focusParams.threshold);
+        
+        // Draw
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.enableVertexAttribArray(texLoc);
+        gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        
+        gl.disableVertexAttribArray(posLoc);
+        gl.disableVertexAttribArray(texLoc);
+        gl.disable(gl.BLEND);
+    }
+    
+    /**
+     * Stop focus quality rendering
+     */
+    _stopFocusRendering() {
+        if (this.focusCanvas) {
+            this.focusCanvas.style.display = 'none';
+        }
+        if (this.viewer && this._focusUpdateHandler) {
+            this.viewer.removeHandler('animation-finish', this._focusUpdateHandler);
+            this.viewer.removeHandler('update-viewport', this._focusUpdateHandler);
+            this._focusUpdateHandler = null;
         }
     }
     
