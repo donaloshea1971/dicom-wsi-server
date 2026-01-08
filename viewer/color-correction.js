@@ -8,6 +8,7 @@ class ColorCorrectionFilter {
         this.viewer = viewer;
         this.enabled = false;
         this.iccEnabled = false;
+        this.iccMode = null; // 'webgl' | 'css' | null
         
         // Color correction parameters
         this.params = {
@@ -220,6 +221,17 @@ class ColorCorrectionFilter {
     
     updateFilterStyles() {
         if (!this.styleElement) return;
+
+        // If ICC is enabled in WebGL mode, all adjustments are applied in the shader.
+        // Keep CSS filters disabled to avoid double-application.
+        if (this.iccEnabled && this.iccMode === 'webgl') {
+            this.styleElement.textContent = `
+                #osd-viewer.color-corrected {
+                    filter: none;
+                }
+            `;
+            return;
+        }
         
         // Build CSS filters
         const filters = [];
@@ -294,31 +306,56 @@ class ColorCorrectionFilter {
         
         this.iccEnabled = true;
         this.enabled = true;
-        
+
+        // Prefer full ICC via WebGL overlay when possible.
+        // This uses backend-provided uniforms (per-channel gamma + 3x3 matrix) and avoids CSS gamma mismatch.
+        if (this.webglReady && this.iccTransform.webgl) {
+            this.iccMode = 'webgl';
+
+            if (this.viewerElement) {
+                // Ensure CSS filters aren't applied while the WebGL overlay is active
+                this.viewerElement.classList.remove('gamma-correct', 'color-corrected');
+                this.viewerElement.classList.add('icc-transform');
+            }
+
+            this._startICCRendering();
+            // Ensure first paint happens promptly
+            this._applyICCTransform();
+
+            console.log('ICC color correction enabled (WebGL transform mode)');
+            return true;
+        }
+
+        // Fallback: CSS-only mode (gamma + basic adjustments) when WebGL isn't available.
+        // Note: This cannot apply the ICC matrix transform accurately.
+        this.iccMode = 'css';
+
         // Extract gamma from ICC profile
         const transform = this.iccTransform.transform || this.iccTransform;
         const gamma = transform.gamma || { r: 2.2, g: 2.2, b: 2.2 };
-        
+
         // Use average gamma for CSS filter (CSS doesn't support per-channel gamma easily)
         const avgGamma = (gamma.r + gamma.g + gamma.b) / 3;
         this.params.gamma = avgGamma;
-        
-        console.log(`ICC gamma extracted: R=${gamma.r}, G=${gamma.g}, B=${gamma.b}, avg=${avgGamma}`);
-        
-        // Apply via CSS filters
+
+        console.log(`ICC gamma extracted (CSS fallback): R=${gamma.r}, G=${gamma.g}, B=${gamma.b}, avg=${avgGamma}`);
+
         if (this.viewerElement) {
             this.viewerElement.classList.add('color-corrected');
             this.viewerElement.classList.remove('gamma-correct', 'icc-transform');
         }
-        
+
         this.updateFilterStyles();
-        
-        console.log('ICC color correction enabled (CSS filter mode)');
+        console.log('ICC color correction enabled (CSS fallback mode)');
         return true;
     }
     
     disableICC() {
         this.iccEnabled = false;
+        this.iccMode = null;
+
+        // Stop WebGL overlay if it was running
+        this._stopICCRendering();
         
         // Reset gamma to default
         this.params.gamma = 1.0;
@@ -498,7 +535,10 @@ class ColorCorrectionFilter {
     
     setGamma(value) {
         this.params.gamma = value;
-        this.updateFilterStyles();
+        // In WebGL ICC mode, gamma slider isn't expected to be used (viewer disables ICC on manual gamma changes),
+        // but if called, re-render to keep output consistent.
+        if (this.iccEnabled && this.iccMode === 'webgl') this._applyICCTransform();
+        else this.updateFilterStyles();
     }
     
     setBrightness(value) {
