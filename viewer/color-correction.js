@@ -951,27 +951,50 @@ class ColorCorrectionFilter {
      */
     _applyStainDeconvolution() {
         if (!this.stainEnabled || !this.viewer || !this.stainCanvas) {
-            console.log('🔬 Deconv skipped:', { enabled: this.stainEnabled, viewer: !!this.viewer, canvas: !!this.stainCanvas });
             return;
         }
         
-        const sourceCanvas = this.viewer.drawer?.canvas;
-        if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
-            console.log('🔬 Source canvas not ready');
+        // Get the actual rendered canvas from OpenSeadragon
+        // Try multiple approaches as OSD structure varies
+        let sourceCanvas = null;
+        
+        // Method 1: drawer.canvas (standard)
+        if (this.viewer.drawer?.canvas && this.viewer.drawer.canvas.width > 1) {
+            sourceCanvas = this.viewer.drawer.canvas;
+        }
+        // Method 2: Get canvas element from viewer container
+        else if (this.viewer.canvas) {
+            const canvases = this.viewer.canvas.getElementsByTagName('canvas');
+            for (const c of canvases) {
+                if (c.width > 1 && c.height > 1) {
+                    sourceCanvas = c;
+                    break;
+                }
+            }
+        }
+        // Method 3: Get from drawer context
+        else if (this.viewer.drawer?.context?.canvas) {
+            sourceCanvas = this.viewer.drawer.context.canvas;
+        }
+        
+        if (!sourceCanvas || sourceCanvas.width <= 1 || sourceCanvas.height <= 1) {
+            // Canvas not ready yet, retry on next frame
+            requestAnimationFrame(() => this._applyStainDeconvolution());
             return;
         }
+        
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
         
         // Resize overlay canvas if needed
-        const needsResize = this.stainCanvas.width !== sourceCanvas.width || 
-                           this.stainCanvas.height !== sourceCanvas.height;
-        if (needsResize) {
-            this.stainCanvas.width = sourceCanvas.width;
-            this.stainCanvas.height = sourceCanvas.height;
-            console.log('🔬 Resized stain canvas:', sourceCanvas.width, 'x', sourceCanvas.height);
+        if (this.stainCanvas.width !== width || this.stainCanvas.height !== height) {
+            this.stainCanvas.width = width;
+            this.stainCanvas.height = height;
+            console.log('🔬 Stain canvas sized:', width, 'x', height);
             
             // WebGL viewport needs update after resize
             if (this.stainWebGL) {
-                this.stainWebGL.gl.viewport(0, 0, sourceCanvas.width, sourceCanvas.height);
+                this.stainWebGL.gl.viewport(0, 0, width, height);
             }
         }
         
