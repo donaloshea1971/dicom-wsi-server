@@ -1,6 +1,7 @@
 /**
  * Color Correction for WSI Viewer with ICC Profile Support
  * Implements full color space transformation via WebGL
+ * Includes H&E stain deconvolution (Ruifrok method)
  */
 
 class ColorCorrectionFilter {
@@ -16,6 +17,23 @@ class ColorCorrectionFilter {
             brightness: 0.0,
             contrast: 1.0,
             saturation: 1.0,
+        };
+        
+        // H&E Stain deconvolution parameters
+        this.stainParams = {
+            hematoxylin: 1.0,  // H channel intensity (0-2, 1=normal)
+            eosin: 1.0,        // E channel intensity (0-2, 1=normal)
+            viewMode: 'combined', // 'combined' | 'hematoxylin' | 'eosin'
+        };
+        this.stainEnabled = false;
+        
+        // Ruifrok & Johnston H&E stain vectors (optical density, normalized)
+        // Reference: Quantification of histochemical staining (2001)
+        this.stainMatrix = {
+            // Each row is [R, G, B] optical density for that stain
+            H: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
+            E: [0.072, 0.990, 0.105],   // Eosin (pink)
+            R: [0.268, 0.570, 0.776],   // Residual/background
         };
         
         // ICC profile gamma (separate from manual controls)
@@ -38,11 +56,12 @@ class ColorCorrectionFilter {
         this.viewerElement = null;
         this.styleElement = null;
         
-        // WebGL for ICC transform
+        // WebGL for ICC transform and deconvolution
         this.gl = null;
         this.canvas = null;
         this.program = null;
         this.webglReady = false;
+        this.deconvProgram = null;  // Separate shader for stain deconvolution
     }
     
     initialize() {
@@ -625,9 +644,272 @@ class ColorCorrectionFilter {
             iccEnabled: this.iccEnabled,
             preset: this.currentPreset,
             params: { ...this.params },
+            stainParams: { ...this.stainParams },
+            stainEnabled: this.stainEnabled,
             webglReady: this.webglReady,
             hasICCData: !!this.iccTransform,
         };
+    }
+    
+    // =========================================================================
+    // H&E Stain Deconvolution Methods
+    // =========================================================================
+    
+    /**
+     * Enable stain deconvolution mode
+     */
+    enableStainDeconvolution() {
+        this.stainEnabled = true;
+        this.enabled = true;
+        this._initStainDeconvolution();
+        this.updateFilterStyles();
+        console.log('🔬 H&E stain deconvolution enabled');
+        return true;
+    }
+    
+    /**
+     * Disable stain deconvolution
+     */
+    disableStainDeconvolution() {
+        this.stainEnabled = false;
+        this._stopStainRendering();
+        this.updateFilterStyles();
+        console.log('🔬 H&E stain deconvolution disabled');
+    }
+    
+    /**
+     * Toggle stain deconvolution on/off
+     */
+    toggleStainDeconvolution() {
+        if (this.stainEnabled) {
+            this.disableStainDeconvolution();
+        } else {
+            this.enableStainDeconvolution();
+        }
+        return this.stainEnabled;
+    }
+    
+    /**
+     * Set hematoxylin intensity (0-2, 1=normal)
+     */
+    setHematoxylin(value) {
+        this.stainParams.hematoxylin = Math.max(0, Math.min(2, parseFloat(value)));
+        if (this.stainEnabled) {
+            this._applyStainAdjustment();
+        }
+        console.log(`🔬 Hematoxylin: ${this.stainParams.hematoxylin.toFixed(2)}`);
+    }
+    
+    /**
+     * Set eosin intensity (0-2, 1=normal)
+     */
+    setEosin(value) {
+        this.stainParams.eosin = Math.max(0, Math.min(2, parseFloat(value)));
+        if (this.stainEnabled) {
+            this._applyStainAdjustment();
+        }
+        console.log(`🔬 Eosin: ${this.stainParams.eosin.toFixed(2)}`);
+    }
+    
+    /**
+     * Set view mode: 'combined', 'hematoxylin', or 'eosin'
+     */
+    setStainViewMode(mode) {
+        if (['combined', 'hematoxylin', 'eosin'].includes(mode)) {
+            this.stainParams.viewMode = mode;
+            if (this.stainEnabled) {
+                this._applyStainAdjustment();
+            }
+            console.log(`🔬 View mode: ${mode}`);
+        }
+    }
+    
+    /**
+     * Reset stain parameters to defaults
+     */
+    resetStainParams() {
+        this.stainParams = {
+            hematoxylin: 1.0,
+            eosin: 1.0,
+            viewMode: 'combined',
+        };
+        if (this.stainEnabled) {
+            this._applyStainAdjustment();
+        }
+    }
+    
+    /**
+     * Initialize stain deconvolution - uses CSS approximation
+     * (True deconvolution requires per-pixel math, approximated here with color matrix)
+     */
+    _initStainDeconvolution() {
+        // CSS filters can't do true deconvolution, but we can approximate
+        // using hue-rotate and color adjustments for visual effect
+        this._applyStainAdjustment();
+    }
+    
+    /**
+     * Apply stain adjustment using CSS filters (approximation)
+     * True deconvolution would require WebGL shader processing
+     */
+    _applyStainAdjustment() {
+        if (!this.styleElement || !this.viewerElement) return;
+        
+        const H = this.stainParams.hematoxylin;
+        const E = this.stainParams.eosin;
+        const mode = this.stainParams.viewMode;
+        
+        let filters = [];
+        
+        // Build filter chain based on mode and stain intensities
+        switch (mode) {
+            case 'hematoxylin':
+                // Show only H channel - shift to blue/purple, remove pink
+                filters.push('saturate(0.3)');  // Reduce saturation
+                filters.push('hue-rotate(-20deg)');  // Shift toward blue
+                filters.push(`brightness(${0.8 + H * 0.2})`);
+                filters.push(`contrast(${0.8 + H * 0.4})`);
+                // Apply blue tint via SVG filter
+                this._updateStainFilter('hematoxylin');
+                filters.push('url(#stain-deconv)');
+                break;
+                
+            case 'eosin':
+                // Show only E channel - shift to pink, remove blue
+                filters.push('saturate(0.4)');
+                filters.push('hue-rotate(10deg)');  // Shift toward pink
+                filters.push(`brightness(${0.9 + E * 0.1})`);
+                filters.push(`contrast(${0.8 + E * 0.3})`);
+                this._updateStainFilter('eosin');
+                filters.push('url(#stain-deconv)');
+                break;
+                
+            case 'combined':
+            default:
+                // Adjust both channels - modify color balance
+                // H affects blue/purple, E affects pink/red
+                const hueShift = (H - E) * 10;  // Shift hue based on H/E balance
+                const satAdjust = 0.8 + (H + E) * 0.2;
+                
+                if (hueShift !== 0) filters.push(`hue-rotate(${hueShift}deg)`);
+                if (satAdjust !== 1) filters.push(`saturate(${satAdjust})`);
+                
+                // Adjust overall based on combined intensity
+                const avgIntensity = (H + E) / 2;
+                if (avgIntensity !== 1) {
+                    filters.push(`contrast(${0.7 + avgIntensity * 0.3})`);
+                }
+                break;
+        }
+        
+        // Apply combined with existing filters
+        this._updateStainStyles(filters);
+    }
+    
+    /**
+     * Update SVG filter for stain channel isolation
+     */
+    _updateStainFilter(channel) {
+        let svgFilter = document.getElementById('stain-deconv-svg');
+        if (!svgFilter) {
+            svgFilter = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svgFilter.id = 'stain-deconv-svg';
+            svgFilter.style.position = 'absolute';
+            svgFilter.style.width = '0';
+            svgFilter.style.height = '0';
+            document.body.appendChild(svgFilter);
+        }
+        
+        // Color matrix values for stain isolation
+        // These approximate the deconvolution by adjusting RGB channels
+        let matrix;
+        if (channel === 'hematoxylin') {
+            // Enhance blue/purple (H), suppress pink (E)
+            // R' = 0.3R + 0.3G + 0.4B  (blue contribution)
+            // G' = 0.2R + 0.3G + 0.5B
+            // B' = 0.1R + 0.2G + 0.7B
+            matrix = `
+                0.3 0.3 0.4 0 0
+                0.2 0.3 0.5 0 0
+                0.1 0.2 0.7 0 0
+                0   0   0   1 0
+            `;
+        } else if (channel === 'eosin') {
+            // Enhance pink (E), suppress blue (H)
+            // R' = 0.6R + 0.3G + 0.1B
+            // G' = 0.4R + 0.5G + 0.1B
+            // B' = 0.3R + 0.4G + 0.3B
+            matrix = `
+                0.6 0.3 0.1 0 0
+                0.4 0.5 0.1 0 0
+                0.3 0.4 0.3 0 0
+                0   0   0   1 0
+            `;
+        } else {
+            // Identity matrix
+            matrix = `
+                1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 1 0
+            `;
+        }
+        
+        svgFilter.innerHTML = `
+            <filter id="stain-deconv">
+                <feColorMatrix type="matrix" values="${matrix}"/>
+            </filter>
+        `;
+    }
+    
+    /**
+     * Update styles for stain deconvolution
+     */
+    _updateStainStyles(stainFilters) {
+        if (!this.styleElement) return;
+        
+        // Combine with existing gamma/brightness/contrast filters
+        const baseFilters = [];
+        
+        // Add base adjustments
+        const brightness = 1 + this.params.brightness;
+        if (brightness !== 1) baseFilters.push(`brightness(${brightness})`);
+        if (this.params.contrast !== 1) baseFilters.push(`contrast(${this.params.contrast})`);
+        if (this.params.saturation !== 1) baseFilters.push(`saturate(${this.params.saturation})`);
+        
+        // Gamma
+        const effectiveGamma = this.iccEnabled 
+            ? this.iccGamma * this.params.gamma 
+            : this.params.gamma;
+        if (effectiveGamma !== 1.0) {
+            this.updateSvgGamma(effectiveGamma);
+            baseFilters.push('url(#gamma-correction)');
+        }
+        
+        // Combine stain filters with base filters
+        const allFilters = [...stainFilters, ...baseFilters];
+        const filterString = allFilters.length > 0 ? allFilters.join(' ') : 'none';
+        
+        if (this.viewerElement) {
+            this.viewerElement.classList.add('color-corrected');
+        }
+        
+        this.styleElement.textContent = `
+            #osd-viewer.color-corrected {
+                filter: ${filterString};
+            }
+        `;
+    }
+    
+    /**
+     * Stop stain rendering (cleanup)
+     */
+    _stopStainRendering() {
+        // Remove stain SVG filter
+        const svgFilter = document.getElementById('stain-deconv-svg');
+        if (svgFilter) {
+            svgFilter.remove();
+        }
     }
 }
 

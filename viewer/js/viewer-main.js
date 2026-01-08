@@ -824,9 +824,104 @@ function updateColorUI() {
 function resetColorCorrection() {
     if (colorCorrection) {
         colorCorrection.reset();
+        colorCorrection.resetStainParams();
+        colorCorrection.disableStainDeconvolution();
         updateColorUI();
+        updateStainUI();
         updateGammaBadge();
     }
+}
+
+// =========================================================================
+// H&E Stain Deconvolution Controls
+// =========================================================================
+
+/**
+ * Toggle stain deconvolution on/off
+ */
+function toggleStainDeconv() {
+    if (!colorCorrection) {
+        console.warn('🔬 colorCorrection not initialized');
+        return;
+    }
+    
+    const enabled = colorCorrection.toggleStainDeconvolution();
+    updateStainUI();
+    console.log(`🔬 Stain deconvolution: ${enabled ? 'ON' : 'OFF'}`);
+}
+
+/**
+ * Update stain parameter (hematoxylin or eosin)
+ */
+function updateStainParam(param, value) {
+    if (!colorCorrection) return;
+    
+    const numValue = parseFloat(value);
+    if (param === 'hematoxylin') {
+        colorCorrection.setHematoxylin(numValue);
+    } else if (param === 'eosin') {
+        colorCorrection.setEosin(numValue);
+    }
+    
+    // Update display
+    const display = document.getElementById(`${param}-value`);
+    if (display) display.textContent = numValue.toFixed(2);
+}
+
+/**
+ * Set stain view mode (combined, hematoxylin, eosin)
+ */
+function setStainView(mode) {
+    if (!colorCorrection) return;
+    
+    colorCorrection.setStainViewMode(mode);
+    
+    // Update button states
+    ['combined', 'hematoxylin', 'eosin'].forEach(m => {
+        const btn = document.getElementById(`view-${m === 'hematoxylin' ? 'h-only' : m === 'eosin' ? 'e-only' : m}`);
+        if (btn) {
+            if (m === mode) {
+                btn.classList.add('btn-primary');
+            } else {
+                btn.classList.remove('btn-primary');
+            }
+        }
+    });
+}
+
+/**
+ * Update stain UI to reflect current state
+ */
+function updateStainUI() {
+    if (!colorCorrection) return;
+    
+    const settings = colorCorrection.getSettings();
+    const toggleBtn = document.getElementById('stain-toggle-btn');
+    const controls = document.getElementById('stain-controls');
+    
+    if (toggleBtn) {
+        toggleBtn.textContent = settings.stainEnabled ? 'ON' : 'OFF';
+        toggleBtn.classList.toggle('btn-primary', settings.stainEnabled);
+    }
+    
+    if (controls) {
+        controls.style.opacity = settings.stainEnabled ? '1' : '0.5';
+        controls.style.pointerEvents = settings.stainEnabled ? 'auto' : 'none';
+    }
+    
+    // Update sliders
+    const hSlider = document.getElementById('hematoxylin-slider');
+    const eSlider = document.getElementById('eosin-slider');
+    const hValue = document.getElementById('hematoxylin-value');
+    const eValue = document.getElementById('eosin-value');
+    
+    if (hSlider) hSlider.value = settings.stainParams.hematoxylin;
+    if (eSlider) eSlider.value = settings.stainParams.eosin;
+    if (hValue) hValue.textContent = settings.stainParams.hematoxylin.toFixed(2);
+    if (eValue) eValue.textContent = settings.stainParams.eosin.toFixed(2);
+    
+    // Update view mode buttons
+    setStainView(settings.stainParams.viewMode);
 }
 
 /**
