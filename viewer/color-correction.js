@@ -955,33 +955,45 @@ class ColorCorrectionFilter {
         }
         
         // Get the actual rendered canvas from OpenSeadragon
-        // Try multiple approaches as OSD structure varies
         let sourceCanvas = null;
+        let canvasSource = 'none';
         
-        // Method 1: drawer.canvas (standard)
+        // Debug: log what's available
+        console.log('🔬 OSD drawer type:', this.viewer.drawer?.constructor?.name);
+        console.log('🔬 drawer.canvas:', this.viewer.drawer?.canvas?.width, 'x', this.viewer.drawer?.canvas?.height);
+        console.log('🔬 drawer.context:', this.viewer.drawer?.context?.constructor?.name);
+        
+        // Method 1: drawer.canvas (works for CanvasDrawer)
         if (this.viewer.drawer?.canvas && this.viewer.drawer.canvas.width > 1) {
             sourceCanvas = this.viewer.drawer.canvas;
+            canvasSource = 'drawer.canvas';
         }
-        // Method 2: Get canvas element from viewer container
+        // Method 2: Get from container
         else if (this.viewer.canvas) {
             const canvases = this.viewer.canvas.getElementsByTagName('canvas');
+            console.log('🔬 Found', canvases.length, 'canvases in viewer container');
             for (const c of canvases) {
-                if (c.width > 1 && c.height > 1) {
+                console.log('🔬   Canvas:', c.width, 'x', c.height, c.id || '(no id)');
+                if (c.width > 1 && c.height > 1 && c !== this.stainCanvas) {
                     sourceCanvas = c;
+                    canvasSource = 'container';
                     break;
                 }
             }
         }
-        // Method 3: Get from drawer context
+        // Method 3: drawer context canvas
         else if (this.viewer.drawer?.context?.canvas) {
             sourceCanvas = this.viewer.drawer.context.canvas;
+            canvasSource = 'drawer.context.canvas';
         }
         
         if (!sourceCanvas || sourceCanvas.width <= 1 || sourceCanvas.height <= 1) {
-            // Canvas not ready yet, retry on next frame
-            requestAnimationFrame(() => this._applyStainDeconvolution());
+            console.log('🔬 No valid source canvas found, retrying...');
+            setTimeout(() => this._applyStainDeconvolution(), 200);
             return;
         }
+        
+        console.log('🔬 Using source canvas from:', canvasSource, sourceCanvas.width, 'x', sourceCanvas.height);
         
         const width = sourceCanvas.width;
         const height = sourceCanvas.height;
@@ -990,24 +1002,36 @@ class ColorCorrectionFilter {
         if (this.stainCanvas.width !== width || this.stainCanvas.height !== height) {
             this.stainCanvas.width = width;
             this.stainCanvas.height = height;
-            console.log('🔬 Stain canvas sized:', width, 'x', height);
+            console.log('🔬 Stain overlay sized:', width, 'x', height);
             
-            // WebGL viewport needs update after resize
             if (this.stainWebGL) {
                 this.stainWebGL.gl.viewport(0, 0, width, height);
             }
         }
         
+        // Check if canvas is tainted (CORS)
+        try {
+            const testCtx = sourceCanvas.getContext('2d');
+            if (testCtx) {
+                testCtx.getImageData(0, 0, 1, 1);
+                console.log('🔬 Canvas is readable (not tainted)');
+            }
+        } catch (e) {
+            console.error('🔬 Canvas is TAINTED (CORS issue):', e.message);
+            console.log('🔬 Cannot read pixels - need crossOrigin on tile images');
+            return;
+        }
+        
         if (this.stainWebGL) {
-            // Hide 2D fallback canvas if it exists
             if (this.stainCanvas2D) {
                 this.stainCanvas2D.style.display = 'none';
             }
             this._applyStainWebGL(sourceCanvas);
             this.stainCanvas.style.display = 'block';
+            console.log('🔬 WebGL render complete');
         } else {
-            // CPU mode uses separate 2D canvas
             this._applyStainCPU(sourceCanvas);
+            console.log('🔬 CPU render complete');
         }
     }
     
