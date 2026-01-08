@@ -88,18 +88,12 @@ http {
     limit_req_zone \$binary_remote_addr zone=api_limit:10m rate=30r/s;
     limit_req_zone \$binary_remote_addr zone=upload_limit:10m rate=5r/m;
 
-    # Upstream connection pooling
-    upstream orthanc {
-        server orthanc:8042;
-        keepalive 32;
-    }
-
-    upstream converter {
-        server converter:8000;
-        keepalive 16;
-    }
-
-    resolver 127.0.0.11 valid=30s ipv6=off;
+    # DNS resolver for Docker - allows runtime resolution of service names
+    # This is critical: without it, nginx fails if services aren't up at startup
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    
+    # Define upstream variables for runtime DNS resolution
+    # Using variables in proxy_pass forces nginx to resolve DNS at request time, not startup
 
     # ==========================================================================
     # Security Headers Map
@@ -183,7 +177,8 @@ http {
         location ~ ^/api/(.*)\$ {
             limit_req zone=api_limit burst=50 nodelay;
             
-            proxy_pass http://converter/\$1\$is_args\$args;
+            set \$upstream_converter converter:8000;
+            proxy_pass http://\$upstream_converter/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
@@ -218,7 +213,8 @@ http {
             # Lighter rate limiting for chunked uploads (many small requests)
             limit_req zone=api_limit burst=100 nodelay;
             
-            proxy_pass http://converter/upload\$1\$is_args\$args;
+            set \$upstream_converter converter:8000;
+            proxy_pass http://\$upstream_converter/upload\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
@@ -251,7 +247,8 @@ http {
         # WSI tiles - SECURED via FastAPI proxy with access control
         # All requests go through converter which validates user permissions
         location ~ ^/wsi/(.*)\$ {
-            proxy_pass http://converter/wsi/\$1\$is_args\$args;
+            set \$upstream_converter converter:8000;
+            proxy_pass http://\$upstream_converter/wsi/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
@@ -284,7 +281,8 @@ http {
 
         # DICOMweb - SECURED via FastAPI proxy with access control
         location ~ ^/dicom-web/(.*)\$ {
-            proxy_pass http://converter/dicom-web/\$1\$is_args\$args;
+            set \$upstream_converter converter:8000;
+            proxy_pass http://\$upstream_converter/dicom-web/\$1\$is_args\$args;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host \$host;
