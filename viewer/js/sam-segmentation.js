@@ -55,8 +55,10 @@
 
   function showPanel(show) {
     const panel = getPanelEl();
+    console.log('[SAM] showPanel:', show, 'panel found:', !!panel);
     if (!panel) return;
     panel.classList.toggle('active', !!show);
+    console.log('[SAM] panel classList:', panel.classList.toString());
   }
 
   function safeNow() {
@@ -660,16 +662,18 @@
   }
 
   function toggleEnabled() {
+    console.log('[SAM] toggleEnabled called, controllers:', controllers.size);
     // If no controllers yet, still toggle UI state
     if (controllers.size === 0) {
       const badge = getBadgeEl();
       const isActive = badge && badge.classList.contains('active');
+      console.log('[SAM] No controllers, toggling UI only. isActive:', isActive);
       setBadgeActive(!isActive);
       showPanel(!isActive);
-      console.log('[SAM] Toggled UI (no viewer attached yet)');
       return;
     }
     const any = Array.from(controllers.values()).some(x => x.state.enabled);
+    console.log('[SAM] any enabled:', any, '-> setting to', !any);
     setEnabled(!any);
   }
 
