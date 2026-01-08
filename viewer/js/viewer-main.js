@@ -389,9 +389,9 @@ async function loadStudy(studyId) {
                 if (typeof loadStudyAnnotations === 'function') loadStudyAnnotations(studyId);
             }, 500);
                 
-            if (!colorCorrection && typeof ColorCorrection !== 'undefined') {
+            if (!colorCorrection && typeof ColorCorrectionFilter !== 'undefined') {
                 const canvas = document.getElementById('osd-viewer');
-                colorCorrection = new ColorCorrection(canvas);
+                colorCorrection = new ColorCorrectionFilter(canvas);
             }
             
             const viewerEl = document.getElementById('osd-viewer');
@@ -865,10 +865,10 @@ function toggleICC() {
     });
     
     // Create colorCorrection if it doesn't exist yet
-    if (!colorCorrection && typeof ColorCorrection !== 'undefined') {
+    if (!colorCorrection && typeof ColorCorrectionFilter !== 'undefined') {
         const canvas = document.getElementById('osd-viewer');
         if (canvas) {
-            colorCorrection = new ColorCorrection(canvas);
+            colorCorrection = new ColorCorrectionFilter(canvas);
             console.log('🎨 Created colorCorrection on demand');
         }
     }
