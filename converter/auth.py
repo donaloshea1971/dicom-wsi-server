@@ -1669,8 +1669,12 @@ async def update_slide(
     patient_id: Optional[int] = None
 ) -> bool:
     """Update slide metadata"""
+    logger.info(f"✏️ update_slide called: slide_id={slide_id}, display_name={display_name!r}, stain={stain!r}")
+    logger.info(f"✏️ update_slide hierarchy: block_id={block_id}, case_id={case_id}, patient_id={patient_id}")
+    
     pool = await get_db_pool()
     if pool is None:
+        logger.error("✏️ update_slide: No database pool!")
         return False
     
     async with pool.acquire() as conn:
@@ -1706,18 +1710,22 @@ async def update_slide(
             idx += 1
         
         if not updates:
+            logger.info("✏️ update_slide: No fields to update!")
             return True  # Nothing to update
         
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(slide_id)
         
         query = f"UPDATE slides SET {', '.join(updates)} WHERE id = ${idx}"
+        logger.info(f"✏️ update_slide SQL: {query}")
+        logger.info(f"✏️ update_slide params: {params}")
         
         try:
             result = await conn.execute(query, *params)
+            logger.info(f"✏️ update_slide result: {result}")
             return "UPDATE 1" in result
         except Exception as e:
-            logger.error(f"Failed to update slide: {e}")
+            logger.error(f"✏️ Failed to update slide: {e}")
             return False
 
 

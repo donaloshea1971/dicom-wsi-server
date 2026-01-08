@@ -2503,15 +2503,20 @@ async def update_slide_metadata(
     user: User = Depends(require_user)
 ):
     """Update slide display name, stain, or hierarchy assignment"""
+    logger.info(f"✏️ PUT /slides/{orthanc_id} - User: {user.id}")
+    logger.info(f"✏️ Update data: {slide_update.dict()}")
+    
     if not user.id:
         raise HTTPException(status_code=400, detail="User not fully registered")
     
     try:
         # Get or create slide record
         slide = await get_slide_by_orthanc_id(orthanc_id)
+        logger.info(f"✏️ Existing slide record: {slide}")
         
         if not slide:
             # Create new slide record with all fields
+            logger.info(f"✏️ No existing slide, creating new record")
             slide_id = await create_slide(
                 orthanc_study_id=orthanc_id,
                 owner_id=user.id,
@@ -2521,6 +2526,7 @@ async def update_slide_metadata(
                 case_id=slide_update.case_id if slide_update.case_id and slide_update.case_id > 0 else None,
                 patient_id=slide_update.patient_id if slide_update.patient_id and slide_update.patient_id > 0 else None
             )
+            logger.info(f"✏️ Created slide_id: {slide_id}")
             if not slide_id:
                 raise HTTPException(
                     status_code=500, 
@@ -2530,10 +2536,13 @@ async def update_slide_metadata(
             return {"message": "Slide created", "slide_id": slide_id}
         
         # Verify ownership
+        logger.info(f"✏️ Slide owner: {slide['owner_id']}, User: {user.id}")
         if slide["owner_id"] and slide["owner_id"] != user.id and user.role != "admin":
+            logger.warning(f"✏️ Not authorized - slide owner {slide['owner_id']} != user {user.id}")
             raise HTTPException(status_code=403, detail="Not authorized to edit this slide")
         
         # Update slide
+        logger.info(f"✏️ Calling update_slide with id={slide['id']}")
         success = await update_slide(
             slide_id=slide["id"],
             display_name=slide_update.display_name,
@@ -2543,6 +2552,7 @@ async def update_slide_metadata(
             patient_id=slide_update.patient_id
         )
         
+        logger.info(f"✏️ update_slide result: {success}")
         if success:
             return {"message": "Slide updated"}
         else:

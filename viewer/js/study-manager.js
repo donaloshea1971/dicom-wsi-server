@@ -640,32 +640,42 @@ async function saveSlideEdit() {
     const blockId = document.getElementById('slide-edit-block')?.value;
     const patientId = document.getElementById('slide-edit-patient')?.value;
     
+    console.log('💾 saveSlideEdit called:', { slideId, displayName, stain, caseId, blockId, patientId });
+    
     if (!slideId) {
         alert('No slide selected');
         return;
     }
     
+    const payload = {
+        display_name: displayName || null,
+        stain: stain || null,
+        case_id: caseId ? parseInt(caseId) : -1,
+        block_id: blockId ? parseInt(blockId) : -1,
+        patient_id: patientId ? parseInt(patientId) : -1
+    };
+    
+    console.log('💾 Sending PUT /api/slides/' + slideId, payload);
+    
     try {
         const response = await authFetch(`/api/slides/${slideId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                display_name: displayName || null,
-                stain: stain || null,
-                case_id: caseId ? parseInt(caseId) : -1,
-                block_id: blockId ? parseInt(blockId) : -1,
-                patient_id: patientId ? parseInt(patientId) : -1
-            })
+            body: JSON.stringify(payload)
         });
+        
+        console.log('💾 Response status:', response.status);
+        const responseBody = await response.json();
+        console.log('💾 Response body:', responseBody);
         
         if (response.ok) {
             closeSlideEditDialog();
             await refreshStudies();
         } else {
-            const err = await response.json();
-            alert('Failed to save: ' + (err.detail || 'Unknown error'));
+            alert('Failed to save: ' + (responseBody.detail || 'Unknown error'));
         }
     } catch (error) {
+        console.error('💾 Save error:', error);
         alert('Failed to save slide: ' + error.message);
     }
 }
