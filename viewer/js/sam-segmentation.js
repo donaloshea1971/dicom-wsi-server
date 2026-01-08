@@ -16,7 +16,12 @@
   'use strict';
 
   const HF_MODEL_ID = 'Xenova/slimsam-77-uniform';
-  const TRANSFORMERS_ESM_URL = 'https://esm.sh/@xenova/transformers@2.17.2';
+  // Try multiple CDNs for reliability
+  const TRANSFORMERS_CDN_URLS = [
+    'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2',
+    'https://esm.sh/@xenova/transformers@2.17.2',
+    'https://unpkg.com/@xenova/transformers@2.17.2'
+  ];
 
   const DEFAULTS = {
     // Re-encode after navigation settles (ms)
@@ -84,15 +89,34 @@
   }
 
   async function loadTransformers() {
-    const mod = await import(TRANSFORMERS_ESM_URL);
+    let mod = null;
+    let lastError = null;
+    
+    // Try each CDN until one works
+    for (const url of TRANSFORMERS_CDN_URLS) {
+      try {
+        console.log('[SAM] Trying to load Transformers.js from:', url);
+        updateStatus('📥', `Loading AI library from CDN...`, true, 15);
+        mod = await import(url);
+        console.log('[SAM] Successfully loaded from:', url);
+        break;
+      } catch (e) {
+        console.warn('[SAM] Failed to load from', url, ':', e.message);
+        lastError = e;
+      }
+    }
+    
+    if (!mod) {
+      const errMsg = 'Could not load AI library from any CDN. Check network/firewall.';
+      updateStatus('❌', errMsg, false);
+      throw new Error(errMsg + ' Last error: ' + (lastError?.message || 'unknown'));
+    }
+    
     // Configure runtime for browser
     try {
       if (mod.env) {
-        // Keep HF remote loading enabled
         mod.env.allowLocalModels = false;
         mod.env.useBrowserCache = true;
-        // Prefer webgpu if present; transformers.js will pick best backend.
-        // (We keep config minimal to avoid version-specific breakages.)
       }
     } catch (e) {}
     return mod;
