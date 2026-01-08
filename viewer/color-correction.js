@@ -1426,14 +1426,20 @@ class ColorCorrectionFilter {
             // NOTE: we need a full-rank 3x3 here; for 2-stain presets (e.g., H-DAB) we derive a 3rd vector.
             const residual = this._getEffectiveResidualVector(stains);
             this._effectiveResiduals[type] = residual;
+            
+            // IMPORTANT: Stain vectors should be COLUMNS of the matrix
+            // M * [c1, c2, c3]^T = OD, so M^-1 * OD = [c1, c2, c3]^T
+            // Matrix with stain vectors as columns:
             const M = [
-                stains.stain1,
-                stains.stain2,
-                residual,
+                [stains.stain1[0], stains.stain2[0], residual[0]],  // R row
+                [stains.stain1[1], stains.stain2[1], residual[1]],  // G row
+                [stains.stain1[2], stains.stain2[2], residual[2]],  // B row
             ];
             
             // Compute inverse
             this.inverseMatrices[type] = this._invertMatrix3x3(M);
+            
+            console.log(`🔬 ${type} inverse matrix:`, this.inverseMatrices[type]);
         }
         
         console.log('🔬 Inverse stain matrices computed for:', Object.keys(this.inverseMatrices));
