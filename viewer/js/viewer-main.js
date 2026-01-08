@@ -390,8 +390,8 @@ async function loadStudy(studyId) {
             }, 500);
                 
             if (!colorCorrection && typeof ColorCorrectionFilter !== 'undefined') {
-                const canvas = document.getElementById('osd-viewer');
-                colorCorrection = new ColorCorrectionFilter(canvas);
+                colorCorrection = new ColorCorrectionFilter(viewer);
+                colorCorrection.initialize();
             }
             
             const viewerEl = document.getElementById('osd-viewer');
@@ -866,10 +866,11 @@ function toggleICC() {
     
     // Create colorCorrection if it doesn't exist yet
     if (!colorCorrection && typeof ColorCorrectionFilter !== 'undefined') {
-        const canvas = document.getElementById('osd-viewer');
-        if (canvas) {
-            colorCorrection = new ColorCorrectionFilter(canvas);
-            console.log('🎨 Created colorCorrection on demand');
+        const viewerEl = document.getElementById('osd-viewer');
+        if (viewerEl) {
+            colorCorrection = new ColorCorrectionFilter(viewer);
+            colorCorrection.initialize();
+            console.log('🎨 Created and initialized colorCorrection on demand');
         }
     }
     
