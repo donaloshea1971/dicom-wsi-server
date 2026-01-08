@@ -307,27 +307,7 @@ class ColorCorrectionFilter {
         this.iccEnabled = true;
         this.enabled = true;
 
-        // Prefer full ICC via WebGL overlay when possible.
-        // This uses backend-provided uniforms (per-channel gamma + 3x3 matrix) and avoids CSS gamma mismatch.
-        if (this.webglReady && this.iccTransform.webgl) {
-            this.iccMode = 'webgl';
-
-            if (this.viewerElement) {
-                // Ensure CSS filters aren't applied while the WebGL overlay is active
-                this.viewerElement.classList.remove('gamma-correct', 'color-corrected');
-                this.viewerElement.classList.add('icc-transform');
-            }
-
-            this._startICCRendering();
-            // Ensure first paint happens promptly
-            this._applyICCTransform();
-
-            console.log('ICC color correction enabled (WebGL transform mode)');
-            return true;
-        }
-
-        // Fallback: CSS-only mode (gamma + basic adjustments) when WebGL isn't available.
-        // Note: This cannot apply the ICC matrix transform accurately.
+        // Use CSS filter mode - WebGL overlay has compatibility issues with OpenSeadragon canvas
         this.iccMode = 'css';
 
         // Extract gamma from ICC profile
@@ -338,7 +318,7 @@ class ColorCorrectionFilter {
         const avgGamma = (gamma.r + gamma.g + gamma.b) / 3;
         this.params.gamma = avgGamma;
 
-        console.log(`ICC gamma extracted (CSS fallback): R=${gamma.r}, G=${gamma.g}, B=${gamma.b}, avg=${avgGamma}`);
+        console.log(`ICC gamma extracted: R=${gamma.r.toFixed(3)}, G=${gamma.g.toFixed(3)}, B=${gamma.b.toFixed(3)}, avg=${avgGamma.toFixed(3)}`);
 
         if (this.viewerElement) {
             this.viewerElement.classList.add('color-corrected');
@@ -438,43 +418,59 @@ class ColorCorrectionFilter {
     }
     
     _applyICCTransform() {
+        // WebGL transform is complex and error-prone with OpenSeadragon canvas
+        // Fall back to CSS filters which work reliably
+        if (!this.iccTransform) return;
+        
+        // Just use CSS filter mode - it's reliable and works with OpenSeadragon
+        this.updateFilterStyles();
+        return;
+        
+        /* WebGL transform disabled - OpenSeadragon canvas not compatible
         if (!this.gl || !this.program || !this.viewer || !this.viewer.canvas) return;
         if (!this.overlayCanvas || !this.iccTransform) return;
         
         const sourceCanvas = this.viewer.canvas;
         const gl = this.gl;
         
-        // Resize canvases to match source
-        if (this.canvas.width !== sourceCanvas.width || this.canvas.height !== sourceCanvas.height) {
-            this.canvas.width = sourceCanvas.width;
-            this.canvas.height = sourceCanvas.height;
-            this.overlayCanvas.width = sourceCanvas.width;
-            this.overlayCanvas.height = sourceCanvas.height;
+        try {
+            // Resize canvases to match source
+            if (this.canvas.width !== sourceCanvas.width || this.canvas.height !== sourceCanvas.height) {
+                this.canvas.width = sourceCanvas.width;
+                this.canvas.height = sourceCanvas.height;
+                this.overlayCanvas.width = sourceCanvas.width;
+                this.overlayCanvas.height = sourceCanvas.height;
+            }
+            
+            gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            gl.useProgram(this.program);
+            
+            // Set up attributes
+            const posLoc = gl.getAttribLocation(this.program, 'a_position');
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+            gl.enableVertexAttribArray(posLoc);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+            
+            const texLoc = gl.getAttribLocation(this.program, 'a_texCoord');
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
+            gl.enableVertexAttribArray(texLoc);
+            gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
+            
+            // Create texture from source canvas
+            const texture = gl.createTexture();
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+        } catch (e) {
+            console.warn('WebGL ICC transform failed, using CSS fallback:', e.message);
+            this.updateFilterStyles();
+            return;
         }
-        
-        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        gl.useProgram(this.program);
-        
-        // Set up attributes
-        const posLoc = gl.getAttribLocation(this.program, 'a_position');
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-        gl.enableVertexAttribArray(posLoc);
-        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-        
-        const texLoc = gl.getAttribLocation(this.program, 'a_texCoord');
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-        gl.enableVertexAttribArray(texLoc);
-        gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
-        
-        // Create texture from source canvas
-        const texture = gl.createTexture();
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+        */
         
         // Set uniforms
         const webglData = this.iccTransform.webgl || {};
@@ -535,28 +531,22 @@ class ColorCorrectionFilter {
     
     setGamma(value) {
         this.params.gamma = value;
-        // In WebGL ICC mode, gamma slider isn't expected to be used (viewer disables ICC on manual gamma changes),
-        // but if called, re-render to keep output consistent.
-        if (this.iccEnabled && this.iccMode === 'webgl') this._applyICCTransform();
-        else this.updateFilterStyles();
+        this.updateFilterStyles();
     }
     
     setBrightness(value) {
         this.params.brightness = value;
-        if (this.iccEnabled) this._applyICCTransform();
-        else this.updateFilterStyles();
+        this.updateFilterStyles();
     }
     
     setContrast(value) {
         this.params.contrast = value;
-        if (this.iccEnabled) this._applyICCTransform();
-        else this.updateFilterStyles();
+        this.updateFilterStyles();
     }
     
     setSaturation(value) {
         this.params.saturation = value;
-        if (this.iccEnabled) this._applyICCTransform();
-        else this.updateFilterStyles();
+        this.updateFilterStyles();
     }
     
     enable(preset = null) {
