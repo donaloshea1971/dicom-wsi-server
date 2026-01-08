@@ -5,7 +5,7 @@
  * @version 1.20.2
  */
 
-const SPACEMOUSE_VERSION = '1.20.2';
+const SPACEMOUSE_VERSION = '1.20.3';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -2414,26 +2414,33 @@ class SpaceNavigatorController {
             }
         };
         
-        // Track wheel events for driver detection
+        // Global mode: DON'T block wheel events
+        // Wheel suppression requires knowledge of SpaceMouse input state which
+        // global mode doesn't have. The instance-level suppression will handle
+        // wheel blocking when actually connected.
+        // Only block obvious driver behavior: impossibly fast wheel events
         let lastWheelTime = 0;
-        let wheelEventCount = 0;
+        let rapidWheelCount = 0;
         
         const wheelHandler = (e) => {
             const target = e.target;
             if (target.closest('#osd-viewer') || target.closest('#osd-viewer-2') || target.closest('.openseadragon-container')) {
                 const now = Date.now();
-                // 3Dconnexion driver sends rapid wheel events
-                if (now - lastWheelTime < 50) {
-                    wheelEventCount++;
-                    // If we see 3+ rapid wheel events, it's likely the driver
-                    if (wheelEventCount >= 2) {
+                const timeSinceLast = now - lastWheelTime;
+                
+                // Only block impossibly fast wheel events (< 10ms apart, 5+ in a row)
+                // This is characteristic of driver-generated events, not human scrolling
+                if (timeSinceLast < 10) {
+                    rapidWheelCount++;
+                    if (rapidWheelCount >= 5) {
                         e.preventDefault();
                         e.stopPropagation();
-                        console.log('SpaceMouse: Blocked driver wheel zoom');
+                        console.log('SpaceMouse (global): Blocked driver wheel burst');
                         return false;
                     }
-                } else {
-                    wheelEventCount = 0;
+                } else if (timeSinceLast > 100) {
+                    // Reset counter after a pause
+                    rapidWheelCount = 0;
                 }
                 lastWheelTime = now;
             }
