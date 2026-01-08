@@ -2027,36 +2027,35 @@ async def delete_slide(study_id: str, owner_id: int) -> dict:
         try:
             # Use a transaction to ensure all deletions succeed or fail together
             async with conn.transaction():
-                # 1. Delete annotations
+                # 1. Delete annotations (uses study_id which is orthanc_study_id)
                 result = await conn.execute(
                     "DELETE FROM annotations WHERE study_id = $1",
                     study_id
                 )
                 logger.info(f"delete_slide: Deleted annotations: {result}")
                 
-                # 2. Delete annotation comments (through annotations - may need JOIN or subquery)
-                # Skip if annotation_comments references annotation_id (cascade should handle it)
+                # 2. Delete annotation comments (CASCADE from annotations handles this)
                 
-                # 3. Delete shares
+                # 3. Delete slide shares (uses slide_id which is our internal DB id)
                 result = await conn.execute(
-                    "DELETE FROM shares WHERE slide_id = $1",
+                    "DELETE FROM slide_shares WHERE slide_id = $1",
                     slide_db_id
                 )
-                logger.info(f"delete_slide: Deleted shares: {result}")
+                logger.info(f"delete_slide: Deleted slide_shares: {result}")
                 
-                # 4. Delete pending shares (where study_id column exists)
+                # 4. Delete pending shares (uses slide_id)
                 result = await conn.execute(
-                    "DELETE FROM pending_shares WHERE study_id = $1",
-                    study_id
+                    "DELETE FROM pending_shares WHERE slide_id = $1",
+                    slide_db_id
                 )
-                logger.info(f"delete_slide: Deleted pending shares: {result}")
+                logger.info(f"delete_slide: Deleted pending_shares: {result}")
                 
-                # 5. Delete public shares/links
+                # 5. Delete public shares/links (uses slide_id)
                 result = await conn.execute(
-                    "DELETE FROM public_shares WHERE study_id = $1",
-                    study_id
+                    "DELETE FROM public_shares WHERE slide_id = $1",
+                    slide_db_id
                 )
-                logger.info(f"delete_slide: Deleted public shares: {result}")
+                logger.info(f"delete_slide: Deleted public_shares: {result}")
                 
                 # 6. Delete the slide record itself
                 result = await conn.execute(
