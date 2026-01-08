@@ -94,6 +94,11 @@ async function refreshStudies() {
                 await Promise.all(metadataPromises);
                 console.log('Slide metadata from API:', slideMetadata);
                 
+                // Debug: log each slide's display_name
+                Object.entries(slideMetadata).forEach(([id, meta]) => {
+                    console.log(`📋 Slide ${id.substring(0,8)}: display_name="${meta.display_name}", stain="${meta.stain}"`);
+                });
+                
                 // Attach shareCount and slide metadata to studies
                 const ownedStudies = ownedIds.map(id => {
                     const study = studyMap[id];
@@ -102,6 +107,7 @@ async function refreshStudies() {
                         // Merge slide metadata if available
                         const meta = slideMetadata[id];
                         if (meta) {
+                            console.log(`📋 Merging metadata for ${id.substring(0,8)}: display_name="${meta.display_name}"`);
                             study.display_name = meta.display_name;
                             study.stain = meta.stain;
                             study.patient_id = meta.patient_id;

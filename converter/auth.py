@@ -1588,7 +1588,7 @@ async def get_slide_by_orthanc_id(orthanc_study_id: str) -> Optional[dict]:
                        s.block_id, s.case_id, s.patient_id, s.owner_id, s.is_sample,
                        s.created_at, s.updated_at,
                        p.name as patient_name, p.mrn as patient_mrn, p.dob as patient_dob,
-                       c.accession_number as_case_accession, # POTENTIAL ERROR: AS missing
+                       c.accession_number as case_accession,
                        b.block_id as block_name
                 FROM slides s
                 LEFT JOIN patients p ON s.patient_id = p.id
