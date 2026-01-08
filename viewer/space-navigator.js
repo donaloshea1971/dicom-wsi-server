@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.18.0';
+const SPACEMOUSE_VERSION = '1.19.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -1527,28 +1527,59 @@ class SpaceNavigatorController {
     }
 
     /**
-     * Get current settings
+     * Get current settings (all tunable parameters)
      */
     getSettings() {
         return {
             sensitivity: { ...this.sensitivity },
             deadZone: this.deadZone,
-            smoothing: this.smoothing
+            smoothing: this.smoothing,
+            curvePower: this._curvePower,
+            historySize: this._historySize,
+            momentum: this._momentumDecay,
+            tiltMode: this._tiltMode,
+            tiltWeight: this._tiltWeight,
+            invertX: this._invertX,
+            invertY: this._invertY
         };
     }
 
     /**
-     * Apply settings
+     * Apply settings (all tunable parameters)
      */
     applySettings(settings) {
         if (settings.sensitivity) {
             Object.assign(this.sensitivity, settings.sensitivity);
+        }
+        if (settings.pan !== undefined) {
+            this.sensitivity.pan = settings.pan;
         }
         if (settings.deadZone !== undefined) {
             this.deadZone = settings.deadZone;
         }
         if (settings.smoothing !== undefined) {
             this.smoothing = settings.smoothing;
+        }
+        if (settings.curvePower !== undefined) {
+            this._curvePower = settings.curvePower;
+        }
+        if (settings.historySize !== undefined) {
+            this._historySize = settings.historySize;
+        }
+        if (settings.momentum !== undefined) {
+            this._momentumDecay = settings.momentum;
+        }
+        if (settings.tiltMode !== undefined) {
+            this._tiltMode = settings.tiltMode;
+        }
+        if (settings.tiltWeight !== undefined) {
+            this._tiltWeight = settings.tiltWeight;
+        }
+        if (settings.invertX !== undefined) {
+            this._invertX = settings.invertX;
+        }
+        if (settings.invertY !== undefined) {
+            this._invertY = settings.invertY;
         }
     }
     
