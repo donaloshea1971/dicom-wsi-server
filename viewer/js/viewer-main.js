@@ -316,8 +316,15 @@ async function loadStudy(studyId) {
             id: 'osd-viewer',
             prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
             showNavigationControl: false,
+            // Navigator (minimap) settings
             showNavigator: true,
             navigatorPosition: 'BOTTOM_RIGHT',
+            navigatorSizeRatio: 0.15,
+            navigatorMaintainSizeRatio: true,
+            navigatorAutoResize: true,
+            navigatorBackground: '#1a1a2e',
+            navigatorBorderColor: '#333',
+            // Animation and rendering
             animationTime: 0.2,
             blendTime: 0.1,
             constrainDuringPan: true,
@@ -547,8 +554,14 @@ async function loadStudyInViewer2(studyId, slideName) {
             id: 'osd-viewer-2',
             prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1/build/openseadragon/images/',
             showNavigationControl: false,
+            // Navigator (minimap) settings
             showNavigator: true,
             navigatorPosition: 'TOP_RIGHT',
+            navigatorSizeRatio: 0.15,
+            navigatorMaintainSizeRatio: true,
+            navigatorAutoResize: true,
+            navigatorBackground: '#1a1a2e',
+            navigatorBorderColor: '#333',
             // Match main viewer physics/animation settings
             animationTime: 0.2,
             blendTime: 0.1,
