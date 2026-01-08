@@ -549,10 +549,19 @@ async function loadStudyInViewer2(studyId, slideName) {
             showNavigationControl: false,
             showNavigator: true,
             navigatorPosition: 'TOP_RIGHT',
+            // Match main viewer physics/animation settings
+            animationTime: 0.2,
+            blendTime: 0.1,
+            constrainDuringPan: true,
+            maxZoomPixelRatio: 4,
+            minZoomImageRatio: 0.5,
             immediateRender: true,
+            imageLoaderLimit: 12,
+            crossOriginPolicy: 'Anonymous',
             loadTilesWithAjax: true,
             ajaxHeaders: authHeaders,
-            tileSources: tileSource2
+            tileSources: tileSource2,
+            preload: true
         });
         
         viewer2.addHandler('open', () => {
