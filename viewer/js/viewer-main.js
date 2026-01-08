@@ -851,7 +851,32 @@ function toggleStainDeconv() {
 }
 
 /**
- * Update stain parameter (hematoxylin or eosin)
+ * Update stain balance (-1 = full H, 0 = balanced, +1 = full E)
+ */
+function updateStainBalance(value) {
+    if (!colorCorrection) return;
+    
+    const balance = parseFloat(value);
+    
+    // Convert balance to H and E intensities
+    // At balance=0: H=1, E=1 (normal)
+    // At balance=-1: H=2, E=0 (full hematoxylin)
+    // At balance=+1: H=0, E=2 (full eosin)
+    const hIntensity = Math.max(0, 1 - balance);  // 1 at 0, 2 at -1, 0 at +1
+    const eIntensity = Math.max(0, 1 + balance);  // 1 at 0, 0 at -1, 2 at +1
+    
+    colorCorrection.setHematoxylin(hIntensity);
+    colorCorrection.setEosin(eIntensity);
+    
+    // Update display
+    const hDisplay = document.getElementById('h-intensity');
+    const eDisplay = document.getElementById('e-intensity');
+    if (hDisplay) hDisplay.textContent = `H: ${hIntensity.toFixed(2)}`;
+    if (eDisplay) eDisplay.textContent = `E: ${eIntensity.toFixed(2)}`;
+}
+
+/**
+ * Update stain parameter (legacy - kept for compatibility)
  */
 function updateStainParam(param, value) {
     if (!colorCorrection) return;
@@ -862,10 +887,6 @@ function updateStainParam(param, value) {
     } else if (param === 'eosin') {
         colorCorrection.setEosin(numValue);
     }
-    
-    // Update display
-    const display = document.getElementById(`${param}-value`);
-    if (display) display.textContent = numValue.toFixed(2);
 }
 
 /**
@@ -909,14 +930,19 @@ function updateStainUI() {
         controls.style.pointerEvents = settings.stainEnabled ? 'auto' : 'none';
     }
     
-    // Update sliders
-    const hSlider = document.getElementById('hematoxylin-slider');
-    const eSlider = document.getElementById('eosin-slider');
-    const hValue = document.getElementById('hematoxylin-value');
-    const eValue = document.getElementById('eosin-value');
+    // Update balance slider
+    // Convert H/E values back to balance: balance = E - H (when both are 0-2 range)
+    const h = settings.stainParams.hematoxylin;
+    const e = settings.stainParams.eosin;
+    const balance = e - h;  // -1 to +1 range
     
-    if (hSlider) hSlider.value = settings.stainParams.hematoxylin;
-    if (eSlider) eSlider.value = settings.stainParams.eosin;
+    const balanceSlider = document.getElementById('stain-balance-slider');
+    const hDisplay = document.getElementById('h-intensity');
+    const eDisplay = document.getElementById('e-intensity');
+    
+    if (balanceSlider) balanceSlider.value = balance;
+    if (hDisplay) hDisplay.textContent = `H: ${h.toFixed(2)}`;
+    if (eDisplay) eDisplay.textContent = `E: ${e.toFixed(2)}`;
     if (hValue) hValue.textContent = settings.stainParams.hematoxylin.toFixed(2);
     if (eValue) eValue.textContent = settings.stainParams.eosin.toFixed(2);
     

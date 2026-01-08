@@ -372,16 +372,16 @@
                     </div>
                     <div id="stain-controls" style="opacity: 0.5; pointer-events: none;">
                         <div style="margin-bottom: 12px;">
-                            <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px;">
-                                <span style="color: #6B5B95;">⬤</span> HEMATOXYLIN: <span id="hematoxylin-value">1.00</span>
-                            </label>
-                            <input type="range" id="hematoxylin-slider" min="0" max="2.0" step="0.05" value="1.0" oninput="updateStainParam('hematoxylin', this.value)" style="width: 100%;">
-                        </div>
-                        <div style="margin-bottom: 12px;">
-                            <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px;">
-                                <span style="color: #E8B4B8;">⬤</span> EOSIN: <span id="eosin-value">1.00</span>
-                            </label>
-                            <input type="range" id="eosin-slider" min="0" max="2.0" step="0.05" value="1.0" oninput="updateStainParam('eosin', this.value)" style="width: 100%;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                                <span style="color: #6B5B95; font-size: 11px; font-weight: 600;">H</span>
+                                <span style="color: var(--text-secondary); font-size: 10px;">BALANCE</span>
+                                <span style="color: #E8B4B8; font-size: 11px; font-weight: 600;">E</span>
+                            </div>
+                            <input type="range" id="stain-balance-slider" min="-1" max="1" step="0.05" value="0" oninput="updateStainBalance(this.value)" style="width: 100%;">
+                            <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
+                                <span id="h-intensity">H: 1.00</span>
+                                <span id="e-intensity">E: 1.00</span>
+                            </div>
                         </div>
                         <div style="display: flex; gap: 4px; margin-top: 8px;">
                             <button id="view-combined" class="btn btn-primary" onclick="setStainView('combined')" style="flex: 1; padding: 4px 6px; font-size: 10px;">Combined</button>
@@ -472,7 +472,7 @@
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.5.0"></script>
+    <script src="js/viewer-main.js?v=1.6.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
     <script src="js/ui-controllers.js?v=1.1.5"></script>
 
