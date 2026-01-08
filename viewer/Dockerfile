@@ -90,12 +90,12 @@ http {
 
     # Upstream connection pooling
     upstream orthanc {
-        server dicom-orthanc:8042;
+        server orthanc:8042;
         keepalive 32;
     }
 
     upstream converter {
-        server dicom-converter:8000;
+        server converter:8000;
         keepalive 16;
     }
 
@@ -192,8 +192,11 @@ http {
             proxy_set_header X-Forwarded-Proto \$scheme;
             proxy_set_header Authorization \$http_authorization;
             proxy_redirect off;
-            proxy_read_timeout 600s;
-            proxy_connect_timeout 30s;
+            # Long timeouts for large uploads (native DICOM can be multi-GB)
+            proxy_read_timeout 7200s;
+            proxy_send_timeout 7200s;
+            proxy_connect_timeout 60s;
+            send_timeout 7200s;
             
             # Large file uploads
             client_max_body_size 20G;
