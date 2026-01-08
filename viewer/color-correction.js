@@ -10,13 +10,16 @@ class ColorCorrectionFilter {
         this.iccEnabled = false;
         this.iccMode = null; // 'webgl' | 'css' | null
         
-        // Color correction parameters
+        // Manual color correction parameters (user-controlled, independent of ICC)
         this.params = {
-            gamma: 1.0,
+            gamma: 1.0,        // Manual gamma adjustment
             brightness: 0.0,
             contrast: 1.0,
             saturation: 1.0,
         };
+        
+        // ICC profile gamma (separate from manual controls)
+        this.iccGamma = 1.0;  // Extracted from ICC profile when enabled
         
         // ICC profile data
         this.iccData = null;
@@ -233,20 +236,32 @@ class ColorCorrectionFilter {
             return;
         }
         
-        // Build CSS filters
+        // Build CSS filters - combine ICC gamma with manual adjustments
         const filters = [];
         
+        // Brightness and contrast from manual controls
         const brightness = 1 + this.params.brightness;
         if (brightness !== 1) filters.push(`brightness(${brightness})`);
         if (this.params.contrast !== 1) filters.push(`contrast(${this.params.contrast})`);
         if (this.params.saturation !== 1) filters.push(`saturate(${this.params.saturation})`);
         
-        if (this.params.gamma !== 1.0) {
-            this.updateSvgGamma(this.params.gamma);
+        // Combined gamma: ICC gamma (if enabled) * manual gamma adjustment
+        // ICC gamma is the profile's gamma, manual gamma is user's adjustment
+        const effectiveGamma = this.iccEnabled 
+            ? this.iccGamma * this.params.gamma  // ICC + manual stacked
+            : this.params.gamma;                  // Manual only
+        
+        if (effectiveGamma !== 1.0) {
+            this.updateSvgGamma(effectiveGamma);
             filters.push('url(#gamma-correction)');
         }
         
         const filterString = filters.length > 0 ? filters.join(' ') : 'none';
+        
+        // Ensure class is set if we have any active filters
+        if (this.viewerElement && filters.length > 0) {
+            this.viewerElement.classList.add('color-corrected');
+        }
         
         this.styleElement.textContent = `
             #osd-viewer.color-corrected {
@@ -310,15 +325,15 @@ class ColorCorrectionFilter {
         // Use CSS filter mode - WebGL overlay has compatibility issues with OpenSeadragon canvas
         this.iccMode = 'css';
 
-        // Extract gamma from ICC profile
+        // Extract gamma from ICC profile - store separately from manual controls
         const transform = this.iccTransform.transform || this.iccTransform;
         const gamma = transform.gamma || { r: 2.2, g: 2.2, b: 2.2 };
 
         // Use average gamma for CSS filter (CSS doesn't support per-channel gamma easily)
-        const avgGamma = (gamma.r + gamma.g + gamma.b) / 3;
-        this.params.gamma = avgGamma;
+        this.iccGamma = (gamma.r + gamma.g + gamma.b) / 3;
 
-        console.log(`ICC gamma extracted: R=${gamma.r.toFixed(3)}, G=${gamma.g.toFixed(3)}, B=${gamma.b.toFixed(3)}, avg=${avgGamma.toFixed(3)}`);
+        console.log(`ICC gamma extracted: R=${gamma.r.toFixed(3)}, G=${gamma.g.toFixed(3)}, B=${gamma.b.toFixed(3)}, avg=${this.iccGamma.toFixed(3)}`);
+        console.log(`Manual controls remain independent: gamma=${this.params.gamma}, brightness=${this.params.brightness}`);
 
         if (this.viewerElement) {
             this.viewerElement.classList.add('color-corrected');
@@ -326,7 +341,7 @@ class ColorCorrectionFilter {
         }
 
         this.updateFilterStyles();
-        console.log('ICC color correction enabled (CSS fallback mode)');
+        console.log('ICC color correction enabled (CSS mode)');
         return true;
     }
     
@@ -337,16 +352,25 @@ class ColorCorrectionFilter {
         // Stop WebGL overlay if it was running
         this._stopICCRendering();
         
-        // Reset gamma to default
-        this.params.gamma = 1.0;
+        // Reset ICC gamma but keep manual adjustments intact
+        this.iccGamma = 1.0;
+        // Note: this.params (manual controls) remain unchanged
         
         if (this.viewerElement) {
-            this.viewerElement.classList.remove('color-corrected', 'icc-transform');
+            this.viewerElement.classList.remove('icc-transform');
+            // Keep 'color-corrected' if manual adjustments are non-default
+            const hasManualAdjustments = this.params.gamma !== 1.0 || 
+                                          this.params.brightness !== 0 || 
+                                          this.params.contrast !== 1.0 || 
+                                          this.params.saturation !== 1.0;
+            if (!hasManualAdjustments) {
+                this.viewerElement.classList.remove('color-corrected');
+            }
         }
         
         this.updateFilterStyles();
         
-        console.log('ICC color correction disabled');
+        console.log('ICC disabled. Manual controls preserved:', this.params);
     }
     
     _startICCRendering() {
