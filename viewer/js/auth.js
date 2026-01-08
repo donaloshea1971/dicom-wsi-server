@@ -5,7 +5,8 @@
 
 // Auth0 Configuration
 var AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
-var AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
+var AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr'; // Ensure this matches Auth0 Dashboard
+var AUTH0_AUDIENCE = 'https://pathviewpro.com/api';
 
 // Global auth state
 var auth0Client = null;
@@ -25,12 +26,13 @@ if (typeof CONFIG === 'undefined') {
  */
 async function initAuth(redirectIfUnauthed = true) {
     try {
+        console.log('🔐 Initializing Auth0...');
         auth0Client = await auth0.createAuth0Client({
             domain: AUTH0_DOMAIN,
             clientId: AUTH0_CLIENT_ID,
             authorizationParams: {
                 redirect_uri: window.location.origin + '/callback',
-                audience: 'https://pathviewpro.com/api'
+                audience: AUTH0_AUDIENCE
             },
             cacheLocation: 'localstorage',
             useRefreshTokens: true,
@@ -169,15 +171,28 @@ async function logout() {
  */
 async function getAuthToken() {
     if (!auth0Client) {
-        console.warn('getAuthToken: auth0Client not initialized');
+        console.warn('🔐 getAuthToken: auth0Client not initialized');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:145',message:'auth0Client not initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         return null;
     }
     try {
+        console.log('🔐 getAuthToken: Attempting to retrieve token silently');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:151',message:'Attempting silent token retrieval',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         const token = await auth0Client.getTokenSilently();
-        console.debug('✓ getAuthToken: Retrieved token');
+        console.log('🔐 ✓ getAuthToken: Retrieved token successfully');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:156',message:'Token retrieved successfully',data:{tokenPreview:token.substring(0,10)+'...'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         return token;
     } catch (e) {
-        console.error('getAuthToken: Failed to get token', e.error || e.message);
+        console.error('🔐 ❌ getAuthToken: Failed to get token', e.error || e.message);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:161',message:'Token retrieval failed',data:{error:e.error||e.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         return null;
     }
 }

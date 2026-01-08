@@ -937,12 +937,17 @@ async def upload_dicom_instance(
 ):
     """
     Upload a DICOM instance directly to Orthanc with ownership tracking.
-    
+
     - If authenticated: Sets ownership on new studies, claims unowned existing studies
     - If anonymous: Study remains unowned (can be claimed later)
     """
     try:
         content = await request.body()
+        # #region agent log
+        import json, time
+        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"location": "converter/main.py:945", "message": "DICOM upload request received", "data": {"user": current_user.email if current_user else "unauthenticated", "size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        # #endregion
         
         async with httpx.AsyncClient(timeout=600.0) as client:
             response = await client.post(
@@ -1641,16 +1646,22 @@ async def upload_wsi(
 ):
     """
     Upload a WSI file for conversion to DICOM
-    
+
     Supported formats:
     - Single-file: NDPI, SVS, iSyntax, SCN, TIFF, BIF
     - Multi-file (via ZIP): MRXS, VMS, VMU
-    
+
     For multi-file formats like MIRAX, upload the entire folder as a ZIP archive.
     The ZIP should contain the index file (.mrxs) and all associated data files.
-    
+
     If authenticated, the uploaded study will be owned by the current user.
     """
+    # #region agent log
+    import json, time
+    with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+        f.write(json.dumps({"location": "converter/main.py:1659", "message": "WSI upload request received", "data": {"user": current_user.email if current_user else "unauthenticated", "file": file.filename}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+    # #endregion
+    
     # Validate format
     source_format = detect_format(file.filename)
     if source_format == "unknown":

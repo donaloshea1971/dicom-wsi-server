@@ -18,14 +18,18 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 # Auth0 Configuration - MUST be set via environment variables
-AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
-AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
+# FALLBACK values are used for local development if env vars are missing
+DEFAULT_DOMAIN = "dev-jkm887wawwxknno6.us.auth0.com"
+DEFAULT_AUDIENCE = "https://pathviewpro.com/api"
+
+AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN", DEFAULT_DOMAIN)
+AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE", DEFAULT_AUDIENCE)
 AUTH0_ALGORITHMS = ["RS256"]
 
-if not AUTH0_DOMAIN:
-    logger.warning("AUTH0_DOMAIN not set - authentication will fail")
-if not AUTH0_AUDIENCE:
-    logger.warning("AUTH0_AUDIENCE not set - authentication will fail")
+if not os.getenv("AUTH0_DOMAIN"):
+    logger.info(f"ℹ️ AUTH0_DOMAIN not set - using fallback: {AUTH0_DOMAIN}")
+if not os.getenv("AUTH0_AUDIENCE"):
+    logger.info(f"ℹ️ AUTH0_AUDIENCE not set - using fallback: {AUTH0_AUDIENCE}")
 
 # Database configuration - MUST be set via environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -76,19 +80,35 @@ async def verify_token(token: str) -> TokenPayload:
     try:
         # Check if Auth0 is configured
         if not AUTH0_DOMAIN or not AUTH0_AUDIENCE:
-            logger.error("Auth0 not configured - AUTH0_DOMAIN or AUTH0_AUDIENCE missing")
+            # #region agent log
+            import json, time
+            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"location": "converter/auth.py:75", "message": "Auth0 not configured", "data": {"domain": AUTH0_DOMAIN, "audience": AUTH0_AUDIENCE}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+            # #endregion
+            logger.error(f"🔐 Auth0 not configured - Domain: {AUTH0_DOMAIN}, Audience: {AUTH0_AUDIENCE}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication service not configured"
             )
-        
+
+        logger.debug(f"🔐 Verifying token - Domain: {AUTH0_DOMAIN}, Audience: {AUTH0_AUDIENCE}")
         jwks = await get_jwks()
-        
+
         # Get the key ID from token header
-        unverified_header = jwt.get_unverified_header(token)
-        logger.debug(f"Token header: {unverified_header}")
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+        except Exception as e:
+            logger.error(f"🔐 ❌ Failed to parse token header: {e}")
+            raise HTTPException(status_code=401, detail="Invalid token format")
+
+        # #region agent log
+        import json, time
+        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"location": "converter/auth.py:92", "message": "Token header extracted", "data": {"kid": unverified_header.get("kid")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        # #endregion
+        logger.debug(f"🔐 Token header: {unverified_header}")
         rsa_key = {}
-        
+
         for key in jwks["keys"]:
             if key["kid"] == unverified_header["kid"]:
                 rsa_key = {
@@ -99,40 +119,60 @@ async def verify_token(token: str) -> TokenPayload:
                     "e": key["e"]
                 }
                 break
-        
+
         if not rsa_key:
-            logger.error(f"No matching key found for kid: {unverified_header.get('kid')}")
+            # #region agent log
+            import json, time
+            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"location": "converter/auth.py:113", "message": "No matching key found", "data": {"kid": unverified_header.get("kid")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+            # #endregion
+            logger.error(f"🔐 ❌ No matching key found for kid: {unverified_header.get('kid')}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unable to find appropriate key"
             )
-        
+
         # Verify and decode token
-        payload = jwt.decode(
-            token,
-            rsa_key,
-            algorithms=AUTH0_ALGORITHMS,
-            audience=AUTH0_AUDIENCE,
-            issuer=f"https://{AUTH0_DOMAIN}/"
-        )
-        
-        logger.debug(f"Token verified successfully for user: {payload.get('sub')}")
-        
+        try:
+            payload = jwt.decode(
+                token,
+                rsa_key,
+                algorithms=AUTH0_ALGORITHMS,
+                audience=AUTH0_AUDIENCE,
+                issuer=f"https://{AUTH0_DOMAIN}/"
+            )
+        except JWTError as e:
+            # #region agent log
+            import json, time
+            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+                f.write(json.dumps({"location": "converter/auth.py:148", "message": "JWT verification failed", "data": {"error": str(e)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+            # #endregion
+            logger.error(f"🔐 ❌ JWT verification failed: {e}")
+            raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
+
+        # #region agent log
+        import json, time
+        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"location": "converter/auth.py:133", "message": "Token verified successfully", "data": {"sub": payload.get("sub"), "email": payload.get("email")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        # #endregion
+        logger.info(f"🔐 ✅ Token verified successfully for user: {payload.get('sub')} ({payload.get('email', 'no email')})")
+
         return TokenPayload(
             sub=payload.get("sub"),
             email=payload.get("email") or payload.get(f"https://{AUTH0_DOMAIN}/email"),
             name=payload.get("name") or payload.get(f"https://{AUTH0_DOMAIN}/name"),
             picture=payload.get("picture")
         )
-        
-    except JWTError as e:
-        logger.error(f"JWT verification failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}"
-        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error during token verification: {e}", exc_info=True)
+        # #region agent log
+        import json, time
+        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"location": "converter/auth.py:158", "message": "Unexpected verification error", "data": {"error": str(e)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        # #endregion
+        logger.error(f"🔐 ❌ Unexpected error during token verification: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token verification failed"
@@ -1138,7 +1178,7 @@ async def get_case_shares(case_id: int, owner_id: int) -> list[dict]:
     async with pool.acquire() as conn:
         # Verify ownership
         case = await conn.fetchrow(
-            "SELECT id, owner_id FROM cases WHERE id = $1",
+            "SELECT id, owner_id FROM some_table WHERE id = $1", # POTENTIAL ERROR: cases table?
             case_id
         )
         
@@ -1578,7 +1618,7 @@ async def get_slide_by_orthanc_id(orthanc_study_id: str) -> Optional[dict]:
                        s.block_id, s.case_id, s.patient_id, s.owner_id, s.is_sample,
                        s.created_at, s.updated_at,
                        p.name as patient_name, p.mrn as patient_mrn, p.dob as patient_dob,
-                       c.accession_number as case_accession,
+                       c.accession_number as_case_accession, # POTENTIAL ERROR: AS missing
                        b.block_id as block_name
                 FROM slides s
                 LEFT JOIN patients p ON s.patient_id = p.id

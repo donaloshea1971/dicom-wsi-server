@@ -45,25 +45,28 @@
     <script>
         const AUTH0_DOMAIN = 'dev-jkm887wawwxknno6.us.auth0.com';
         const AUTH0_CLIENT_ID = 'gT8pYvmdyFUhmPSVY5P5pAxiUwmTdvBr';
+        const AUTH0_AUDIENCE = 'https://pathviewpro.com/api';
 
         async function handleCallback() {
             try {
+                console.log('🔐 Handling Auth0 callback...');
                 const auth0Client = await auth0.createAuth0Client({
                     domain: AUTH0_DOMAIN,
                     clientId: AUTH0_CLIENT_ID,
                     authorizationParams: {
-                        redirect_uri: 'https://pathviewpro.com/callback',
-                        audience: 'https://pathviewpro.com/api'
+                        redirect_uri: window.location.origin + '/callback',
+                        audience: AUTH0_AUDIENCE
                     },
                     cacheLocation: 'localstorage'
                 });
 
                 await auth0Client.handleRedirectCallback();
+                console.log('🔐 Callback handled successfully');
                 
-                // Redirect to main viewer
-                window.location.href = '/viewer';
+                // Redirect to main viewer (usually at root)
+                window.location.href = '/';
             } catch (e) {
-                console.error('Callback error:', e);
+                console.error('🔐 ❌ Callback error:', e);
                 // Redirect to landing on error
                 window.location.href = '/';
             }

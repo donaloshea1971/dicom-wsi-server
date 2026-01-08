@@ -14,29 +14,34 @@ const CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
  */
 async function uploadDicomGroup(items) {
     const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
-    
+    console.log('🔐 DICOM upload - Auth token available:', !!token);
+
     for (const item of items) {
         item.status = 'uploading';
         item.progress = 0;
         item.error = null;
         if (typeof updateQueueUI === 'function') updateQueueUI();
-        
+
         let success = false;
         let lastError = null;
-        
+
         for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
             try {
                 item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
                 if (typeof updateQueueUI === 'function') updateQueueUI();
-                
+
                 const headers = {
                     'Content-Type': 'application/dicom'
                 };
-                
+
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
+                    console.log('🔐 DICOM upload - Using auth token');
+                } else {
+                    console.log('🔐 DICOM upload - No auth token available');
                 }
-                
+
+                console.log('🔐 DICOM upload - Making request to /api/instances');
                 const response = await fetch('/api/instances', {
                     method: 'POST',
                     body: item.file,
