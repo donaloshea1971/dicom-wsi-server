@@ -770,10 +770,32 @@ function applyColorPreset(preset) {
  * Update specific color parameter
  */
 function updateColorParam(param, value) {
-    if (!colorCorrection) return;
-    colorCorrection.setParam(param, parseFloat(value));
+    if (!colorCorrection) {
+        console.warn('🎨 updateColorParam: colorCorrection not initialized');
+        return;
+    }
+    const numValue = parseFloat(value);
+    
+    // Call the specific setter method
+    switch (param) {
+        case 'gamma':
+            colorCorrection.setGamma(numValue);
+            break;
+        case 'brightness':
+            colorCorrection.setBrightness(numValue);
+            break;
+        case 'contrast':
+            colorCorrection.setContrast(numValue);
+            break;
+        case 'saturation':
+            colorCorrection.setSaturation(numValue);
+            break;
+        default:
+            console.warn(`🎨 Unknown color param: ${param}`);
+    }
+    
     const display = document.getElementById(`${param}-value`);
-    if (display) display.textContent = parseFloat(value).toFixed(2);
+    if (display) display.textContent = numValue.toFixed(2);
     updateGammaBadge();
 }
 
@@ -782,7 +804,8 @@ function updateColorParam(param, value) {
  */
 function updateColorUI() {
     if (!colorCorrection) return;
-    const params = colorCorrection.getParams();
+    // Access params directly from the colorCorrection object
+    const params = colorCorrection.params || { gamma: 1.0, brightness: 0, contrast: 1.0, saturation: 1.0 };
     ['gamma', 'brightness', 'contrast', 'saturation'].forEach(param => {
         const slider = document.getElementById(`${param}-slider`);
         const display = document.getElementById(`${param}-value`);
