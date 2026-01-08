@@ -16,6 +16,13 @@ var activeViewer = 1; // 1 or 2
 var compareSlideName1 = '';
 var compareSlideName2 = '';
 
+// Internal compare-mode wiring state (avoid duplicated handlers / stale listeners)
+var _syncNavigationHandlers = null;
+var _compareFocusHandlers = {
+    v1: { el: null, fn: null },
+    v2: { el: null, fn: null }
+};
+
 // Color correction state
 var colorCorrection = null;
 var currentICCProfile = null;
@@ -85,6 +92,57 @@ function setActiveViewer(num) {
     if (spaceNavController && spaceNavController.connected) {
         spaceNavController.setViewer(num === 1 ? viewer : viewer2);
     }
+}
+
+/**
+ * (Re)bind mousedown handlers so clicks select the correct active viewer.
+ * Important because `swapViewers()` changes element IDs and can invalidate prior bindings.
+ */
+function _bindCompareFocusHandlers() {
+    const el1 = document.getElementById('osd-viewer');
+    const el2 = document.getElementById('osd-viewer-2');
+
+    if (el1) {
+        if (_compareFocusHandlers.v1.el && _compareFocusHandlers.v1.fn) {
+            _compareFocusHandlers.v1.el.removeEventListener('mousedown', _compareFocusHandlers.v1.fn, true);
+        }
+        _compareFocusHandlers.v1.el = el1;
+        _compareFocusHandlers.v1.fn = () => { if (compareMode) setActiveViewer(1); };
+        el1.addEventListener('mousedown', _compareFocusHandlers.v1.fn, true);
+    }
+
+    if (el2) {
+        if (_compareFocusHandlers.v2.el && _compareFocusHandlers.v2.fn) {
+            _compareFocusHandlers.v2.el.removeEventListener('mousedown', _compareFocusHandlers.v2.fn, true);
+        }
+        _compareFocusHandlers.v2.el = el2;
+        _compareFocusHandlers.v2.fn = () => { if (compareMode) setActiveViewer(2); };
+        el2.addEventListener('mousedown', _compareFocusHandlers.v2.fn, true);
+    }
+}
+
+/**
+ * Remove previously installed sync handlers (prevents jitter/feedback loops from duplicates).
+ */
+function _clearSyncNavigationHandlers() {
+    if (!_syncNavigationHandlers) return;
+    const h = _syncNavigationHandlers;
+
+    try {
+        if (viewer) {
+            viewer.removeHandler('pan', h.v1Pan);
+            viewer.removeHandler('zoom', h.v1Zoom);
+        }
+    } catch (e) {}
+
+    try {
+        if (viewer2) {
+            viewer2.removeHandler('pan', h.v2Pan);
+            viewer2.removeHandler('zoom', h.v2Zoom);
+        }
+    } catch (e) {}
+
+    _syncNavigationHandlers = null;
 }
 
 /**
@@ -370,6 +428,10 @@ function enterCompareMode(studyId, slideName) {
     const compareToolbar = document.getElementById('compare-toolbar');
     if (container) container.classList.add('compare-mode');
     if (compareToolbar) compareToolbar.classList.add('active');
+
+    // Default to left viewer active on entry
+    setActiveViewer(1);
+    _bindCompareFocusHandlers();
     
     if (currentStudy === studyId) {
         compareSlideName1 = slideName || studyId.substring(0, 8);
@@ -498,7 +560,8 @@ async function loadStudyInViewer2(studyId, slideName) {
             if (syncNavigation) setupSyncNavigation();
         });
         
-        document.getElementById('osd-viewer-2').addEventListener('mousedown', () => setActiveViewer(2));
+        // Ensure focus/click selection works even after swaps / reloads
+        _bindCompareFocusHandlers();
         updateCompareButtons();
         
     } catch (e) {
@@ -511,18 +574,28 @@ async function loadStudyInViewer2(studyId, slideName) {
  */
 function setupSyncNavigation() {
     if (!viewer || !viewer2) return;
+    // Prevent stacking duplicate handlers
+    _clearSyncNavigationHandlers();
     let syncing = false;
     const syncFrom = (source, target) => {
-        if (syncing) return;
+        if (syncing || !source || !target) return;
         syncing = true;
         target.viewport.panTo(source.viewport.getCenter());
         target.viewport.zoomTo(source.viewport.getZoom());
         syncing = false;
     };
-    viewer.addHandler('pan', () => syncNavigation && syncFrom(viewer, viewer2));
-    viewer.addHandler('zoom', () => syncNavigation && syncFrom(viewer, viewer2));
-    viewer2.addHandler('pan', () => syncNavigation && syncFrom(viewer2, viewer));
-    viewer2.addHandler('zoom', () => syncNavigation && syncFrom(viewer2, viewer));
+
+    const v1Pan = () => { if (syncNavigation && viewer && viewer2) syncFrom(viewer, viewer2); };
+    const v1Zoom = () => { if (syncNavigation && viewer && viewer2) syncFrom(viewer, viewer2); };
+    const v2Pan = () => { if (syncNavigation && viewer && viewer2) syncFrom(viewer2, viewer); };
+    const v2Zoom = () => { if (syncNavigation && viewer && viewer2) syncFrom(viewer2, viewer); };
+
+    viewer.addHandler('pan', v1Pan);
+    viewer.addHandler('zoom', v1Zoom);
+    viewer2.addHandler('pan', v2Pan);
+    viewer2.addHandler('zoom', v2Zoom);
+
+    _syncNavigationHandlers = { v1Pan, v1Zoom, v2Pan, v2Zoom };
 }
 
 /**
@@ -533,6 +606,7 @@ function toggleSyncNavigation() {
     const btn = document.getElementById('sync-nav-btn');
     if (btn) btn.classList.toggle('active', syncNavigation);
     if (syncNavigation && viewer && viewer2) {
+        setupSyncNavigation();
         viewer2.viewport.panTo(viewer.viewport.getCenter());
         viewer2.viewport.zoomTo(viewer.viewport.getZoom());
     }
@@ -547,6 +621,9 @@ function swapViewers() {
         console.log('🔄 Swap: Cannot swap - missing viewer or studies');
         return;
     }
+
+    // If sync is enabled, clear handlers before swapping references (prevents orphaned handlers)
+    _clearSyncNavigationHandlers();
     
     // Swap the viewer DOM elements physically
     const container1 = document.getElementById('osd-viewer');
@@ -584,6 +661,10 @@ function swapViewers() {
     if (spaceNavController && spaceNavController.connected) {
         spaceNavController.setViewer(activeViewer === 1 ? viewer : viewer2);
     }
+
+    // IDs were changed; rebind focus handlers and re-install sync handlers if needed
+    _bindCompareFocusHandlers();
+    if (syncNavigation && viewer && viewer2) setupSyncNavigation();
     
     console.log('🔄 Swapped viewers:', compareSlideName1, '↔', compareSlideName2);
 }
@@ -597,6 +678,12 @@ function exitCompareMode() {
     const compareToolbar = document.getElementById('compare-toolbar');
     if (container) container.classList.remove('compare-mode');
     if (compareToolbar) compareToolbar.classList.remove('active');
+
+    // Ensure we don't leave sync enabled with only one viewer
+    syncNavigation = false;
+    const btn = document.getElementById('sync-nav-btn');
+    if (btn) btn.classList.remove('active');
+    _clearSyncNavigationHandlers();
     
     if (viewer2) { viewer2.destroy(); viewer2 = null; }
     currentStudy2 = null;
@@ -608,6 +695,7 @@ function exitCompareMode() {
     if (label2) label2.remove();
     
     if (spaceNavController) spaceNavController.setViewer(viewer);
+    setActiveViewer(1);
     updateCompareButtons();
 }
 

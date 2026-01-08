@@ -2,10 +2,10 @@
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
  * Supports: WebHID API (Chrome/Edge preferred), Gamepad API (Chrome fallback)
- * @version 1.13.0
+ * @version 1.20.1
  */
 
-const SPACEMOUSE_VERSION = '1.20.0';
+const SPACEMOUSE_VERSION = '1.20.1';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -287,10 +287,9 @@ class SpaceNavigatorController {
                 this.connected = true;
                 this.updateStatus('connected');
                 
-                // Disable OSD scroll-to-zoom when SpaceMouse is active
-                if (this.viewer) {
-                    this.viewer.mouseNavEnabled = false;
-                }
+                // Disable scroll-to-zoom only (prevents 3Dconnexion driver wheel events).
+                // Do NOT disable full mouse navigation; mouse + SpaceMouse should coexist.
+                this._disableScrollZoom();
                 
                 // Show crosshair
                 this.showCrosshair();

@@ -247,7 +247,8 @@ function closeMetadataModal(event) {
  * Initialize SpaceNavigator UI
  */
 function initSpaceNavigator() {
-    if (!typeof SpaceNavigatorController === 'undefined' || !SpaceNavigatorController.isSupported()) {
+    // NOTE: `typeof X === 'undefined'` is the safe check; `!typeof X === 'undefined'` is a logic bug.
+    if (typeof SpaceNavigatorController === 'undefined' || !SpaceNavigatorController.isSupported()) {
         console.log('Space Navigator not supported or controller script missing');
         return;
     }
