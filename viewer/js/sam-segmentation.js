@@ -502,20 +502,28 @@
       const h = state.cached.captureH;
 
       // Build prompt inputs via processor
-      // SAM expects 4D tensors: [batch_size, point_batch_size, nb_points, coords]
+      // Standard Transformers.js SAM format: [batch][points][coords]
       let inputs;
+      console.log('[SAM] Processing prompt:', prompt);
       if (prompt.type === 'point') {
+        const pointsArray = [[[prompt.x, prompt.y]]];  // 3D as per docs
+        const labelsArray = [[prompt.label]];          // 2D
+        console.log('[SAM] input_points:', JSON.stringify(pointsArray));
+        console.log('[SAM] input_labels:', JSON.stringify(labelsArray));
         inputs = await state.processor(imageForProcessor, {
-          input_points: [[[[prompt.x, prompt.y]]]],  // 4D: [1, 1, 1, 2]
-          input_labels: [[[prompt.label]]],          // 3D: [1, 1, 1]
+          input_points: pointsArray,
+          input_labels: labelsArray,
         });
       } else if (prompt.type === 'box') {
+        const boxArray = [[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]];
+        console.log('[SAM] input_boxes:', JSON.stringify(boxArray));
         inputs = await state.processor(imageForProcessor, {
-          input_boxes: [[[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]]],  // 4D
+          input_boxes: boxArray,
         });
       } else {
         throw new Error('Unsupported prompt type');
       }
+      console.log('[SAM] Processor returned inputs:', Object.keys(inputs));
 
       // Try embedding-only decode first: attach image_embeddings if accepted
       let outputs = null;
