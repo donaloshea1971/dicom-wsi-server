@@ -137,7 +137,8 @@ http {
 
         # Content Security Policy (adjust as needed)
         # Note: SpaceMouse 3DxNLServer runs locally on user's machine at wss://127.51.68.120:8181
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.auth0.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com wss://*.auth0.com https://cdn.jsdelivr.net wss://127.51.68.120:8181 ws://localhost:8181 ws://localhost:8182 ws://localhost:8080; frame-src 'self' https://*.auth0.com;" always;
+        # CSP: Added huggingface.co for AI model downloads (SAM segmentation)
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.auth0.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com wss://*.auth0.com https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co wss://127.51.68.120:8181 ws://localhost:8181 ws://localhost:8182 ws://localhost:8080; frame-src 'self' https://*.auth0.com;" always;
 
         # Landing page (default)
         location = / {
