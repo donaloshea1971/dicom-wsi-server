@@ -16,6 +16,7 @@ COPY dicomweb-tilesource.js /usr/share/nginx/html/
 COPY annotations.js /usr/share/nginx/html/
 COPY space-navigator.js /usr/share/nginx/html/
 COPY spacemouse-calibration.html /usr/share/nginx/html/
+COPY performance-eval.html /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
 COPY demo-video.mp4 /usr/share/nginx/html/
 COPY test-auth.html /usr/share/nginx/html/
