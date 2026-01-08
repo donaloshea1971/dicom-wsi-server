@@ -815,15 +815,7 @@ class ColorCorrectionFilter {
             uniform float u_eosin;
             uniform int u_viewMode; // 0=combined, 1=H only, 2=E only
             
-            // Inverse stain matrix (precomputed Ruifrok H&E)
-            // Computed from M = [[0.650, 0.072, 0.268], [0.704, 0.990, 0.570], [0.286, 0.105, 0.776]]
-            const mat3 invStainMatrix = mat3(
-                1.87798274, -1.00767869,  0.14539618,
-               -0.06590806,  1.13473037, -0.13943433,
-               -0.60190736, -0.48041808,  1.57358807
-            );
-            
-            // Forward stain matrix for reconstruction
+            // Forward stain vectors (Ruifrok H&E)
             const vec3 stainH = vec3(0.650, 0.704, 0.286);
             const vec3 stainE = vec3(0.072, 0.990, 0.105);
             const vec3 stainR = vec3(0.268, 0.570, 0.776);
@@ -833,19 +825,23 @@ class ColorCorrectionFilter {
                 
                 // Convert RGB to optical density
                 // OD = -log10(I), where I is normalized [0,1]
-                // Use max to avoid log(0)
-                vec3 od = -log(max(color.rgb, 0.004)) / log(10.0);
+                vec3 rgb = max(color.rgb, 0.004);
+                vec3 od = vec3(
+                    -log(rgb.r) / log(10.0),
+                    -log(rgb.g) / log(10.0),
+                    -log(rgb.b) / log(10.0)
+                );
                 
                 // Apply inverse stain matrix to get concentrations
-                vec3 concentrations = invStainMatrix * od;
-                
-                // Clamp negative concentrations
-                concentrations = max(concentrations, 0.0);
+                // Inverse of [[0.650, 0.072, 0.268], [0.704, 0.990, 0.570], [0.286, 0.105, 0.776]]
+                // Done as explicit dot products to avoid mat3 column-major confusion
+                float cH = max(0.0,  1.87798274 * od.r - 1.00767869 * od.g + 0.14539618 * od.b);
+                float cE = max(0.0, -0.06590806 * od.r + 1.13473037 * od.g - 0.13943433 * od.b);
+                float cR = max(0.0, -0.60190736 * od.r - 0.48041808 * od.g + 1.57358807 * od.b);
                 
                 // Apply user adjustments
-                float cH = concentrations.x * u_hematoxylin;
-                float cE = concentrations.y * u_eosin;
-                float cR = concentrations.z;
+                cH *= u_hematoxylin;
+                cE *= u_eosin;
                 
                 // Reconstruct based on view mode
                 vec3 finalOD;
@@ -860,9 +856,12 @@ class ColorCorrectionFilter {
                     finalOD = stainH * cH + stainE * cE + stainR * cR;
                 }
                 
-                // Convert back from OD to RGB
-                // I = 10^(-OD)
-                vec3 finalRGB = pow(vec3(10.0), -finalOD);
+                // Convert back from OD to RGB: I = 10^(-OD)
+                vec3 finalRGB = vec3(
+                    pow(10.0, -finalOD.r),
+                    pow(10.0, -finalOD.g),
+                    pow(10.0, -finalOD.b)
+                );
                 
                 gl_FragColor = vec4(clamp(finalRGB, 0.0, 1.0), color.a);
             }
@@ -951,25 +950,42 @@ class ColorCorrectionFilter {
      * Apply color deconvolution using WebGL (GPU) or fallback to CPU
      */
     _applyStainDeconvolution() {
-        if (!this.stainEnabled || !this.viewer || !this.stainCanvas) return;
+        if (!this.stainEnabled || !this.viewer || !this.stainCanvas) {
+            console.log('🔬 Deconv skipped:', { enabled: this.stainEnabled, viewer: !!this.viewer, canvas: !!this.stainCanvas });
+            return;
+        }
         
-        const sourceCanvas = this.viewer.drawer.canvas;
-        if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) return;
+        const sourceCanvas = this.viewer.drawer?.canvas;
+        if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
+            console.log('🔬 Source canvas not ready');
+            return;
+        }
         
-        // Resize overlay canvas
-        if (this.stainCanvas.width !== sourceCanvas.width || 
-            this.stainCanvas.height !== sourceCanvas.height) {
+        // Resize overlay canvas if needed
+        const needsResize = this.stainCanvas.width !== sourceCanvas.width || 
+                           this.stainCanvas.height !== sourceCanvas.height;
+        if (needsResize) {
             this.stainCanvas.width = sourceCanvas.width;
             this.stainCanvas.height = sourceCanvas.height;
+            console.log('🔬 Resized stain canvas:', sourceCanvas.width, 'x', sourceCanvas.height);
+            
+            // WebGL viewport needs update after resize
+            if (this.stainWebGL) {
+                this.stainWebGL.gl.viewport(0, 0, sourceCanvas.width, sourceCanvas.height);
+            }
         }
         
         if (this.stainWebGL) {
+            // Hide 2D fallback canvas if it exists
+            if (this.stainCanvas2D) {
+                this.stainCanvas2D.style.display = 'none';
+            }
             this._applyStainWebGL(sourceCanvas);
+            this.stainCanvas.style.display = 'block';
         } else {
+            // CPU mode uses separate 2D canvas
             this._applyStainCPU(sourceCanvas);
         }
-        
-        this.stainCanvas.style.display = 'block';
     }
     
     /**
@@ -978,12 +994,19 @@ class ColorCorrectionFilter {
     _applyStainWebGL(sourceCanvas) {
         const { gl, program, posBuffer, texBuffer, posLoc, texLoc, uniforms, texture } = this.stainWebGL;
         
+        // Ensure viewport matches canvas
         gl.viewport(0, 0, this.stainCanvas.width, this.stainCanvas.height);
+        
+        // Clear previous frame
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
         gl.useProgram(program);
         
         // Upload source canvas as texture
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);  // Flip Y to match canvas coords
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -993,7 +1016,15 @@ class ColorCorrectionFilter {
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
         } catch (e) {
             console.warn('🔬 Cannot upload canvas texture (CORS?):', e.message);
+            // Fall back to CPU
+            this._applyStainCPU(sourceCanvas);
             return;
+        }
+        
+        // Check for WebGL errors
+        const err = gl.getError();
+        if (err !== gl.NO_ERROR) {
+            console.warn('🔬 WebGL error after texture upload:', err);
         }
         
         // Set uniforms
@@ -1004,28 +1035,50 @@ class ColorCorrectionFilter {
         const viewModeMap = { 'combined': 0, 'hematoxylin': 1, 'eosin': 2 };
         gl.uniform1i(uniforms.viewMode, viewModeMap[this.stainParams.viewMode] || 0);
         
-        // Set up attributes
+        // Set up position attribute
         gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
         gl.enableVertexAttribArray(posLoc);
         gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
         
+        // Set up texcoord attribute
         gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
         gl.enableVertexAttribArray(texLoc);
         gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
         
-        // Draw
+        // Draw fullscreen quad
         gl.drawArrays(gl.TRIANGLES, 0, 6);
+        
+        // Disable attributes to avoid state leakage
+        gl.disableVertexAttribArray(posLoc);
+        gl.disableVertexAttribArray(texLoc);
     }
     
     /**
      * CPU fallback for deconvolution (slower but always works)
+     * Uses a separate 2D canvas to avoid WebGL context conflict
      */
     _applyStainCPU(sourceCanvas) {
         const width = sourceCanvas.width;
         const height = sourceCanvas.height;
         
+        // Create separate 2D canvas for CPU fallback (can't mix 2D and WebGL contexts)
+        if (!this.stainCanvas2D) {
+            this.stainCanvas2D = document.createElement('canvas');
+            this.stainCanvas2D.id = 'stain-deconv-canvas-2d';
+            this.stainCanvas2D.style.cssText = this.stainCanvas.style.cssText;
+        }
+        this.stainCanvas2D.width = width;
+        this.stainCanvas2D.height = height;
+        
+        // Hide WebGL canvas, show 2D canvas
+        this.stainCanvas.style.display = 'none';
+        if (!this.viewerElement.contains(this.stainCanvas2D)) {
+            this.viewerElement.appendChild(this.stainCanvas2D);
+        }
+        this.stainCanvas2D.style.display = 'block';
+        
         const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
-        const destCtx = this.stainCanvas.getContext('2d');
+        const destCtx = this.stainCanvas2D.getContext('2d');
         
         let imageData;
         try {
@@ -1105,9 +1158,12 @@ class ColorCorrectionFilter {
      * Stop stain rendering (cleanup)
      */
     _stopStainRendering() {
-        // Hide overlay canvas
+        // Hide overlay canvases
         if (this.stainCanvas) {
             this.stainCanvas.style.display = 'none';
+        }
+        if (this.stainCanvas2D) {
+            this.stainCanvas2D.style.display = 'none';
         }
         
         // Remove viewer handlers
