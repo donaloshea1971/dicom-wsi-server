@@ -172,27 +172,13 @@ async function logout() {
 async function getAuthToken() {
     if (!auth0Client) {
         console.warn('🔐 getAuthToken: auth0Client not initialized');
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:145',message:'auth0Client not initialized',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         return null;
     }
     try {
-        console.log('🔐 getAuthToken: Attempting to retrieve token silently');
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:151',message:'Attempting silent token retrieval',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         const token = await auth0Client.getTokenSilently();
-        console.log('🔐 ✓ getAuthToken: Retrieved token successfully');
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:156',message:'Token retrieved successfully',data:{tokenPreview:token.substring(0,10)+'...'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         return token;
     } catch (e) {
-        console.error('🔐 ❌ getAuthToken: Failed to get token', e.error || e.message);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8d4813c2-c0b6-4418-908e-d5e858f42564',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'viewer/js/auth.js:161',message:'Token retrieval failed',data:{error:e.error||e.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
+        console.error('🔐 getAuthToken failed:', e.error || e.message);
         return null;
     }
 }
