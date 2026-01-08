@@ -5,7 +5,7 @@
  * @version 1.13.0
  */
 
-const SPACEMOUSE_VERSION = '1.19.1';
+const SPACEMOUSE_VERSION = '1.20.0';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -457,9 +457,10 @@ class SpaceNavigatorController {
                     console.log(`%c🎮 SpaceMouse LEFT button ${leftPressed ? 'PRESSED' : 'released'}`, 
                                 leftPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
                     if (this.onButtonPress) {
+                        // Custom handler takes precedence - don't call default
                         this.onButtonPress({ button: 'left', pressed: leftPressed });
-                    }
-                    if (leftPressed && typeof window.previousStudy === 'function') {
+                    } else if (leftPressed && typeof window.previousStudy === 'function') {
+                        // Default: navigate to previous study
                         window.previousStudy();
                     }
                 }
@@ -469,9 +470,10 @@ class SpaceNavigatorController {
                     console.log(`%c🎮 SpaceMouse RIGHT button ${rightPressed ? 'PRESSED' : 'released'}`, 
                                 rightPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
                     if (this.onButtonPress) {
+                        // Custom handler takes precedence - don't call default
                         this.onButtonPress({ button: 'right', pressed: rightPressed });
-                    }
-                    if (rightPressed && typeof window.nextStudy === 'function') {
+                    } else if (rightPressed && typeof window.nextStudy === 'function') {
+                        // Default: navigate to next study
                         window.nextStudy();
                     }
                 }
@@ -669,8 +671,7 @@ class SpaceNavigatorController {
                 this.buttons.left = leftPressed;
                 if (this.onButtonPress) {
                     this.onButtonPress({ button: 'left', pressed: leftPressed });
-                }
-                if (leftPressed && typeof window.previousStudy === 'function') {
+                } else if (leftPressed && typeof window.previousStudy === 'function') {
                     window.previousStudy();
                 }
             }
@@ -679,8 +680,7 @@ class SpaceNavigatorController {
                 this.buttons.right = rightPressed;
                 if (this.onButtonPress) {
                     this.onButtonPress({ button: 'right', pressed: rightPressed });
-                }
-                if (rightPressed && typeof window.nextStudy === 'function') {
+                } else if (rightPressed && typeof window.nextStudy === 'function') {
                     window.nextStudy();
                 }
             }
@@ -1016,11 +1016,10 @@ class SpaceNavigatorController {
                         leftPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
             
             if (this.onButtonPress) {
+                // Custom handler takes precedence
                 this.onButtonPress({ button: 'left', pressed: leftPressed });
-            }
-            
-            // Default action: Previous study on left button press
-            if (leftPressed && typeof window.previousStudy === 'function') {
+            } else if (leftPressed && typeof window.previousStudy === 'function') {
+                // Default action: Previous study on left button press
                 window.previousStudy();
             }
         }
@@ -1031,11 +1030,10 @@ class SpaceNavigatorController {
                         rightPressed ? 'color: #10b981; font-weight: bold' : 'color: #666');
             
             if (this.onButtonPress) {
+                // Custom handler takes precedence
                 this.onButtonPress({ button: 'right', pressed: rightPressed });
-            }
-            
-            // Default action: Next study on right button press
-            if (rightPressed && typeof window.nextStudy === 'function') {
+            } else if (rightPressed && typeof window.nextStudy === 'function') {
+                // Default action: Next study on right button press
                 window.nextStudy();
             }
         }
