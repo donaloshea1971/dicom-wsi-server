@@ -1125,6 +1125,9 @@
             margin: 12px !important;
             width: 180px !important;
             height: 140px !important;
+            z-index: 50 !important;
+            opacity: 1 !important;
+            visibility: visible !important;
         }
         
         .navigator .displayregion {
