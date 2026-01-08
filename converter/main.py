@@ -29,7 +29,7 @@ from auth import (
     unshare_slide, get_owned_slide_ids, get_shared_with_me_slide_ids, get_study_shares,
     search_users, batch_share_studies, batch_unshare_studies, get_db_pool, get_slides_metadata_bulk,
     get_share_counts_for_studies, share_case, unshare_case, get_case_shares,
-    get_slide_access_info, delete_pending_slide_share, delete_pending_case_share
+    get_slide_access_info, delete_pending_slide_share, delete_pending_case_share, delete_slide
 )
 
 # Alias for optional authentication (returns None if not authenticated)
@@ -942,18 +942,22 @@ async def upload_dicom_instance(
     - If anonymous: Study remains unowned (can be claimed later)
     """
     try:
-        content = await request.body()
-        # #region agent log
-        import json, time
-        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"location": "converter/main.py:945", "message": "DICOM upload request received", "data": {"user": current_user.email if current_user else "unauthenticated", "size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        # #endregion
-        
-        async with httpx.AsyncClient(timeout=600.0) as client:
+        content_type = request.headers.get("content-type", "application/dicom")
+        content_length = request.headers.get("content-length")
+        logger.info(
+            "📤 DICOM upload request received: user=%s content_length=%s content_type=%s",
+            (current_user.email if current_user else "unauthenticated"),
+            content_length,
+            content_type,
+        )
+
+        # Stream request body directly to Orthanc to avoid loading large instances into RAM.
+        upload_timeout = httpx.Timeout(1800.0, connect=30.0)
+        async with httpx.AsyncClient(timeout=upload_timeout) as client:
             response = await client.post(
                 f"{settings.orthanc_url}/instances",
-                content=content,
-                headers={"Content-Type": "application/dicom"},
+                content=request.stream(),
+                headers={"Content-Type": content_type},
                 auth=(settings.orthanc_username, settings.orthanc_password)
             )
             
@@ -1084,6 +1088,31 @@ async def get_instance_tags(instance_id: str, user: User = Depends(require_user)
             if response.status_code == 200:
                 return response.json()
             raise HTTPException(status_code=response.status_code, detail="Instance not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/instances/{instance_id}")
+async def get_instance_info(instance_id: str, user: User = Depends(require_user)):
+    """Get Orthanc instance info for an instance (used by upload fallback logic)."""
+    try:
+        async with httpx.AsyncClient() as client:
+            instance_response = await client.get(
+                f"{settings.orthanc_url}/instances/{instance_id}",
+                auth=(settings.orthanc_username, settings.orthanc_password),
+                timeout=10.0
+            )
+            if instance_response.status_code != 200:
+                raise HTTPException(status_code=instance_response.status_code, detail="Instance not found")
+
+            instance_data = instance_response.json()
+            parent_study = instance_data.get("ParentStudy")
+            if parent_study and user.id and not await can_access_study(user.id, parent_study):
+                raise HTTPException(status_code=403, detail="Access denied to this slide")
+
+            return instance_data
     except HTTPException:
         raise
     except Exception as e:
@@ -1656,11 +1685,11 @@ async def upload_wsi(
 
     If authenticated, the uploaded study will be owned by the current user.
     """
-    # #region agent log
-    import json, time
-    with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"location": "converter/main.py:1659", "message": "WSI upload request received", "data": {"user": current_user.email if current_user else "unauthenticated", "file": file.filename}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-    # #endregion
+    logger.info(
+        "📤 WSI upload request received: user=%s filename=%s",
+        (current_user.email if current_user else "unauthenticated"),
+        file.filename,
+    )
     
     # Validate format
     source_format = detect_format(file.filename)
@@ -1999,6 +2028,52 @@ async def claim_study(study_id: str, user: User = Depends(require_user)):
         return {"message": "Study claimed successfully", "study_id": study_id}
     else:
         raise HTTPException(status_code=400, detail="Could not claim study - may already be owned")
+
+
+@app.delete("/studies/{study_id}")
+async def delete_study_endpoint(study_id: str, user: User = Depends(require_user)):
+    """Delete a study/slide permanently.
+    
+    Only the owner can delete their slide. This removes:
+    - The slide from Orthanc storage
+    - All annotations
+    - All shares (direct and pending)
+    - All public links
+    - The database record
+    """
+    if not user.id:
+        raise HTTPException(status_code=400, detail="User not fully registered")
+    
+    # Delete from database (this verifies ownership)
+    result = await delete_slide(study_id, user.id)
+    
+    if not result["success"]:
+        if "not the owner" in result.get("message", "").lower() or "not found" in result.get("message", "").lower():
+            raise HTTPException(status_code=403, detail=result["message"])
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    # Delete from Orthanc storage
+    orthanc_deleted = False
+    try:
+        async with httpx.AsyncClient() as client:
+            orthanc_response = await client.delete(
+                f"{ORTHANC_URL}/studies/{study_id}",
+                auth=(ORTHANC_USER, ORTHANC_PASS),
+                timeout=30.0
+            )
+            if orthanc_response.status_code == 200:
+                orthanc_deleted = True
+                logger.info(f"Deleted study {study_id} from Orthanc")
+            else:
+                logger.warning(f"Orthanc delete returned {orthanc_response.status_code} for {study_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete from Orthanc: {e}")
+    
+    return {
+        "message": "Slide deleted successfully",
+        "study_id": study_id,
+        "orthanc_deleted": orthanc_deleted
+    }
 
 
 class ShareRequest(BaseModel):
@@ -3471,10 +3546,10 @@ async def secure_dicomweb_proxy(path: str, request: Request, user: User = Depend
             if request.query_params:
                 target_url += f"?{request.query_params}"
             
-            # Get request body for POST requests
+            # Stream request body for POST requests to avoid buffering large STOW-RS payloads
             body = None
             if request.method == "POST":
-                body = await request.body()
+                body = request.stream()
             
             # Forward request
             response = await client.request(

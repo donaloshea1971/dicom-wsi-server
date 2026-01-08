@@ -249,7 +249,7 @@ function renderStudyCard(study, ownershipType) {
     // Share button only for owned slides
     const isShared = study.shareCount > 0;
     const shareBtn = ownershipType === 'owned' 
-        ? `<button class="share-btn ${isShared ? 'shared' : ''}" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="${isShared ? 'Shared with ' + study.shareCount + ' user(s)' : 'Share this slide'}">
+        ? `<button class="action-btn share-btn ${isShared ? 'shared' : ''}" onclick="event.stopPropagation(); openShareDialog('${study.ID}')" title="${isShared ? 'Shared with ' + study.shareCount + ' user(s)' : 'Share this slide'}">
                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
@@ -257,16 +257,32 @@ function renderStudyCard(study, ownershipType) {
            </button>`
         : '';
     
-    // Edit button only for owned slides
+    // Edit button only for owned slides (icon-only style)
     const editBtn = ownershipType === 'owned'
-        ? `<button class="edit-btn" onclick="event.stopPropagation(); openSlideEditDialog('${study.ID}', '${slideName.replace(/'/g, "\\'")}', '${stain || ''}')" title="Edit slide - assign to Case/Patient">
-               ✏️ Edit
+        ? `<button class="action-btn edit-btn" onclick="event.stopPropagation(); openSlideEditDialog('${study.ID}', '${slideName.replace(/'/g, "\\'")}', '${stain || ''}')" title="Edit slide metadata">
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+               </svg>
+           </button>`
+        : '';
+    
+    // Delete button only for owned slides
+    const deleteBtn = ownershipType === 'owned'
+        ? `<button class="action-btn delete-btn" onclick="event.stopPropagation(); confirmDeleteSlide('${study.ID}', '${slideName.replace(/'/g, "\\'")}')" title="Delete this slide">
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                   <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                   <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+               </svg>
            </button>`
         : '';
     
     // Compare button - available for all slides
-    const compareBtn = `<button class="compare-btn" onclick="event.stopPropagation(); addToCompare('${study.ID}', '${slideName.replace(/'/g, "\\'")}')" title="Compare with another slide" data-compare-id="${study.ID}">
-        ⧉
+    const compareBtn = `<button class="action-btn compare-btn" onclick="event.stopPropagation(); addToCompare('${study.ID}', '${slideName.replace(/'/g, "\\'")}')" title="Compare with another slide" data-compare-id="${study.ID}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
     </button>`;
                 
     return `
@@ -277,6 +293,7 @@ function renderStudyCard(study, ownershipType) {
                     ${compareBtn}
                     ${editBtn}
                     ${shareBtn}
+                    ${deleteBtn}
                 </div>
             </div>
             <div class="study-slide-info">${slideInfo}</div>
@@ -1071,4 +1088,131 @@ async function deletePublicLink(linkId) {
         const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link/${linkId}`, { method: 'DELETE' });
         if (response.ok) loadPublicLinks(currentShareStudyId);
     } catch (e) {}
+}
+
+// ========== DELETE SLIDE ==========
+
+let deleteSlideId = null;
+let deleteSlideName = null;
+
+/**
+ * Show confirmation dialog for deleting a slide
+ */
+function confirmDeleteSlide(slideId, slideName) {
+    deleteSlideId = slideId;
+    deleteSlideName = slideName;
+    
+    // Remove existing dialog if any
+    const existing = document.getElementById('delete-confirm-dialog');
+    if (existing) existing.remove();
+    
+    const dialog = document.createElement('div');
+    dialog.id = 'delete-confirm-dialog';
+    dialog.className = 'modal-overlay';
+    dialog.innerHTML = `
+        <div class="modal-content delete-modal">
+            <div class="modal-header">
+                <h3>⚠️ Delete Slide</h3>
+                <button class="close-btn" onclick="closeDeleteDialog()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px;">Are you sure you want to permanently delete this slide?</p>
+                <div class="delete-slide-info">
+                    <strong>${slideName}</strong>
+                    <span class="delete-slide-id">${slideId.substring(0, 8)}...</span>
+                </div>
+                <p class="delete-warning">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    This action cannot be undone. All annotations and shares will also be deleted.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeDeleteDialog()">Cancel</button>
+                <button class="btn btn-danger" onclick="executeDeleteSlide()">Delete Slide</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(dialog);
+}
+
+/**
+ * Close delete confirmation dialog
+ */
+function closeDeleteDialog() {
+    const dialog = document.getElementById('delete-confirm-dialog');
+    if (dialog) dialog.remove();
+    deleteSlideId = null;
+    deleteSlideName = null;
+}
+
+/**
+ * Execute the delete operation
+ */
+async function executeDeleteSlide() {
+    if (!deleteSlideId) return;
+    
+    const slideId = deleteSlideId;
+    const btn = document.querySelector('.delete-modal .btn-danger');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Deleting...';
+    }
+    
+    try {
+        const response = await authFetch(`/api/studies/${slideId}`, { method: 'DELETE' });
+        
+        if (response.ok) {
+            closeDeleteDialog();
+            
+            // If we're viewing this slide, clear the viewer
+            if (currentStudy === slideId) {
+                currentStudy = null;
+                if (viewer) viewer.close();
+                document.getElementById('viewer-toolbar')?.style.setProperty('display', 'none');
+            }
+            
+            // Refresh the study list
+            await fetchStudies();
+            
+            // Show success message
+            showToast('Slide deleted successfully', 'success');
+        } else {
+            const error = await response.json().catch(() => ({}));
+            showToast(error.detail || 'Failed to delete slide', 'error');
+        }
+    } catch (e) {
+        console.error('Delete failed:', e);
+        showToast('Failed to delete slide', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Delete Slide';
+        }
+    }
+}
+
+/**
+ * Show a toast notification
+ */
+function showToast(message, type = 'info') {
+    // Remove existing toast
+    const existing = document.querySelector('.toast-notification');
+    if (existing) existing.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    // Animate in
+    requestAnimationFrame(() => toast.classList.add('show'));
+    
+    // Remove after 3s
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }

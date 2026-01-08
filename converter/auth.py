@@ -80,11 +80,6 @@ async def verify_token(token: str) -> TokenPayload:
     try:
         # Check if Auth0 is configured
         if not AUTH0_DOMAIN or not AUTH0_AUDIENCE:
-            # #region agent log
-            import json, time
-            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"location": "converter/auth.py:75", "message": "Auth0 not configured", "data": {"domain": AUTH0_DOMAIN, "audience": AUTH0_AUDIENCE}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-            # #endregion
             logger.error(f"🔐 Auth0 not configured - Domain: {AUTH0_DOMAIN}, Audience: {AUTH0_AUDIENCE}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -101,11 +96,6 @@ async def verify_token(token: str) -> TokenPayload:
             logger.error(f"🔐 ❌ Failed to parse token header: {e}")
             raise HTTPException(status_code=401, detail="Invalid token format")
 
-        # #region agent log
-        import json, time
-        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"location": "converter/auth.py:92", "message": "Token header extracted", "data": {"kid": unverified_header.get("kid")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        # #endregion
         logger.debug(f"🔐 Token header: {unverified_header}")
         rsa_key = {}
 
@@ -121,11 +111,6 @@ async def verify_token(token: str) -> TokenPayload:
                 break
 
         if not rsa_key:
-            # #region agent log
-            import json, time
-            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"location": "converter/auth.py:113", "message": "No matching key found", "data": {"kid": unverified_header.get("kid")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-            # #endregion
             logger.error(f"🔐 ❌ No matching key found for kid: {unverified_header.get('kid')}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -142,19 +127,9 @@ async def verify_token(token: str) -> TokenPayload:
                 issuer=f"https://{AUTH0_DOMAIN}/"
             )
         except JWTError as e:
-            # #region agent log
-            import json, time
-            with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"location": "converter/auth.py:148", "message": "JWT verification failed", "data": {"error": str(e)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-            # #endregion
             logger.error(f"🔐 ❌ JWT verification failed: {e}")
             raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
-        # #region agent log
-        import json, time
-        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"location": "converter/auth.py:133", "message": "Token verified successfully", "data": {"sub": payload.get("sub"), "email": payload.get("email")}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        # #endregion
         logger.info(f"🔐 ✅ Token verified successfully for user: {payload.get('sub')} ({payload.get('email', 'no email')})")
 
         return TokenPayload(
@@ -167,11 +142,6 @@ async def verify_token(token: str) -> TokenPayload:
     except HTTPException:
         raise
     except Exception as e:
-        # #region agent log
-        import json, time
-        with open(r'c:\Users\donal.oshea_deciphex\DICOM Server\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"location": "converter/auth.py:158", "message": "Unexpected verification error", "data": {"error": str(e)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        # #endregion
         logger.error(f"🔐 ❌ Unexpected error during token verification: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2019,3 +1989,85 @@ async def create_patient(
     except Exception as e:
         logger.error(f"Failed to create patient: {e}")
         return None
+
+
+async def delete_slide(study_id: str, owner_id: int) -> dict:
+    """Delete a slide and all associated data.
+    
+    Only the owner can delete a slide. This removes:
+    - All annotations
+    - All shares (direct and pending)
+    - All public links
+    - The slides table entry
+    - The Orthanc study (via httpx call)
+    
+    Returns dict with:
+    - success: bool
+    - message: str
+    """
+    pool = await get_db_pool()
+    if pool is None:
+        return {"success": False, "message": "Database unavailable"}
+    
+    async with pool.acquire() as conn:
+        # Verify ownership
+        slide = await conn.fetchrow(
+            "SELECT id, owner_id FROM slides WHERE orthanc_study_id = $1",
+            study_id
+        )
+        
+        if not slide:
+            return {"success": False, "message": "Slide not found"}
+        
+        if slide["owner_id"] != owner_id:
+            return {"success": False, "message": "You don't own this slide"}
+        
+        slide_db_id = slide["id"]
+        
+        try:
+            # Use a transaction to ensure all deletions succeed or fail together
+            async with conn.transaction():
+                # 1. Delete annotations
+                result = await conn.execute(
+                    "DELETE FROM annotations WHERE study_id = $1",
+                    study_id
+                )
+                logger.info(f"delete_slide: Deleted annotations: {result}")
+                
+                # 2. Delete annotation comments (through annotations - may need JOIN or subquery)
+                # Skip if annotation_comments references annotation_id (cascade should handle it)
+                
+                # 3. Delete shares
+                result = await conn.execute(
+                    "DELETE FROM shares WHERE slide_id = $1",
+                    slide_db_id
+                )
+                logger.info(f"delete_slide: Deleted shares: {result}")
+                
+                # 4. Delete pending shares (where study_id column exists)
+                result = await conn.execute(
+                    "DELETE FROM pending_shares WHERE study_id = $1",
+                    study_id
+                )
+                logger.info(f"delete_slide: Deleted pending shares: {result}")
+                
+                # 5. Delete public shares/links
+                result = await conn.execute(
+                    "DELETE FROM public_shares WHERE study_id = $1",
+                    study_id
+                )
+                logger.info(f"delete_slide: Deleted public shares: {result}")
+                
+                # 6. Delete the slide record itself
+                result = await conn.execute(
+                    "DELETE FROM slides WHERE id = $1",
+                    slide_db_id
+                )
+                logger.info(f"delete_slide: Deleted slide record: {result}")
+            
+            logger.info(f"delete_slide: Successfully deleted slide {study_id} from database")
+            return {"success": True, "message": "Slide deleted from database", "orthanc_id": study_id}
+            
+        except Exception as e:
+            logger.error(f"delete_slide: Database error: {e}")
+            return {"success": False, "message": f"Database error: {str(e)}"}
