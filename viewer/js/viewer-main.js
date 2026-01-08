@@ -890,26 +890,34 @@ function toggleStainDeconv() {
 /**
  * Update stain balance (-1 = full H, 0 = balanced, +1 = full E)
  */
-function updateStainBalance(value) {
+function updateStainBalance(value, updateSlider = false) {
     if (!colorCorrection) return;
     
     const balance = parseFloat(value);
     
     // Convert balance to H and E intensities
-    // At balance=0: H=1, E=1 (normal)
+    // H is often underrepresented vs E, so we boost H slightly at neutral
+    // At balance=0: H=1.2, E=0.9 (slight H bias for better balance)
     // At balance=-1: H=2, E=0 (full hematoxylin)
-    // At balance=+1: H=0, E=2 (full eosin)
-    const hIntensity = Math.max(0, 1 - balance);  // 1 at 0, 2 at -1, 0 at +1
-    const eIntensity = Math.max(0, 1 + balance);  // 1 at 0, 0 at -1, 2 at +1
+    // At balance=+1: H=0, E=2 (full eosin/DAB)
+    const hIntensity = Math.max(0, 1.2 - balance * 1.2);  // 1.2 at 0, 2.4->2 at -1, 0 at +1
+    const eIntensity = Math.max(0, 0.9 + balance * 1.1);  // 0.9 at 0, 0 at -1, 2 at +1
     
-    colorCorrection.setHematoxylin(hIntensity);
-    colorCorrection.setEosin(eIntensity);
+    colorCorrection.setHematoxylin(Math.min(2, hIntensity));
+    colorCorrection.setEosin(Math.min(2, eIntensity));
+    
+    // Update slider if requested
+    if (updateSlider) {
+        const slider = document.getElementById('stain-balance-slider');
+        if (slider) slider.value = balance;
+    }
     
     // Update display
+    const stainInfo = colorCorrection.getStainInfo ? colorCorrection.getStainInfo() : { label1: 'H', label2: 'E' };
     const hDisplay = document.getElementById('h-intensity');
     const eDisplay = document.getElementById('e-intensity');
-    if (hDisplay) hDisplay.textContent = `H: ${hIntensity.toFixed(2)}`;
-    if (eDisplay) eDisplay.textContent = `E: ${eIntensity.toFixed(2)}`;
+    if (hDisplay) hDisplay.textContent = `${stainInfo.label1}: ${Math.min(2, hIntensity).toFixed(2)}`;
+    if (eDisplay) eDisplay.textContent = `${stainInfo.label2}: ${Math.min(2, eIntensity).toFixed(2)}`;
 }
 
 /**
@@ -967,6 +975,15 @@ function setStainView(mode) {
     if (!colorCorrection) return;
     
     colorCorrection.setStainViewMode(mode);
+    
+    // Move slider to match view mode
+    if (mode === 'hematoxylin') {
+        updateStainBalance(-1, true);  // Full H
+    } else if (mode === 'eosin' || mode === 'dab') {
+        updateStainBalance(1, true);   // Full E/DAB
+    } else if (mode === 'combined') {
+        updateStainBalance(0, true);   // Balanced
+    }
     
     // Update button states
     const viewCombined = document.getElementById('view-combined');
