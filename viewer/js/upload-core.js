@@ -130,10 +130,20 @@ async function uploadForConversion(item) {
     item.totalChunks = 0;
     if (typeof updateQueueUI === 'function') updateQueueUI();
     
-    const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
-    console.log('🔐 WSI upload - getAuthToken returned:', token ? 'TOKEN_EXISTS' : 'NULL');
-    console.log('🔐 WSI upload - auth0Client exists:', !!auth0Client);
-    console.log('🔐 WSI upload - currentUser:', currentUser?.email || 'NO_USER');
+    // Get token directly from auth0Client to avoid any function scope issues
+    let token = null;
+    if (typeof auth0Client !== 'undefined' && auth0Client) {
+        try {
+            token = await auth0Client.getTokenSilently();
+            console.log('🔐 WSI upload - Got token directly from auth0Client ✓');
+        } catch (e) {
+            console.error('🔐 WSI upload - Failed to get token:', e.message);
+        }
+    } else {
+        console.error('🔐 WSI upload - auth0Client not available!');
+    }
+    console.log('🔐 WSI upload - Token:', token ? 'EXISTS' : 'NULL');
+    console.log('🔐 WSI upload - currentUser:', typeof currentUser !== 'undefined' ? currentUser?.email : 'undefined');
 
     try {
         // Use chunked upload for large files (>50MB), simple upload for smaller
