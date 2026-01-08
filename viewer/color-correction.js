@@ -19,21 +19,34 @@ class ColorCorrectionFilter {
             saturation: 1.0,
         };
         
-        // H&E Stain deconvolution parameters
+        // Stain deconvolution parameters
         this.stainParams = {
-            hematoxylin: 1.0,  // H channel intensity (0-2, 1=normal)
-            eosin: 1.0,        // E channel intensity (0-2, 1=normal)
-            viewMode: 'combined', // 'combined' | 'hematoxylin' | 'eosin'
+            stainType: 'HE',      // 'HE' or 'HDAB'
+            hematoxylin: 1.0,     // H channel intensity (0-2, 1=normal)
+            eosin: 1.0,           // E/DAB channel intensity (0-2, 1=normal)
+            viewMode: 'combined', // 'combined' | 'hematoxylin' | 'eosin' (or 'dab')
         };
         this.stainEnabled = false;
         
-        // Ruifrok & Johnston H&E stain vectors (optical density, normalized)
+        // Ruifrok & Johnston stain vectors (optical density, normalized)
         // Reference: Quantification of histochemical staining (2001)
-        this.stainMatrix = {
-            // Each row is [R, G, B] optical density for that stain
-            H: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
-            E: [0.072, 0.990, 0.105],   // Eosin (pink)
-            R: [0.268, 0.570, 0.776],   // Residual/background
+        this.stainMatrices = {
+            // H&E staining
+            HE: {
+                stain1: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
+                stain2: [0.072, 0.990, 0.105],   // Eosin (pink)
+                residual: [0.268, 0.570, 0.776], // Residual/background
+                label1: 'H',
+                label2: 'E',
+            },
+            // H-DAB (Hematoxylin + DAB for IHC)
+            HDAB: {
+                stain1: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
+                stain2: [0.270, 0.570, 0.780],   // DAB (brown)
+                residual: [0.000, 0.000, 0.000], // No residual for H-DAB
+                label1: 'H',
+                label2: 'DAB',
+            },
         };
         
         // ICC profile gamma (separate from manual controls)
@@ -712,10 +725,10 @@ class ColorCorrectionFilter {
     }
     
     /**
-     * Set view mode: 'combined', 'hematoxylin', or 'eosin'
+     * Set view mode: 'combined', 'hematoxylin', 'eosin', or 'dab'
      */
     setStainViewMode(mode) {
-        if (['combined', 'hematoxylin', 'eosin'].includes(mode)) {
+        if (['combined', 'hematoxylin', 'eosin', 'dab'].includes(mode)) {
             this.stainParams.viewMode = mode;
             if (this.stainEnabled) {
                 this._applyStainAdjustment();
@@ -725,10 +738,36 @@ class ColorCorrectionFilter {
     }
     
     /**
+     * Set stain type: 'HE' or 'HDAB'
+     */
+    setStainType(type) {
+        if (this.stainMatrices[type]) {
+            this.stainParams.stainType = type;
+            // Reset to balanced when switching
+            this.stainParams.hematoxylin = 1.0;
+            this.stainParams.eosin = 1.0;
+            this.stainParams.viewMode = 'combined';
+            if (this.stainEnabled) {
+                this._applyStainAdjustment();
+            }
+            console.log(`🔬 Stain type: ${type} (${this.stainMatrices[type].label1}-${this.stainMatrices[type].label2})`);
+        }
+    }
+    
+    /**
+     * Get current stain type info
+     */
+    getStainInfo() {
+        const type = this.stainParams.stainType || 'HE';
+        return this.stainMatrices[type] || this.stainMatrices.HE;
+    }
+    
+    /**
      * Reset stain parameters to defaults
      */
     resetStainParams() {
         this.stainParams = {
+            stainType: 'HE',
             hematoxylin: 1.0,
             eosin: 1.0,
             viewMode: 'combined',
@@ -803,7 +842,7 @@ class ColorCorrectionFilter {
             }
         `;
         
-        // Fragment shader - Ruifrok H&E deconvolution
+        // Fragment shader - stain deconvolution (H&E or H-DAB)
         const fsSource = `
             precision highp float;
             
@@ -811,20 +850,24 @@ class ColorCorrectionFilter {
             varying vec2 v_texCoord;
             
             // Stain parameters
-            uniform float u_hematoxylin;
-            uniform float u_eosin;
-            uniform int u_viewMode; // 0=combined, 1=H only, 2=E only
+            uniform float u_stain1Intensity;  // Hematoxylin
+            uniform float u_stain2Intensity;  // Eosin or DAB
+            uniform int u_viewMode;           // 0=combined, 1=stain1 only, 2=stain2 only
             
-            // Forward stain vectors (Ruifrok H&E)
-            const vec3 stainH = vec3(0.650, 0.704, 0.286);
-            const vec3 stainE = vec3(0.072, 0.990, 0.105);
-            const vec3 stainR = vec3(0.268, 0.570, 0.776);
+            // Stain vectors (passed as uniforms for flexibility)
+            uniform vec3 u_stain1;    // Hematoxylin vector
+            uniform vec3 u_stain2;    // Eosin or DAB vector
+            uniform vec3 u_residual;  // Residual/background vector
+            
+            // Inverse stain matrix row vectors (precomputed on CPU)
+            uniform vec3 u_invRow0;
+            uniform vec3 u_invRow1;
+            uniform vec3 u_invRow2;
             
             void main() {
                 vec4 color = texture2D(u_image, v_texCoord);
                 
-                // Convert RGB to optical density
-                // OD = -log10(I), where I is normalized [0,1]
+                // Convert RGB to optical density: OD = -log10(I)
                 vec3 rgb = max(color.rgb, 0.004);
                 vec3 od = vec3(
                     -log(rgb.r) / log(10.0),
@@ -833,27 +876,22 @@ class ColorCorrectionFilter {
                 );
                 
                 // Apply inverse stain matrix to get concentrations
-                // Inverse of [[0.650, 0.072, 0.268], [0.704, 0.990, 0.570], [0.286, 0.105, 0.776]]
-                // Done as explicit dot products to avoid mat3 column-major confusion
-                float cH = max(0.0,  1.87798274 * od.r - 1.00767869 * od.g + 0.14539618 * od.b);
-                float cE = max(0.0, -0.06590806 * od.r + 1.13473037 * od.g - 0.13943433 * od.b);
-                float cR = max(0.0, -0.60190736 * od.r - 0.48041808 * od.g + 1.57358807 * od.b);
+                float c1 = max(0.0, dot(u_invRow0, od));  // Stain 1 (H)
+                float c2 = max(0.0, dot(u_invRow1, od));  // Stain 2 (E or DAB)
+                float cR = max(0.0, dot(u_invRow2, od));  // Residual
                 
                 // Apply user adjustments
-                cH *= u_hematoxylin;
-                cE *= u_eosin;
+                c1 *= u_stain1Intensity;
+                c2 *= u_stain2Intensity;
                 
                 // Reconstruct based on view mode
                 vec3 finalOD;
                 if (u_viewMode == 1) {
-                    // Hematoxylin only
-                    finalOD = stainH * cH;
+                    finalOD = u_stain1 * c1;
                 } else if (u_viewMode == 2) {
-                    // Eosin only
-                    finalOD = stainE * cE;
+                    finalOD = u_stain2 * c2;
                 } else {
-                    // Combined
-                    finalOD = stainH * cH + stainE * cE + stainR * cR;
+                    finalOD = u_stain1 * c1 + u_stain2 * c2 + u_residual * cR;
                 }
                 
                 // Convert back from OD to RGB: I = 10^(-OD)
@@ -920,14 +958,78 @@ class ColorCorrectionFilter {
             texLoc,
             uniforms: {
                 image: gl.getUniformLocation(program, 'u_image'),
-                hematoxylin: gl.getUniformLocation(program, 'u_hematoxylin'),
-                eosin: gl.getUniformLocation(program, 'u_eosin'),
+                stain1Intensity: gl.getUniformLocation(program, 'u_stain1Intensity'),
+                stain2Intensity: gl.getUniformLocation(program, 'u_stain2Intensity'),
                 viewMode: gl.getUniformLocation(program, 'u_viewMode'),
+                stain1: gl.getUniformLocation(program, 'u_stain1'),
+                stain2: gl.getUniformLocation(program, 'u_stain2'),
+                residual: gl.getUniformLocation(program, 'u_residual'),
+                invRow0: gl.getUniformLocation(program, 'u_invRow0'),
+                invRow1: gl.getUniformLocation(program, 'u_invRow1'),
+                invRow2: gl.getUniformLocation(program, 'u_invRow2'),
             },
             texture: gl.createTexture(),
         };
         
+        // Precompute inverse matrices for both stain types
+        this._computeInverseStainMatrices();
+        
         console.log('🔬 WebGL stain shader compiled successfully');
+    }
+    
+    /**
+     * Compute inverse stain matrices for all stain types
+     */
+    _computeInverseStainMatrices() {
+        this.inverseMatrices = {};
+        
+        for (const [type, stains] of Object.entries(this.stainMatrices)) {
+            // Build 3x3 matrix from stain vectors (transposed for row-major)
+            const M = [
+                stains.stain1,
+                stains.stain2,
+                stains.residual[0] === 0 ? [0.268, 0.570, 0.776] : stains.residual, // fallback residual
+            ];
+            
+            // Compute inverse
+            this.inverseMatrices[type] = this._invertMatrix3x3(M);
+        }
+        
+        console.log('🔬 Inverse stain matrices computed for:', Object.keys(this.inverseMatrices));
+    }
+    
+    /**
+     * Invert a 3x3 matrix
+     */
+    _invertMatrix3x3(m) {
+        const det = 
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        
+        if (Math.abs(det) < 1e-10) {
+            console.warn('🔬 Stain matrix is singular, using identity');
+            return [[1,0,0], [0,1,0], [0,0,1]];
+        }
+        
+        const invDet = 1 / det;
+        return [
+            [
+                (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * invDet,
+                (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * invDet,
+                (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * invDet
+            ],
+            [
+                (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * invDet,
+                (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * invDet,
+                (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * invDet
+            ],
+            [
+                (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * invDet,
+                (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * invDet,
+                (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * invDet
+            ]
+        ];
     }
     
     /**
@@ -1077,10 +1179,24 @@ class ColorCorrectionFilter {
         
         // Set uniforms
         gl.uniform1i(uniforms.image, 0);
-        gl.uniform1f(uniforms.hematoxylin, this.stainParams.hematoxylin);
-        gl.uniform1f(uniforms.eosin, this.stainParams.eosin);
+        gl.uniform1f(uniforms.stain1Intensity, this.stainParams.hematoxylin);
+        gl.uniform1f(uniforms.stain2Intensity, this.stainParams.eosin);
         
-        const viewModeMap = { 'combined': 0, 'hematoxylin': 1, 'eosin': 2 };
+        // Get stain vectors for current type
+        const stainType = this.stainParams.stainType || 'HE';
+        const stains = this.stainMatrices[stainType];
+        const invMatrix = this.inverseMatrices[stainType];
+        
+        if (stains && invMatrix) {
+            gl.uniform3fv(uniforms.stain1, stains.stain1);
+            gl.uniform3fv(uniforms.stain2, stains.stain2);
+            gl.uniform3fv(uniforms.residual, stains.residual[0] === 0 ? [0.268, 0.570, 0.776] : stains.residual);
+            gl.uniform3fv(uniforms.invRow0, invMatrix[0]);
+            gl.uniform3fv(uniforms.invRow1, invMatrix[1]);
+            gl.uniform3fv(uniforms.invRow2, invMatrix[2]);
+        }
+        
+        const viewModeMap = { 'combined': 0, 'hematoxylin': 1, 'eosin': 2, 'dab': 2 };
         gl.uniform1i(uniforms.viewMode, viewModeMap[this.stainParams.viewMode] || 0);
         
         // Set up position attribute

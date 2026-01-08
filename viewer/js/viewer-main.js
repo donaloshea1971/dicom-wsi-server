@@ -890,7 +890,41 @@ function updateStainParam(param, value) {
 }
 
 /**
- * Set stain view mode (combined, hematoxylin, eosin)
+ * Set stain type (HE or HDAB)
+ */
+function setStainType(type) {
+    if (!colorCorrection) return;
+    
+    colorCorrection.setStainType(type);
+    
+    // Update type button states
+    document.getElementById('stain-type-he')?.classList.toggle('btn-primary', type === 'HE');
+    document.getElementById('stain-type-hdab')?.classList.toggle('btn-primary', type === 'HDAB');
+    
+    // Update labels based on stain type
+    const stainInfo = colorCorrection.getStainInfo();
+    const stain1Label = document.getElementById('stain1-label');
+    const stain2Label = document.getElementById('stain2-label');
+    const stain2BtnLabel = document.getElementById('stain2-btn-label');
+    const eIntensity = document.getElementById('e-intensity');
+    
+    if (stain1Label) stain1Label.textContent = stainInfo.label1;
+    if (stain2Label) {
+        stain2Label.textContent = stainInfo.label2;
+        stain2Label.style.color = type === 'HDAB' ? '#8B4513' : '#E8B4B8';  // Brown for DAB, pink for E
+    }
+    if (stain2BtnLabel) stain2BtnLabel.textContent = stainInfo.label2 + ' Only';
+    if (eIntensity) eIntensity.textContent = `${stainInfo.label2}: 1.00`;
+    
+    // Reset balance slider
+    const balanceSlider = document.getElementById('stain-balance-slider');
+    if (balanceSlider) balanceSlider.value = 0;
+    
+    updateStainUI();
+}
+
+/**
+ * Set stain view mode (combined, hematoxylin, eosin/dab)
  */
 function setStainView(mode) {
     if (!colorCorrection) return;
@@ -898,16 +932,13 @@ function setStainView(mode) {
     colorCorrection.setStainViewMode(mode);
     
     // Update button states
-    ['combined', 'hematoxylin', 'eosin'].forEach(m => {
-        const btn = document.getElementById(`view-${m === 'hematoxylin' ? 'h-only' : m === 'eosin' ? 'e-only' : m}`);
-        if (btn) {
-            if (m === mode) {
-                btn.classList.add('btn-primary');
-            } else {
-                btn.classList.remove('btn-primary');
-            }
-        }
-    });
+    const viewCombined = document.getElementById('view-combined');
+    const viewHOnly = document.getElementById('view-h-only');
+    const viewStain2Only = document.getElementById('view-stain2-only');
+    
+    if (viewCombined) viewCombined.classList.toggle('btn-primary', mode === 'combined');
+    if (viewHOnly) viewHOnly.classList.toggle('btn-primary', mode === 'hematoxylin');
+    if (viewStain2Only) viewStain2Only.classList.toggle('btn-primary', mode === 'eosin' || mode === 'dab');
 }
 
 /**
@@ -917,6 +948,7 @@ function updateStainUI() {
     if (!colorCorrection) return;
     
     const settings = colorCorrection.getSettings();
+    const stainInfo = colorCorrection.getStainInfo();
     const toggleBtn = document.getElementById('stain-toggle-btn');
     const controls = document.getElementById('stain-controls');
     
@@ -930,21 +962,32 @@ function updateStainUI() {
         controls.style.pointerEvents = settings.stainEnabled ? 'auto' : 'none';
     }
     
+    // Update stain type buttons
+    const stainType = settings.stainParams.stainType || 'HE';
+    document.getElementById('stain-type-he')?.classList.toggle('btn-primary', stainType === 'HE');
+    document.getElementById('stain-type-hdab')?.classList.toggle('btn-primary', stainType === 'HDAB');
+    
+    // Update labels
+    const stain2Label = document.getElementById('stain2-label');
+    const stain2BtnLabel = document.getElementById('stain2-btn-label');
+    if (stain2Label) {
+        stain2Label.textContent = stainInfo.label2;
+        stain2Label.style.color = stainType === 'HDAB' ? '#8B4513' : '#E8B4B8';
+    }
+    if (stain2BtnLabel) stain2BtnLabel.textContent = stainInfo.label2 + ' Only';
+    
     // Update balance slider
-    // Convert H/E values back to balance: balance = E - H (when both are 0-2 range)
     const h = settings.stainParams.hematoxylin;
     const e = settings.stainParams.eosin;
-    const balance = e - h;  // -1 to +1 range
+    const balance = e - h;
     
     const balanceSlider = document.getElementById('stain-balance-slider');
     const hDisplay = document.getElementById('h-intensity');
     const eDisplay = document.getElementById('e-intensity');
     
     if (balanceSlider) balanceSlider.value = balance;
-    if (hDisplay) hDisplay.textContent = `H: ${h.toFixed(2)}`;
-    if (eDisplay) eDisplay.textContent = `E: ${e.toFixed(2)}`;
-    if (hValue) hValue.textContent = settings.stainParams.hematoxylin.toFixed(2);
-    if (eValue) eValue.textContent = settings.stainParams.eosin.toFixed(2);
+    if (hDisplay) hDisplay.textContent = `${stainInfo.label1}: ${h.toFixed(2)}`;
+    if (eDisplay) eDisplay.textContent = `${stainInfo.label2}: ${e.toFixed(2)}`;
     
     // Update view mode buttons
     setStainView(settings.stainParams.viewMode);
