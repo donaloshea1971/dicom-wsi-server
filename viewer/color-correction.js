@@ -51,10 +51,11 @@ class ColorCorrectionFilter {
                 label2: 'E',
             },
             // H-DAB (Hematoxylin + DAB for IHC)
+            // Standard vectors from ImageJ Color Deconvolution plugin (Ruifrok & Johnston)
             HDAB: {
                 stain1: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
-                stain2: [0.270, 0.570, 0.780],   // DAB (brown)
-                residual: [0.000, 0.000, 0.000], // Derived at runtime (needs full-rank 3x3 for inversion)
+                stain2: [0.268, 0.570, 0.776],   // DAB (brown) - CORRECT ImageJ values
+                residual: [0.636, -0.710, 0.302], // Standard 3rd vector (NOT cross-product)
                 label1: 'H',
                 label2: 'DAB',
             },
