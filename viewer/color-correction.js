@@ -867,9 +867,9 @@ class ColorCorrectionFilter {
             }
         `;
         
-        // Compile shaders
-        const vs = this._compileShader(gl, gl.VERTEX_SHADER, vsSource);
-        const fs = this._compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+        // Compile shaders (using _compileStainShader to avoid name collision with ICC shader)
+        const vs = this._compileStainShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fs = this._compileStainShader(gl, gl.FRAGMENT_SHADER, fsSource);
         
         if (!vs || !fs) {
             console.warn('🔬 Shader compilation failed, falling back to CPU');
@@ -931,9 +931,10 @@ class ColorCorrectionFilter {
     }
     
     /**
-     * Compile a WebGL shader
+     * Compile a WebGL shader for stain deconvolution
+     * (Named differently to avoid collision with ICC _compileShader)
      */
-    _compileShader(gl, type, source) {
+    _compileStainShader(gl, type, source) {
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
