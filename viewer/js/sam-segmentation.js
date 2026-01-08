@@ -502,21 +502,41 @@
       const h = state.cached.captureH;
 
       // Build prompt inputs via processor
-      // Standard Transformers.js SAM format: [batch][points][coords]
+      // SAM tensor shapes: input_points 4D [batch][point_batch][points][2], input_labels 3D [batch][point_batch][points]
+      // Coordinates should be normalized (0-1) relative to image dimensions
       let inputs;
-      console.log('[SAM] Processing prompt:', prompt);
+      console.log('[SAM] Processing prompt:', prompt, 'image size:', w, 'x', h);
+      
       if (prompt.type === 'point') {
-        const pointsArray = [[[prompt.x, prompt.y]]];  // 3D as per docs
-        const labelsArray = [[prompt.label]];          // 2D
-        console.log('[SAM] input_points:', JSON.stringify(pointsArray));
-        console.log('[SAM] input_labels:', JSON.stringify(labelsArray));
+        // Normalize coordinates to 0-1 range
+        const normX = prompt.x / w;
+        const normY = prompt.y / h;
+        
+        // 4D for points: [batch][point_batch][points][coords]
+        const pointsArray = [[[[normX, normY]]]];
+        // 3D for labels: [batch][point_batch][points]  
+        const labelsArray = [[[prompt.label]]];
+        
+        console.log('[SAM] Normalized point:', normX.toFixed(3), normY.toFixed(3));
+        console.log('[SAM] input_points (4D):', JSON.stringify(pointsArray));
+        console.log('[SAM] input_labels (3D):', JSON.stringify(labelsArray));
+        
         inputs = await state.processor(imageForProcessor, {
           input_points: pointsArray,
           input_labels: labelsArray,
         });
       } else if (prompt.type === 'box') {
-        const boxArray = [[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]];
-        console.log('[SAM] input_boxes:', JSON.stringify(boxArray));
+        // Normalize box coordinates
+        const normX0 = prompt.x0 / w;
+        const normY0 = prompt.y0 / h;
+        const normX1 = prompt.x1 / w;
+        const normY1 = prompt.y1 / h;
+        
+        // 3D for boxes: [batch][boxes][coords]
+        const boxArray = [[[normX0, normY0, normX1, normY1]]];
+        console.log('[SAM] Normalized box:', normX0.toFixed(3), normY0.toFixed(3), normX1.toFixed(3), normY1.toFixed(3));
+        console.log('[SAM] input_boxes (3D):', JSON.stringify(boxArray));
+        
         inputs = await state.processor(imageForProcessor, {
           input_boxes: boxArray,
         });
