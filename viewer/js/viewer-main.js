@@ -746,8 +746,8 @@ function toggleGamma() {
 function updateGammaBadge() {
     const badge = document.getElementById('gamma-badge');
     if (!badge) return;
-    if (colorCorrection && colorCorrection.isEnabled()) {
-        const params = colorCorrection.getParams();
+    if (colorCorrection && colorCorrection.enabled) {
+        const params = colorCorrection.params || { gamma: 1.0 };
         badge.textContent = `γ ${params.gamma.toFixed(1)}`;
         badge.style.display = 'block';
     } else {
