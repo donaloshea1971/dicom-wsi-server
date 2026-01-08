@@ -290,12 +290,36 @@ async function toggleSpaceNavigator() {
  */
 async function connectSpaceMouse() {
     if (typeof SpaceNavigatorController === 'undefined') return;
-    spaceNavController = new SpaceNavigatorController(viewer);
+
+    // In compare mode, reconnect to the currently active viewer so right/left behaves consistently.
+    const targetViewer = (typeof compareMode !== 'undefined' && compareMode && typeof activeViewer !== 'undefined' && activeViewer === 2 && typeof viewer2 !== 'undefined' && viewer2)
+        ? viewer2
+        : viewer;
+
+    spaceNavController = new SpaceNavigatorController(targetViewer);
     spaceNavController.onStatusChange = (status) => {
         if (status === 'connected') updateSpaceNavButton(true, spaceNavController.getConnectionMode());
         else updateSpaceNavButton(false);
     };
+
+    // Mirror viewer-main behavior: in compare mode, SpaceMouse buttons switch active pane.
+    spaceNavController.onButtonPress = function(evt) {
+        if (!evt.pressed) return;
+        if (typeof compareMode !== 'undefined' && compareMode && typeof viewer2 !== 'undefined' && viewer2) {
+            if (evt.button === 'left' && typeof setActiveViewer === 'function') setActiveViewer(1);
+            else if (evt.button === 'right' && typeof setActiveViewer === 'function') setActiveViewer(2);
+        } else {
+            if (evt.button === 'left' && typeof previousStudy === 'function') previousStudy();
+            else if (evt.button === 'right' && typeof nextStudy === 'function') nextStudy();
+        }
+    };
+
     await spaceNavController.connect();
+
+    // Ensure controller points at the active viewer after connection.
+    if (typeof compareMode !== 'undefined' && compareMode && typeof setActiveViewer === 'function') {
+        setActiveViewer(typeof activeViewer !== 'undefined' ? activeViewer : 1);
+    }
 }
 
 /**

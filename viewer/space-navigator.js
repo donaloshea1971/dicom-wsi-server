@@ -2,10 +2,10 @@
  * Space Navigator Controller for OpenSeadragon
  * Integrates 3Dconnexion Space Navigator 6DOF input with WSI viewer
  * Supports: WebHID API (Chrome/Edge preferred), Gamepad API (Chrome fallback)
- * @version 1.20.1
+ * @version 1.20.2
  */
 
-const SPACEMOUSE_VERSION = '1.20.1';
+const SPACEMOUSE_VERSION = '1.20.2';
 console.log(`%c🎮 SpaceMouse module v${SPACEMOUSE_VERSION} loaded`, 'color: #6366f1');
 
 // Preferences storage key
@@ -164,6 +164,10 @@ class SpaceNavigatorController {
         
         // Event suppression handlers (to block 3Dconnexion driver popups)
         this._suppressHandlers = null;
+
+        // Track scroll-to-zoom setting per viewer so compare mode behaves consistently.
+        // Key: OpenSeadragon Viewer instance, Value: previous scrollToZoom setting.
+        this._scrollZoomByViewer = new Map();
     }
 
     /**
@@ -1406,26 +1410,36 @@ class SpaceNavigatorController {
      * Mouse pan and drag still work
      */
     _disableScrollZoom() {
-        if (!this.viewer) return;
-        
-        // Save current scroll zoom setting
-        if (this.viewer.gestureSettingsMouse) {
-            this._savedScrollZoom = this.viewer.gestureSettingsMouse.scrollToZoom;
-            this.viewer.gestureSettingsMouse.scrollToZoom = false;
-            console.log('SpaceMouse: Scroll zoom disabled (blocking driver wheel events)');
+        this._disableScrollZoomFor(this.viewer);
+    }
+
+    _disableScrollZoomFor(viewer) {
+        if (!viewer || !viewer.gestureSettingsMouse) return;
+
+        // Only save once per viewer; we may switch between viewers in compare mode.
+        if (!this._scrollZoomByViewer.has(viewer)) {
+            this._scrollZoomByViewer.set(viewer, viewer.gestureSettingsMouse.scrollToZoom);
         }
+        viewer.gestureSettingsMouse.scrollToZoom = false;
+        console.log('SpaceMouse: Scroll zoom disabled (blocking driver wheel events)');
     }
     
     /**
      * Re-enable scroll-to-zoom
      */
     _enableScrollZoom() {
-        if (!this.viewer) return;
-        
-        if (this.viewer.gestureSettingsMouse) {
-            this.viewer.gestureSettingsMouse.scrollToZoom = this._savedScrollZoom ?? true;
-            console.log('SpaceMouse: Scroll zoom re-enabled');
+        // Restore on *all* viewers we touched (important in compare mode).
+        if (this._scrollZoomByViewer.size === 0) return;
+
+        for (const [viewer, saved] of this._scrollZoomByViewer.entries()) {
+            try {
+                if (viewer && viewer.gestureSettingsMouse) {
+                    viewer.gestureSettingsMouse.scrollToZoom = saved ?? true;
+                }
+            } catch (e) {}
         }
+        this._scrollZoomByViewer.clear();
+        console.log('SpaceMouse: Scroll zoom re-enabled');
     }
     
     /**
@@ -1511,6 +1525,11 @@ class SpaceNavigatorController {
             }
             // Re-create in new viewer
             this.showCrosshair();
+        }
+
+        // Keep driver wheel events suppressed on the active viewer too.
+        if (this.connected) {
+            this._disableScrollZoomFor(newViewer);
         }
     }
     
