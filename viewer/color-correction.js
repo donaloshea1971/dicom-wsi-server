@@ -739,10 +739,10 @@ class ColorCorrectionFilter {
     }
     
     /**
-     * Initialize stain deconvolution with canvas overlay
+     * Initialize stain deconvolution with GPU-accelerated WebGL
      */
     _initStainDeconvolution() {
-        // Create overlay canvas for deconvolution output
+        // Create WebGL canvas overlay
         if (!this.stainCanvas) {
             this.stainCanvas = document.createElement('canvas');
             this.stainCanvas.id = 'stain-deconv-canvas';
@@ -761,97 +761,272 @@ class ColorCorrectionFilter {
             this.viewerElement.appendChild(this.stainCanvas);
         }
         
-        // Precompute inverse stain matrix (Ruifrok H&E)
-        this._computeInverseStainMatrix();
+        // Initialize WebGL context
+        this._initStainWebGL();
         
         // Hook into viewer updates
         if (this.viewer) {
             this._stainUpdateHandler = () => this._applyStainDeconvolution();
             this.viewer.addHandler('animation-finish', this._stainUpdateHandler);
             this.viewer.addHandler('open', this._stainUpdateHandler);
+            this.viewer.addHandler('update-viewport', this._stainUpdateHandler);
             // Initial render
             setTimeout(() => this._applyStainDeconvolution(), 100);
         }
         
-        console.log('🔬 Stain deconvolution initialized with canvas overlay');
+        console.log('🔬 Stain deconvolution initialized (WebGL GPU-accelerated)');
     }
     
     /**
-     * Compute inverse of stain matrix for deconvolution
-     * Using Ruifrok & Johnston standard H&E vectors
+     * Initialize WebGL for GPU-accelerated deconvolution
      */
-    _computeInverseStainMatrix() {
-        // Normalized stain vectors (optical density)
-        // H: Hematoxylin (blue-purple, stains nuclei)
-        // E: Eosin (pink, stains cytoplasm)
-        const M = [
-            [0.650, 0.072, 0.268],  // R channel contributions from H, E, residual
-            [0.704, 0.990, 0.570],  // G channel
-            [0.286, 0.105, 0.776],  // B channel
-        ];
+    _initStainWebGL() {
+        const gl = this.stainCanvas.getContext('webgl', { 
+            preserveDrawingBuffer: true,
+            premultipliedAlpha: false 
+        });
         
-        // Compute inverse using Gaussian elimination (3x3)
-        this.invStainMatrix = this._invertMatrix3x3(M);
-        console.log('🔬 Inverse stain matrix computed');
-    }
-    
-    /**
-     * Invert a 3x3 matrix
-     */
-    _invertMatrix3x3(m) {
-        const det = 
-            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
-            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-        
-        if (Math.abs(det) < 1e-10) {
-            console.warn('🔬 Stain matrix is singular, using identity');
-            return [[1,0,0], [0,1,0], [0,0,1]];
+        if (!gl) {
+            console.warn('🔬 WebGL not available, falling back to CPU');
+            this.stainWebGL = null;
+            return;
         }
         
-        const invDet = 1 / det;
-        return [
-            [
-                (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * invDet,
-                (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * invDet,
-                (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * invDet
-            ],
-            [
-                (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * invDet,
-                (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * invDet,
-                (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * invDet
-            ],
-            [
-                (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * invDet,
-                (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * invDet,
-                (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * invDet
-            ]
-        ];
+        // Vertex shader - simple fullscreen quad
+        const vsSource = `
+            attribute vec2 a_position;
+            attribute vec2 a_texCoord;
+            varying vec2 v_texCoord;
+            void main() {
+                gl_Position = vec4(a_position, 0.0, 1.0);
+                v_texCoord = a_texCoord;
+            }
+        `;
+        
+        // Fragment shader - Ruifrok H&E deconvolution
+        const fsSource = `
+            precision highp float;
+            
+            uniform sampler2D u_image;
+            varying vec2 v_texCoord;
+            
+            // Stain parameters
+            uniform float u_hematoxylin;
+            uniform float u_eosin;
+            uniform int u_viewMode; // 0=combined, 1=H only, 2=E only
+            
+            // Inverse stain matrix (precomputed Ruifrok H&E)
+            // Computed from M = [[0.650, 0.072, 0.268], [0.704, 0.990, 0.570], [0.286, 0.105, 0.776]]
+            const mat3 invStainMatrix = mat3(
+                1.87798274, -1.00767869,  0.14539618,
+               -0.06590806,  1.13473037, -0.13943433,
+               -0.60190736, -0.48041808,  1.57358807
+            );
+            
+            // Forward stain matrix for reconstruction
+            const vec3 stainH = vec3(0.650, 0.704, 0.286);
+            const vec3 stainE = vec3(0.072, 0.990, 0.105);
+            const vec3 stainR = vec3(0.268, 0.570, 0.776);
+            
+            void main() {
+                vec4 color = texture2D(u_image, v_texCoord);
+                
+                // Convert RGB to optical density
+                // OD = -log10(I), where I is normalized [0,1]
+                // Use max to avoid log(0)
+                vec3 od = -log(max(color.rgb, 0.004)) / log(10.0);
+                
+                // Apply inverse stain matrix to get concentrations
+                vec3 concentrations = invStainMatrix * od;
+                
+                // Clamp negative concentrations
+                concentrations = max(concentrations, 0.0);
+                
+                // Apply user adjustments
+                float cH = concentrations.x * u_hematoxylin;
+                float cE = concentrations.y * u_eosin;
+                float cR = concentrations.z;
+                
+                // Reconstruct based on view mode
+                vec3 finalOD;
+                if (u_viewMode == 1) {
+                    // Hematoxylin only
+                    finalOD = stainH * cH;
+                } else if (u_viewMode == 2) {
+                    // Eosin only
+                    finalOD = stainE * cE;
+                } else {
+                    // Combined
+                    finalOD = stainH * cH + stainE * cE + stainR * cR;
+                }
+                
+                // Convert back from OD to RGB
+                // I = 10^(-OD)
+                vec3 finalRGB = pow(vec3(10.0), -finalOD);
+                
+                gl_FragColor = vec4(clamp(finalRGB, 0.0, 1.0), color.a);
+            }
+        `;
+        
+        // Compile shaders
+        const vs = this._compileShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fs = this._compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+        
+        if (!vs || !fs) {
+            console.warn('🔬 Shader compilation failed, falling back to CPU');
+            this.stainWebGL = null;
+            return;
+        }
+        
+        // Link program
+        const program = gl.createProgram();
+        gl.attachShader(program, vs);
+        gl.attachShader(program, fs);
+        gl.linkProgram(program);
+        
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('🔬 Program link failed:', gl.getProgramInfoLog(program));
+            this.stainWebGL = null;
+            return;
+        }
+        
+        // Set up buffers
+        const positions = new Float32Array([
+            -1, -1,   1, -1,   -1, 1,
+            -1,  1,   1, -1,    1, 1,
+        ]);
+        const texCoords = new Float32Array([
+            0, 1,   1, 1,   0, 0,
+            0, 0,   1, 1,   1, 0,
+        ]);
+        
+        const posBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+        
+        const texBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STATIC_DRAW);
+        
+        // Get locations
+        const posLoc = gl.getAttribLocation(program, 'a_position');
+        const texLoc = gl.getAttribLocation(program, 'a_texCoord');
+        
+        this.stainWebGL = {
+            gl,
+            program,
+            posBuffer,
+            texBuffer,
+            posLoc,
+            texLoc,
+            uniforms: {
+                image: gl.getUniformLocation(program, 'u_image'),
+                hematoxylin: gl.getUniformLocation(program, 'u_hematoxylin'),
+                eosin: gl.getUniformLocation(program, 'u_eosin'),
+                viewMode: gl.getUniformLocation(program, 'u_viewMode'),
+            },
+            texture: gl.createTexture(),
+        };
+        
+        console.log('🔬 WebGL stain shader compiled successfully');
     }
     
     /**
-     * Apply color deconvolution to viewer canvas
-     * This is the core Ruifrok algorithm
+     * Compile a WebGL shader
+     */
+    _compileShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('🔬 Shader compile error:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+    
+    /**
+     * Apply color deconvolution using WebGL (GPU) or fallback to CPU
      */
     _applyStainDeconvolution() {
         if (!this.stainEnabled || !this.viewer || !this.stainCanvas) return;
         
         const sourceCanvas = this.viewer.drawer.canvas;
-        if (!sourceCanvas) return;
+        if (!sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) return;
         
+        // Resize overlay canvas
+        if (this.stainCanvas.width !== sourceCanvas.width || 
+            this.stainCanvas.height !== sourceCanvas.height) {
+            this.stainCanvas.width = sourceCanvas.width;
+            this.stainCanvas.height = sourceCanvas.height;
+        }
+        
+        if (this.stainWebGL) {
+            this._applyStainWebGL(sourceCanvas);
+        } else {
+            this._applyStainCPU(sourceCanvas);
+        }
+        
+        this.stainCanvas.style.display = 'block';
+    }
+    
+    /**
+     * GPU-accelerated deconvolution via WebGL
+     */
+    _applyStainWebGL(sourceCanvas) {
+        const { gl, program, posBuffer, texBuffer, posLoc, texLoc, uniforms, texture } = this.stainWebGL;
+        
+        gl.viewport(0, 0, this.stainCanvas.width, this.stainCanvas.height);
+        gl.useProgram(program);
+        
+        // Upload source canvas as texture
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        
+        try {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas);
+        } catch (e) {
+            console.warn('🔬 Cannot upload canvas texture (CORS?):', e.message);
+            return;
+        }
+        
+        // Set uniforms
+        gl.uniform1i(uniforms.image, 0);
+        gl.uniform1f(uniforms.hematoxylin, this.stainParams.hematoxylin);
+        gl.uniform1f(uniforms.eosin, this.stainParams.eosin);
+        
+        const viewModeMap = { 'combined': 0, 'hematoxylin': 1, 'eosin': 2 };
+        gl.uniform1i(uniforms.viewMode, viewModeMap[this.stainParams.viewMode] || 0);
+        
+        // Set up attributes
+        gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+        gl.enableVertexAttribArray(texLoc);
+        gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        // Draw
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    
+    /**
+     * CPU fallback for deconvolution (slower but always works)
+     */
+    _applyStainCPU(sourceCanvas) {
         const width = sourceCanvas.width;
         const height = sourceCanvas.height;
-        
-        if (width === 0 || height === 0) return;
-        
-        // Resize overlay canvas to match
-        this.stainCanvas.width = width;
-        this.stainCanvas.height = height;
         
         const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
         const destCtx = this.stainCanvas.getContext('2d');
         
-        // Get source image data
         let imageData;
         try {
             imageData = sourceCtx.getImageData(0, 0, width, height);
@@ -861,69 +1036,54 @@ class ColorCorrectionFilter {
         }
         
         const data = imageData.data;
-        const inv = this.invStainMatrix;
         const H = this.stainParams.hematoxylin;
         const E = this.stainParams.eosin;
         const mode = this.stainParams.viewMode;
         
-        // Process each pixel
+        // Inverse stain matrix (same as shader)
+        const inv = [
+            [1.87798274, -1.00767869, 0.14539618],
+            [-0.06590806, 1.13473037, -0.13943433],
+            [-0.60190736, -0.48041808, 1.57358807]
+        ];
+        
         for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
+            const r = data[i] / 255;
+            const g = data[i + 1] / 255;
+            const b = data[i + 2] / 255;
             
-            // Convert RGB to optical density (OD)
-            // OD = -log10(I/255), clamped to avoid log(0)
-            const odR = -Math.log10(Math.max(r, 1) / 255);
-            const odG = -Math.log10(Math.max(g, 1) / 255);
-            const odB = -Math.log10(Math.max(b, 1) / 255);
+            // RGB to OD
+            const odR = -Math.log10(Math.max(r, 0.004));
+            const odG = -Math.log10(Math.max(g, 0.004));
+            const odB = -Math.log10(Math.max(b, 0.004));
             
-            // Apply inverse stain matrix to get stain concentrations
-            // [H, E, R] = inv(M) * [odR, odG, odB]
-            let cH = inv[0][0] * odR + inv[0][1] * odG + inv[0][2] * odB;
-            let cE = inv[1][0] * odR + inv[1][1] * odG + inv[1][2] * odB;
-            let cR = inv[2][0] * odR + inv[2][1] * odG + inv[2][2] * odB;
+            // Inverse matrix
+            let cH = Math.max(0, inv[0][0] * odR + inv[0][1] * odG + inv[0][2] * odB) * H;
+            let cE = Math.max(0, inv[1][0] * odR + inv[1][1] * odG + inv[1][2] * odB) * E;
+            let cR = Math.max(0, inv[2][0] * odR + inv[2][1] * odG + inv[2][2] * odB);
             
-            // Clamp negative concentrations
-            cH = Math.max(0, cH);
-            cE = Math.max(0, cE);
-            cR = Math.max(0, cR);
-            
-            // Apply user adjustments
-            cH *= H;
-            cE *= E;
-            
-            // Apply view mode
-            let finalOdR, finalOdG, finalOdB;
-            
+            // Reconstruct
+            let finalR, finalG, finalB;
             if (mode === 'hematoxylin') {
-                // Show only H channel
-                finalOdR = 0.650 * cH;
-                finalOdG = 0.704 * cH;
-                finalOdB = 0.286 * cH;
+                finalR = Math.pow(10, -(0.650 * cH));
+                finalG = Math.pow(10, -(0.704 * cH));
+                finalB = Math.pow(10, -(0.286 * cH));
             } else if (mode === 'eosin') {
-                // Show only E channel
-                finalOdR = 0.072 * cE;
-                finalOdG = 0.990 * cE;
-                finalOdB = 0.105 * cE;
+                finalR = Math.pow(10, -(0.072 * cE));
+                finalG = Math.pow(10, -(0.990 * cE));
+                finalB = Math.pow(10, -(0.105 * cE));
             } else {
-                // Combined - reconstruct with adjusted concentrations
-                finalOdR = 0.650 * cH + 0.072 * cE + 0.268 * cR;
-                finalOdG = 0.704 * cH + 0.990 * cE + 0.570 * cR;
-                finalOdB = 0.286 * cH + 0.105 * cE + 0.776 * cR;
+                finalR = Math.pow(10, -(0.650 * cH + 0.072 * cE + 0.268 * cR));
+                finalG = Math.pow(10, -(0.704 * cH + 0.990 * cE + 0.570 * cR));
+                finalB = Math.pow(10, -(0.286 * cH + 0.105 * cE + 0.776 * cR));
             }
             
-            // Convert back from OD to RGB
-            // I = 255 * 10^(-OD)
-            data[i] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdR)));
-            data[i + 1] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdG)));
-            data[i + 2] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdB)));
-            // Alpha unchanged
+            data[i] = Math.min(255, Math.max(0, finalR * 255));
+            data[i + 1] = Math.min(255, Math.max(0, finalG * 255));
+            data[i + 2] = Math.min(255, Math.max(0, finalB * 255));
         }
         
-        // Write to overlay canvas
         destCtx.putImageData(imageData, 0, 0);
-        this.stainCanvas.style.display = 'block';
     }
     
     /**
