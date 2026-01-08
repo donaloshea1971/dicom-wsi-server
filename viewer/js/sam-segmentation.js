@@ -619,6 +619,15 @@
   }
 
   function toggleEnabled() {
+    // If no controllers yet, still toggle UI state
+    if (controllers.size === 0) {
+      const badge = getBadgeEl();
+      const isActive = badge && badge.classList.contains('active');
+      setBadgeActive(!isActive);
+      showPanel(!isActive);
+      console.log('[SAM] Toggled UI (no viewer attached yet)');
+      return;
+    }
     const any = Array.from(controllers.values()).some(x => x.state.enabled);
     setEnabled(!any);
   }

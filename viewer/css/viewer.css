@@ -1329,13 +1329,15 @@
             color: var(--success);
         }
 
-        /* Badge group - buttons side by side */
+        /* Badge group - buttons side by side with consistent spacing */
         .badge-group {
-            display: flex;
+            display: inline-flex;
             gap: 0;
+            margin: 0 4px;
         }
         .badge-group .status-badge {
             border-radius: 0;
+            margin: 0;
         }
         .badge-group .status-badge:first-child {
             border-radius: 6px 0 0 6px;
