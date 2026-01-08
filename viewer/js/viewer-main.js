@@ -776,6 +776,20 @@ function updateColorParam(param, value) {
     }
     const numValue = parseFloat(value);
     
+    // If gamma is manually changed and ICC is on, disable ICC first
+    // (ICC controls gamma from the profile, so manual gamma = ICC off)
+    if (param === 'gamma' && iccApplied) {
+        console.log('🎨 Manual gamma change - disabling ICC');
+        colorCorrection.disableICC();
+        iccApplied = false;
+        const iccBadge = document.getElementById('icc-badge');
+        if (iccBadge) { 
+            iccBadge.style.background = ''; 
+            iccBadge.style.color = ''; 
+        }
+        updateICCStatusPanel();
+    }
+    
     // Call the specific setter method
     switch (param) {
         case 'gamma':
