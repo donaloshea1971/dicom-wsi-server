@@ -34,7 +34,7 @@ function openPerformanceEvaluation() {
 function openColorPanel() {
     const panel = document.getElementById('color-panel');
     if (panel) {
-        panel.classList.add('active');
+        panel.style.display = 'block';
         updateColorUI();
         updateICCStatusPanel();
     }
@@ -44,9 +44,8 @@ function openColorPanel() {
  * Close color correction panel
  */
 function closeColorPanel(event) {
-    if (event && event.target !== event.currentTarget) return;
     const panel = document.getElementById('color-panel');
-    if (panel) panel.classList.remove('active');
+    if (panel) panel.style.display = 'none';
 }
 
 /**

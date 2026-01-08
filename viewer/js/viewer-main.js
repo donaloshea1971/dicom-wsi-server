@@ -218,6 +218,14 @@ async function loadStudy(studyId) {
         }
 
         if (viewer) viewer.destroy();
+        
+        // Reset colorCorrection when switching images - it holds reference to old viewer
+        if (colorCorrection) {
+            // Disable active effects before destroying
+            if (colorCorrection.stainEnabled) colorCorrection.disableStainDeconvolution();
+            if (colorCorrection.focusEnabled) colorCorrection.disableFocusQuality();
+            colorCorrection = null;
+        }
 
         const baseTileWidth = pyramid.TilesSizes[0][0];
         const baseTileHeight = pyramid.TilesSizes[0][1];
@@ -389,7 +397,8 @@ async function loadStudy(studyId) {
                 if (typeof loadStudyAnnotations === 'function') loadStudyAnnotations(studyId);
             }, 500);
                 
-            if (!colorCorrection && typeof ColorCorrectionFilter !== 'undefined') {
+            // Always create fresh colorCorrection for new viewer
+            if (typeof ColorCorrectionFilter !== 'undefined') {
                 colorCorrection = new ColorCorrectionFilter(viewer);
                 colorCorrection.initialize();
             }

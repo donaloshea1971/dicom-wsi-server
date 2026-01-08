@@ -331,48 +331,47 @@
         </div>
     </div>
 
-    <div id="color-panel" class="modal-overlay" onclick="closeColorPanel(event)">
-        <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 400px;">
-            <div class="modal-header">
-                <h3>🎨 Color Correction</h3>
-                <button class="modal-close" onclick="closeColorPanel()">&times;</button>
+    <!-- Color Correction Panel (side panel - no overlay) -->
+    <div id="color-panel" style="display: none; position: fixed; top: 80px; left: 20px; width: 320px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 1001;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <h3 style="margin: 0; font-size: 14px; color: var(--text-primary);">🎨 Display Settings</h3>
+            <button onclick="closeColorPanel()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 20px; padding: 0;">&times;</button>
+        </div>
+        <div style="padding: 20px; max-height: calc(100vh - 200px); overflow-y: auto;">
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">PRESET</label>
+                <select id="color-preset" onchange="applyColorPreset(this.value)" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary);">
+                    <option value="sRGB">sRGB (Standard)</option>
+                    <option value="Hamamatsu">Hamamatsu NDPI (γ 2.2)</option>
+                    <option value="Linear">Linear (No correction)</option>
+                    <option value="Vivid">Vivid (Enhanced)</option>
+                    <option value="Muted">Muted (Reduced)</option>
+                </select>
             </div>
-            <div class="modal-body" style="padding: 20px;">
-                <div style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">PRESET</label>
-                    <select id="color-preset" onchange="applyColorPreset(this.value)" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary);">
-                        <option value="sRGB">sRGB (Standard)</option>
-                        <option value="Hamamatsu">Hamamatsu NDPI (γ 2.2)</option>
-                        <option value="Linear">Linear (No correction)</option>
-                        <option value="Vivid">Vivid (Enhanced)</option>
-                        <option value="Muted">Muted (Reduced)</option>
-                    </select>
-                </div>
-                <div style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">GAMMA: <span id="gamma-value">1.0</span></label>
-                    <input type="range" id="gamma-slider" min="0.2" max="3.0" step="0.1" value="1.0" oninput="updateColorParam('gamma', this.value)" style="width: 100%;">
-                </div>
-                <div style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">BRIGHTNESS: <span id="brightness-value">0</span></label>
-                    <input type="range" id="brightness-slider" min="-0.5" max="0.5" step="0.05" value="0" oninput="updateColorParam('brightness', this.value)" style="width: 100%;">
-                </div>
-                <div style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">CONTRAST: <span id="contrast-value">1.0</span></label>
-                    <input type="range" id="contrast-slider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateColorParam('contrast', this.value)" style="width: 100%;">
-                </div>
-                <div style="margin-bottom: 16px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">SATURATION: <span id="saturation-value">1.0</span></label>
-                    <input type="range" id="saturation-slider" min="0" max="2.0" step="0.1" value="1.0" oninput="updateColorParam('saturation', this.value)" style="width: 100%;">
-                </div>
-                
-                <div id="icc-status-panel" style="margin-top: 16px; padding: 10px; background: var(--bg-primary); border-radius: 6px; font-size: 11px; color: var(--text-secondary); display: none;">
-                    <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
-                </div>
-                <div style="display: flex; gap: 8px; margin-top: 20px;">
-                    <button class="btn" onclick="openAnalysisPanel()" style="flex: 1;" title="Stain deconvolution & focus analysis">🔬 Analysis</button>
-                    <button class="btn" onclick="resetColorCorrection()" style="flex: 1;">Reset</button>
-                    <button class="btn btn-primary" onclick="closeColorPanel()" style="flex: 1;">Done</button>
-                </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">GAMMA: <span id="gamma-value">1.0</span></label>
+                <input type="range" id="gamma-slider" min="0.2" max="3.0" step="0.1" value="1.0" oninput="updateColorParam('gamma', this.value)" style="width: 100%;">
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">BRIGHTNESS: <span id="brightness-value">0</span></label>
+                <input type="range" id="brightness-slider" min="-0.5" max="0.5" step="0.05" value="0" oninput="updateColorParam('brightness', this.value)" style="width: 100%;">
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">CONTRAST: <span id="contrast-value">1.0</span></label>
+                <input type="range" id="contrast-slider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateColorParam('contrast', this.value)" style="width: 100%;">
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px;">SATURATION: <span id="saturation-value">1.0</span></label>
+                <input type="range" id="saturation-slider" min="0" max="2.0" step="0.1" value="1.0" oninput="updateColorParam('saturation', this.value)" style="width: 100%;">
+            </div>
+            
+            <div id="icc-status-panel" style="margin-top: 16px; padding: 10px; background: var(--bg-primary); border-radius: 6px; font-size: 11px; color: var(--text-secondary); display: none;">
+                <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 20px;">
+                <button class="btn" onclick="openAnalysisPanel()" style="flex: 1;" title="Stain deconvolution & focus analysis">🔬 Analysis</button>
+                <button class="btn" onclick="resetColorCorrection()" style="flex: 1;">Reset</button>
+                <button class="btn btn-primary" onclick="closeColorPanel()" style="flex: 1;">Done</button>
             </div>
         </div>
     </div>
@@ -522,9 +521,9 @@
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.10.0"></script>
+    <script src="js/viewer-main.js?v=1.11.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
-    <script src="js/ui-controllers.js?v=1.2.0"></script>
+    <script src="js/ui-controllers.js?v=1.2.1"></script>
 
     <script>
         // Global variables required by multiple modules
