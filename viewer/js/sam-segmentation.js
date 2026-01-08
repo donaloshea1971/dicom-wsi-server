@@ -63,6 +63,24 @@
     return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   }
 
+  // Status UI helpers
+  function updateStatus(icon, text, showProgress = false, progress = 0) {
+    const iconEl = document.getElementById('segment-status-icon');
+    const textEl = document.getElementById('segment-status-text');
+    const progressEl = document.getElementById('segment-progress');
+    const progressBar = document.getElementById('segment-progress-bar');
+    
+    if (iconEl) iconEl.textContent = icon;
+    if (textEl) textEl.textContent = text;
+    if (progressEl) progressEl.style.display = showProgress ? 'block' : 'none';
+    if (progressBar) progressBar.style.width = `${progress}%`;
+  }
+
+  function isViewportLocked() {
+    const checkbox = document.getElementById('segment-lock-viewport');
+    return checkbox && checkbox.checked;
+  }
+
   async function loadTransformers() {
     const mod = await import(TRANSFORMERS_ESM_URL);
     // Configure runtime for browser
@@ -81,16 +99,20 @@
   async function ensureSamLoaded(state) {
     if (state._samReady) return state._samReady;
     state._samReady = (async () => {
+      updateStatus('⏳', 'Loading AI library...', true, 10);
       const { SamModel, AutoProcessor } = await loadTransformers();
       state._SamModel = SamModel;
       state._AutoProcessor = AutoProcessor;
 
       const t0 = safeNow();
+      updateStatus('📥', 'Downloading SAM model (~50MB)...', true, 30);
       state.processor = await AutoProcessor.from_pretrained(HF_MODEL_ID);
+      updateStatus('📥', 'Loading model weights...', true, 70);
       state.model = await SamModel.from_pretrained(HF_MODEL_ID);
       const t1 = safeNow();
 
       state.lastTimings.loadMs = Math.round(t1 - t0);
+      updateStatus('✅', `Model ready (loaded in ${(state.lastTimings.loadMs/1000).toFixed(1)}s)`, false);
       log('Model loaded in', state.lastTimings.loadMs, 'ms');
       return true;
     })();
@@ -277,10 +299,12 @@
     try {
       await ensureSamLoaded(state);
 
+      updateStatus('🔄', 'Analyzing viewport...', true, 50);
       const t0 = safeNow();
       const cap = await captureViewportCanvas(viewer, state, key);
 
       // Processor call (best-effort)
+      updateStatus('🧠', 'Computing embeddings...', true, 70);
       const inputs = await state.processor(cap);
 
       // Try explicit embedding APIs first.
@@ -312,6 +336,7 @@
       state._navDirty = false;
       const t1 = safeNow();
       state.lastTimings.encodeMs = Math.round(t1 - t0);
+      updateStatus('✅', `Ready! Click to segment (encode: ${state.lastTimings.encodeMs}ms)`, false);
       updatePanelStats(state);
       log('Encoded viewport in', state.lastTimings.encodeMs, 'ms');
     } finally {
@@ -420,6 +445,8 @@
     try {
       const errEl = document.getElementById('segment-error');
       if (errEl) errEl.textContent = '';
+      
+      updateStatus('✂️', 'Segmenting...', true, 80);
       await ensureSamLoaded(state);
 
       // Ensure embedding exists (or compute it)
@@ -492,6 +519,7 @@
 
       const t1 = safeNow();
       state.lastTimings.decodeMs = Math.round(t1 - t0);
+      updateStatus('✅', `Mask generated (${state.lastTimings.decodeMs}ms) - click again or Clear`, false);
       updatePanelStats(state);
     } finally {
       state._decoding = false;
@@ -510,8 +538,15 @@
     // Mark dirty on navigation and schedule encode after settle
     const onNav = () => {
       if (!state.enabled) return;
+      
+      // If viewport is locked, prevent navigation changes from affecting segmentation
+      if (isViewportLocked()) {
+        return; // Keep current mask/embedding
+      }
+      
       state._navDirty = true;
       clearMask(viewer, state, key);
+      updateStatus('🔄', 'View changed - re-analyzing...', true, 30);
       scheduleEncode(viewer, state, key);
     };
     viewer.addHandler('pan', onNav);
@@ -603,6 +638,12 @@
     const on = !!enabled;
     setBadgeActive(on);
     showPanel(on);
+
+    if (on) {
+      updateStatus('⏳', 'Initializing AI segmentation...', true, 5);
+    } else {
+      updateStatus('⏸️', 'Segmentation disabled', false);
+    }
 
     // Apply to all controllers
     for (const [key, entry] of controllers.entries()) {

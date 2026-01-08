@@ -164,12 +164,31 @@
                 </div>
             </div>
             <div class="segment-panel-body">
-                <div class="segment-hints">
-                    <div><strong>Click</strong>: segment object</div>
-                    <div><strong>Alt+Click</strong>: negative prompt</div>
-                    <div><strong>Shift+Drag</strong>: box prompt</div>
+                <!-- Status indicator -->
+                <div id="segment-status" style="padding: 10px; margin-bottom: 12px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;">
+                    <div id="segment-status-icon" style="display: inline-block; margin-right: 8px;">⏸️</div>
+                    <span id="segment-status-text">Click ✂️ badge to enable</span>
+                    <div id="segment-progress" style="display: none; margin-top: 8px;">
+                        <div style="height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;">
+                            <div id="segment-progress-bar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.3s;"></div>
+                        </div>
+                    </div>
                 </div>
-                <div id="segment-stats" class="segment-stats">idle</div>
+                
+                <!-- Lock viewport toggle -->
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px; background: var(--bg-primary); border-radius: 6px;">
+                    <input type="checkbox" id="segment-lock-viewport" style="width: 16px; height: 16px;">
+                    <label for="segment-lock-viewport" style="font-size: 11px; color: var(--text-secondary); cursor: pointer;">
+                        🔒 Lock viewport (prevent pan/zoom)
+                    </label>
+                </div>
+                
+                <div class="segment-hints" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
+                    <div><strong>Click</strong>: segment object</div>
+                    <div><strong>Alt+Click</strong>: exclude area</div>
+                    <div><strong>Shift+Drag</strong>: box selection</div>
+                </div>
+                <div id="segment-stats" class="segment-stats" style="font-size: 10px; color: var(--text-secondary);"></div>
                 <div id="segment-error" class="segment-error"></div>
             </div>
         </div>
@@ -542,7 +561,7 @@
     <script src="color-correction.js?v=2.5.0"></script>
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
-    <script src="js/sam-segmentation.js?v=0.2.0"></script>
+    <script src="js/sam-segmentation.js?v=0.3.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
