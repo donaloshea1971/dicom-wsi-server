@@ -1099,6 +1099,7 @@ let deleteSlideName = null;
  * Show confirmation dialog for deleting a slide
  */
 function confirmDeleteSlide(slideId, slideName) {
+    console.log('🗑️ confirmDeleteSlide called:', slideId, slideName);
     deleteSlideId = slideId;
     deleteSlideName = slideName;
     
@@ -1108,7 +1109,7 @@ function confirmDeleteSlide(slideId, slideName) {
     
     const dialog = document.createElement('div');
     dialog.id = 'delete-confirm-dialog';
-    dialog.className = 'modal-overlay';
+    dialog.className = 'modal-overlay active';  // Add 'active' class to display
     dialog.innerHTML = `
         <div class="modal-content delete-modal">
             <div class="modal-header">
@@ -1136,6 +1137,7 @@ function confirmDeleteSlide(slideId, slideName) {
         </div>
     `;
     document.body.appendChild(dialog);
+    console.log('🗑️ Delete dialog appended to DOM');
 }
 
 /**
@@ -1152,7 +1154,11 @@ function closeDeleteDialog() {
  * Execute the delete operation
  */
 async function executeDeleteSlide() {
-    if (!deleteSlideId) return;
+    console.log('🗑️ executeDeleteSlide called, slideId:', deleteSlideId);
+    if (!deleteSlideId) {
+        console.error('🗑️ No deleteSlideId set!');
+        return;
+    }
     
     const slideId = deleteSlideId;
     const btn = document.querySelector('.delete-modal .btn-danger');
@@ -1162,9 +1168,13 @@ async function executeDeleteSlide() {
     }
     
     try {
+        console.log('🗑️ Calling DELETE /api/studies/' + slideId);
         const response = await authFetch(`/api/studies/${slideId}`, { method: 'DELETE' });
+        console.log('🗑️ Response status:', response.status);
         
         if (response.ok) {
+            const result = await response.json();
+            console.log('🗑️ Delete successful:', result);
             closeDeleteDialog();
             
             // If we're viewing this slide, clear the viewer
@@ -1181,10 +1191,11 @@ async function executeDeleteSlide() {
             showToast('Slide deleted successfully', 'success');
         } else {
             const error = await response.json().catch(() => ({}));
+            console.error('🗑️ Delete failed:', response.status, error);
             showToast(error.detail || 'Failed to delete slide', 'error');
         }
     } catch (e) {
-        console.error('Delete failed:', e);
+        console.error('🗑️ Delete exception:', e);
         showToast('Failed to delete slide', 'error');
     } finally {
         if (btn) {

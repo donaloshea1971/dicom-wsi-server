@@ -2041,18 +2041,25 @@ async def delete_study_endpoint(study_id: str, user: User = Depends(require_user
     - All public links
     - The database record
     """
+    logger.info(f"🗑️ DELETE /studies/{study_id} called by user {user.id} ({user.email})")
+    
     if not user.id:
+        logger.warning(f"🗑️ Delete rejected: user not fully registered")
         raise HTTPException(status_code=400, detail="User not fully registered")
     
     # Delete from database (this verifies ownership)
+    logger.info(f"🗑️ Calling delete_slide for {study_id}")
     result = await delete_slide(study_id, user.id)
+    logger.info(f"🗑️ delete_slide result: {result}")
     
     if not result["success"]:
+        logger.warning(f"🗑️ delete_slide failed: {result.get('message')}")
         if "not the owner" in result.get("message", "").lower() or "not found" in result.get("message", "").lower():
             raise HTTPException(status_code=403, detail=result["message"])
         raise HTTPException(status_code=400, detail=result["message"])
     
     # Delete from Orthanc storage
+    logger.info(f"🗑️ Database delete successful, now deleting from Orthanc...")
     orthanc_deleted = False
     try:
         async with httpx.AsyncClient() as client:
