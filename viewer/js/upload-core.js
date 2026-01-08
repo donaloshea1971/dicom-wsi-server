@@ -131,7 +131,10 @@ async function uploadForConversion(item) {
     if (typeof updateQueueUI === 'function') updateQueueUI();
     
     const token = typeof getAuthToken === 'function' ? await getAuthToken() : null;
-    
+    console.log('🔐 WSI upload - getAuthToken returned:', token ? 'TOKEN_EXISTS' : 'NULL');
+    console.log('🔐 WSI upload - auth0Client exists:', !!auth0Client);
+    console.log('🔐 WSI upload - currentUser:', currentUser?.email || 'NO_USER');
+
     try {
         // Use chunked upload for large files (>50MB), simple upload for smaller
         if (item.file.size > 50 * 1024 * 1024) {
