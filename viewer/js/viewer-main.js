@@ -827,12 +827,19 @@ async function checkICCProfile(studyId) {
                 let typeLabel = info.preferred_cmm === 'ADBE' ? 'Adobe' : (info.preferred_cmm === 'lcms' ? 'sRGB' : 'ICC');
                 iccBadge.textContent = `ICC: ${typeLabel}`;
                 iccBadge.style.display = 'block';
+                console.log('🎨 ICC setup check:', { 
+                    colorCorrectionExists: !!colorCorrection, 
+                    hasTransformData: !!data.color_transform,
+                    transformKeys: data.color_transform ? Object.keys(data.color_transform) : 'none'
+                });
                 if (colorCorrection && data.color_transform) {
                     colorCorrection.iccData = data;
                     colorCorrection.iccTransform = data.color_transform;
                     console.log('🎨 ICC transform loaded into colorCorrection');
-                } else {
-                    console.warn('🎨 colorCorrection not ready or no transform data');
+                } else if (!colorCorrection) {
+                    console.warn('🎨 colorCorrection object not initialized yet');
+                } else if (!data.color_transform) {
+                    console.warn('🎨 No color_transform in API response');
                 }
             } else {
                 iccBadge.style.display = 'none';
@@ -857,8 +864,29 @@ function toggleICC() {
         iccTransform: !!colorCorrection?.iccTransform
     });
     
-    if (!currentICCProfile?.has_icc || !colorCorrection) {
-        console.warn('🎨 toggleICC: cannot toggle - missing profile or colorCorrection');
+    // Create colorCorrection if it doesn't exist yet
+    if (!colorCorrection && typeof ColorCorrection !== 'undefined') {
+        const canvas = document.getElementById('osd-viewer');
+        if (canvas) {
+            colorCorrection = new ColorCorrection(canvas);
+            console.log('🎨 Created colorCorrection on demand');
+        }
+    }
+    
+    // Setup ICC transform if we have profile data but it wasn't loaded yet
+    if (colorCorrection && currentICCProfile?.color_transform && !colorCorrection.iccTransform) {
+        colorCorrection.iccData = currentICCProfile;
+        colorCorrection.iccTransform = currentICCProfile.color_transform;
+        console.log('🎨 Loaded ICC transform on demand');
+    }
+    
+    if (!currentICCProfile?.has_icc) {
+        console.warn('🎨 toggleICC: no ICC profile available');
+        return;
+    }
+    
+    if (!colorCorrection) {
+        console.warn('🎨 toggleICC: colorCorrection not available');
         return;
     }
     
