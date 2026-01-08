@@ -126,9 +126,11 @@
     if (state._samReady) return state._samReady;
     state._samReady = (async () => {
       updateStatus('⏳', 'Loading AI library...', true, 10);
-      const { SamModel, AutoProcessor } = await loadTransformers();
+      const transformers = await loadTransformers();
+      const { SamModel, AutoProcessor, RawImage } = transformers;
       state._SamModel = SamModel;
       state._AutoProcessor = AutoProcessor;
+      state._RawImage = RawImage;
 
       const t0 = safeNow();
       updateStatus('📥', 'Downloading SAM model (~50MB)...', true, 30);
@@ -306,8 +308,9 @@
     capCtx.drawImage(renderCanvas, 0, 0, cap.width, cap.height);
 
     // Taint check (throws on getImageData if cross-origin)
+    let imageData;
     try {
-      capCtx.getImageData(0, 0, 1, 1);
+      imageData = capCtx.getImageData(0, 0, cap.width, cap.height);
     } catch (e) {
       throw new Error('Cannot read pixels from viewport (canvas is tainted). Check tile CORS/same-origin.');
     }
@@ -315,6 +318,15 @@
     state.cached.captureCanvas = cap;
     state.cached.captureW = cap.width;
     state.cached.captureH = cap.height;
+    
+    // Convert to RawImage for Transformers.js processor
+    if (state._RawImage) {
+      const rawImage = new state._RawImage(imageData.data, cap.width, cap.height, 4);
+      state.cached.rawImage = rawImage;
+      return rawImage;
+    }
+    
+    // Fallback: return canvas (older API)
     return cap;
   }
 
@@ -481,19 +493,23 @@
       }
 
       const t0 = safeNow();
-      const cap = state.cached.captureCanvas || await captureViewportCanvas(viewer, state, key);
+      // Use cached RawImage if available, otherwise capture
+      let imageForProcessor = state.cached.rawImage;
+      if (!imageForProcessor) {
+        imageForProcessor = await captureViewportCanvas(viewer, state, key);
+      }
       const w = state.cached.captureW;
       const h = state.cached.captureH;
 
       // Build prompt inputs via processor
       let inputs;
       if (prompt.type === 'point') {
-        inputs = await state.processor(cap, {
+        inputs = await state.processor(imageForProcessor, {
           input_points: [[[prompt.x, prompt.y]]],
           input_labels: [[prompt.label]],
         });
       } else if (prompt.type === 'box') {
-        inputs = await state.processor(cap, {
+        inputs = await state.processor(imageForProcessor, {
           input_boxes: [[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]],
         });
       } else {
