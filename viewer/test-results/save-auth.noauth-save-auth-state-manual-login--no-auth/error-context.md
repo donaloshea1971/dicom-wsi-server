@@ -1,0 +1,96 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]:
+      - link "PathView Pro" [ref=e4] [cursor=pointer]:
+        - /url: "#"
+        - img [ref=e5]
+        - text: PathView Pro
+      - generic [ref=e9]:
+        - link "Features" [ref=e10] [cursor=pointer]:
+          - /url: "#features"
+        - link "Sign In" [ref=e11] [cursor=pointer]:
+          - /url: "#login"
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - heading "Whole Slide Imaging, Without Limits" [level=1] [ref=e14]:
+        - text: Whole Slide Imaging,
+        - text: Without Limits
+      - paragraph [ref=e15]: Browser-based WSI viewer with SpaceMouse 3D navigation, real-time collaboration, and automatic format conversion. No install required.
+      - generic [ref=e16]:
+        - link "Get Started Free" [ref=e17] [cursor=pointer]:
+          - /url: "#login"
+        - link "Watch Demo" [ref=e18] [cursor=pointer]:
+          - /url: "#demo"
+    - generic [ref=e20]:
+      - generic [ref=e25]:
+        - img [ref=e26]
+        - text: Click to play with audio
+      - img [ref=e34] [cursor=pointer]
+  - generic [ref=e36]:
+    - generic [ref=e37]: Built for clinical workflows
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - img [ref=e40]
+        - text: Secure SSO
+      - generic [ref=e43]:
+        - img [ref=e44]
+        - text: DICOM Standard
+      - generic [ref=e46]:
+        - img [ref=e47]
+        - text: No Install
+      - generic [ref=e50]:
+        - img [ref=e51]
+        - text: Any Format
+  - generic [ref=e54]:
+    - heading "Built for Pathologists" [level=2] [ref=e55]
+    - generic [ref=e56]:
+      - generic [ref=e57]:
+        - img [ref=e59]
+        - heading "Gigapixel Deep Zoom" [level=3] [ref=e63]
+        - paragraph [ref=e64]: Navigate 100,000+ pixel images instantly with smart tile caching and hardware acceleration.
+      - generic [ref=e65]:
+        - img [ref=e67]
+        - heading "SpaceMouse Navigation" [level=3] [ref=e73]
+        - paragraph [ref=e74]: Six-axis control with snap zoom levels matching microscope objectives. Push down to fullscreen.
+      - generic [ref=e75]:
+        - img [ref=e77]
+        - heading "Instant Sharing" [level=3] [ref=e83]
+        - paragraph [ref=e84]: Share cases with colleagues in one click. They see it immediately in their workspace.
+      - generic [ref=e85]:
+        - img [ref=e87]
+        - heading "Calibrated Measurements" [level=3] [ref=e89]
+        - paragraph [ref=e90]: Distance, area, and region annotations with automatic µm/px calibration from DICOM metadata.
+      - generic [ref=e91]:
+        - img [ref=e93]
+        - heading "Universal Format Support" [level=3] [ref=e95]
+        - paragraph [ref=e96]: Upload SVS, NDPI, MRXS, SCN, or TIFF. Automatic conversion to DICOM WSI format.
+      - generic [ref=e97]:
+        - img [ref=e99]
+        - heading "Color Accuracy" [level=3] [ref=e104]
+        - paragraph [ref=e105]: ICC profile support with gamma correction presets for Hamamatsu, Aperio, and more scanners.
+  - generic [ref=e107]:
+    - heading "Start Viewing" [level=2] [ref=e108]
+    - paragraph [ref=e109]: Sign in with your work account
+    - button "Continue with Google" [ref=e110] [cursor=pointer]:
+      - img [ref=e111]
+      - text: Continue with Google
+    - button "Continue with Microsoft" [ref=e116] [cursor=pointer]:
+      - img [ref=e117]
+      - text: Continue with Microsoft
+    - generic [ref=e122]:
+      - img [ref=e123]
+      - text: Your data stays private and secure
+  - contentinfo [ref=e125]:
+    - generic [ref=e126]:
+      - generic [ref=e127]:
+        - link "Terms of Service" [ref=e128] [cursor=pointer]:
+          - /url: "#"
+        - link "Privacy Policy" [ref=e129] [cursor=pointer]:
+          - /url: "#"
+        - link "Contact" [ref=e130] [cursor=pointer]:
+          - /url: "#"
+      - generic [ref=e131]: © 2025 PathView Pro
+```

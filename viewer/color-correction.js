@@ -54,11 +54,14 @@ class ColorCorrectionFilter {
             HDAB: {
                 stain1: [0.650, 0.704, 0.286],   // Hematoxylin (blue-purple)
                 stain2: [0.270, 0.570, 0.780],   // DAB (brown)
-                residual: [0.000, 0.000, 0.000], // No residual for H-DAB
+                residual: [0.000, 0.000, 0.000], // Derived at runtime (needs full-rank 3x3 for inversion)
                 label1: 'H',
                 label2: 'DAB',
             },
         };
+
+        // Computed residual vectors used to make stain matrices full-rank (esp. 2-stain presets like H-DAB)
+        this._effectiveResiduals = {};
         
         // ICC profile gamma (separate from manual controls)
         this.iccGamma = 1.0;  // Extracted from ICC profile when enabled
@@ -86,6 +89,46 @@ class ColorCorrectionFilter {
         this.program = null;
         this.webglReady = false;
         this.deconvProgram = null;  // Separate shader for stain deconvolution
+    }
+
+    _cross3(a, b) {
+        return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ];
+    }
+
+    _normalize3(v) {
+        const n = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (!isFinite(n) || n < 1e-8) return [0, 0, 0];
+        return [v[0] / n, v[1] / n, v[2] / n];
+    }
+
+    /**
+     * Return a full-rank 3rd vector for the stain matrix.
+     * - If a residual is provided and non-zero, use it.
+     * - Otherwise derive via cross-product of stain1 and stain2 and normalize.
+     * - Ensure non-negative components (OD vectors should be >= 0); flip if needed.
+     */
+    _getEffectiveResidualVector(stains) {
+        const r = stains.residual || [0, 0, 0];
+        const hasResidual = (Math.abs(r[0]) + Math.abs(r[1]) + Math.abs(r[2])) > 1e-6;
+        if (hasResidual) return r;
+
+        // Derive a 3rd vector from the first two (Ruifrok-style fallback)
+        let v = this._normalize3(this._cross3(stains.stain1, stains.stain2));
+
+        // If still degenerate (nearly collinear), fall back to a known safe residual
+        const degenerate = (Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2])) < 1e-6;
+        if (degenerate) v = [0.268, 0.570, 0.776];
+
+        // Orient to positive OD space if needed
+        const minComp = Math.min(v[0], v[1], v[2]);
+        if (minComp < 0) v = [-v[0], -v[1], -v[2]];
+
+        // Clamp tiny negatives (numerical noise) to 0
+        return [Math.max(0, v[0]), Math.max(0, v[1]), Math.max(0, v[2])];
     }
     
     initialize() {
@@ -1381,11 +1424,14 @@ class ColorCorrectionFilter {
         this.inverseMatrices = {};
         
         for (const [type, stains] of Object.entries(this.stainMatrices)) {
-            // Build 3x3 matrix from stain vectors (transposed for row-major)
+            // Build 3x3 matrix from stain vectors.
+            // NOTE: we need a full-rank 3x3 here; for 2-stain presets (e.g., H-DAB) we derive a 3rd vector.
+            const residual = this._getEffectiveResidualVector(stains);
+            this._effectiveResiduals[type] = residual;
             const M = [
                 stains.stain1,
                 stains.stain2,
-                stains.residual[0] === 0 ? [0.268, 0.570, 0.776] : stains.residual, // fallback residual
+                residual,
             ];
             
             // Compute inverse
