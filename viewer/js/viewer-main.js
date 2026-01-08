@@ -427,8 +427,9 @@ async function loadStudy(studyId) {
             const colorBadge = document.getElementById('color-badge');
             if (colorBadge) colorBadge.style.display = 'block';
             
-            const analysisBadge = document.getElementById('analysis-badge');
-            if (analysisBadge) analysisBadge.style.display = 'block';
+            // Show analysis tools group (🔬 + ✂️)
+            const analysisGroup = document.getElementById('analysis-group');
+            if (analysisGroup) analysisGroup.style.display = 'flex';
             
             checkICCProfile(currentStudy);
         });

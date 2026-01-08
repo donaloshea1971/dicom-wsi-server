@@ -117,18 +117,16 @@ class ColorCorrectionFilter {
         if (hasResidual) return r;
 
         // Derive a 3rd vector from the first two (Ruifrok-style fallback)
-        let v = this._normalize3(this._cross3(stains.stain1, stains.stain2));
+        let v = this._cross3(stains.stain1, stains.stain2);
+        // OD stain vectors are non-negative; take abs to keep the derived residual in OD space
+        v = [Math.abs(v[0]), Math.abs(v[1]), Math.abs(v[2])];
+        v = this._normalize3(v);
 
         // If still degenerate (nearly collinear), fall back to a known safe residual
         const degenerate = (Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2])) < 1e-6;
         if (degenerate) v = [0.268, 0.570, 0.776];
 
-        // Orient to positive OD space if needed
-        const minComp = Math.min(v[0], v[1], v[2]);
-        if (minComp < 0) v = [-v[0], -v[1], -v[2]];
-
-        // Clamp tiny negatives (numerical noise) to 0
-        return [Math.max(0, v[0]), Math.max(0, v[1]), Math.max(0, v[2])];
+        return v;
     }
     
     initialize() {
@@ -1633,7 +1631,8 @@ class ColorCorrectionFilter {
         if (stains && invMatrix) {
             gl.uniform3fv(uniforms.stain1, stains.stain1);
             gl.uniform3fv(uniforms.stain2, stains.stain2);
-            gl.uniform3fv(uniforms.residual, stains.residual[0] === 0 ? [0.268, 0.570, 0.776] : stains.residual);
+            const residual = this._effectiveResiduals[stainType] || this._getEffectiveResidualVector(stains);
+            gl.uniform3fv(uniforms.residual, residual);
             gl.uniform3fv(uniforms.invRow0, invMatrix[0]);
             gl.uniform3fv(uniforms.invRow1, invMatrix[1]);
             gl.uniform3fv(uniforms.invRow2, invMatrix[2]);
@@ -1700,12 +1699,18 @@ class ColorCorrectionFilter {
         const E = this.stainParams.eosin;
         const mode = this.stainParams.viewMode;
         
-        // Inverse stain matrix (same as shader)
-        const inv = [
-            [1.87798274, -1.00767869, 0.14539618],
-            [-0.06590806, 1.13473037, -0.13943433],
-            [-0.60190736, -0.48041808, 1.57358807]
-        ];
+        // Use the same stain vectors + inverse matrix as the WebGL path (supports HE and H-DAB)
+        const stainType = this.stainParams.stainType || 'HE';
+        const stains = this.stainMatrices[stainType] || this.stainMatrices.HE;
+        const inv = (this.inverseMatrices && this.inverseMatrices[stainType])
+            ? this.inverseMatrices[stainType]
+            : this.inverseMatrices?.HE;
+        const residual = this._effectiveResiduals[stainType] || this._getEffectiveResidualVector(stains);
+        
+        if (!inv) {
+            console.warn('🔬 CPU deconvolution missing inverse matrix, aborting');
+            return;
+        }
         
         for (let i = 0; i < data.length; i += 4) {
             const r = data[i] / 255;
@@ -1725,17 +1730,17 @@ class ColorCorrectionFilter {
             // Reconstruct
             let finalR, finalG, finalB;
             if (mode === 'hematoxylin') {
-                finalR = Math.pow(10, -(0.650 * cH));
-                finalG = Math.pow(10, -(0.704 * cH));
-                finalB = Math.pow(10, -(0.286 * cH));
-            } else if (mode === 'eosin') {
-                finalR = Math.pow(10, -(0.072 * cE));
-                finalG = Math.pow(10, -(0.990 * cE));
-                finalB = Math.pow(10, -(0.105 * cE));
+                finalR = Math.pow(10, -(stains.stain1[0] * cH));
+                finalG = Math.pow(10, -(stains.stain1[1] * cH));
+                finalB = Math.pow(10, -(stains.stain1[2] * cH));
+            } else if (mode === 'eosin' || mode === 'dab') {
+                finalR = Math.pow(10, -(stains.stain2[0] * cE));
+                finalG = Math.pow(10, -(stains.stain2[1] * cE));
+                finalB = Math.pow(10, -(stains.stain2[2] * cE));
             } else {
-                finalR = Math.pow(10, -(0.650 * cH + 0.072 * cE + 0.268 * cR));
-                finalG = Math.pow(10, -(0.704 * cH + 0.990 * cE + 0.570 * cR));
-                finalB = Math.pow(10, -(0.286 * cH + 0.105 * cE + 0.776 * cR));
+                finalR = Math.pow(10, -(stains.stain1[0] * cH + stains.stain2[0] * cE + residual[0] * cR));
+                finalG = Math.pow(10, -(stains.stain1[1] * cH + stains.stain2[1] * cE + residual[1] * cR));
+                finalB = Math.pow(10, -(stains.stain1[2] * cH + stains.stain2[2] * cE + residual[2] * cR));
             }
             
             data[i] = Math.min(255, Math.max(0, finalR * 255));

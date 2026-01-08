@@ -16,7 +16,7 @@
     <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
     
     <!-- External CSS -->
-    <link rel="stylesheet" href="css/viewer.css?v=1.2.2">
+    <link rel="stylesheet" href="css/viewer.css?v=1.2.3">
 </head>
 <body>
     <!-- SVG filter for gamma correction (Hamamatsu NDPI images need gamma 2.2) -->
@@ -141,8 +141,11 @@
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="space-nav-badge" style="display:none; cursor:pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click to connect SpaceMouse">🎮</div>
             <div class="status-badge" id="color-badge" style="display:none; cursor:pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
-            <div class="status-badge" id="analysis-badge" style="display:none; cursor:pointer;" onclick="openAnalysisPanel()" title="Analysis tools (stain deconv, focus quality)">🔬</div>
-            <div class="status-badge" id="segment-badge" style="display:none; cursor:pointer;" onclick="toggleSegmentation()" title="AI segmentation (client-side)">✂️</div>
+            <!-- Analysis tools group -->
+            <div class="badge-group" id="analysis-group" style="display:none;">
+                <div class="status-badge" id="analysis-badge" style="cursor:pointer;" onclick="openAnalysisPanel()" title="Stain deconvolution & focus quality">🔬</div>
+                <div class="status-badge" id="segment-badge" style="cursor:pointer;" onclick="toggleSegmentation()" title="AI segmentation">✂️</div>
+            </div>
             <div class="status-badge" id="help-badge" style="cursor:pointer;" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
             <div class="status-badge debug-only" id="viewer-version" style="display:none;">v1.1.0</div>
             <div class="status-badge debug-only" id="server-status" style="display:none;">Server</div>
@@ -543,7 +546,7 @@
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.11.0"></script>
+    <script src="js/viewer-main.js?v=1.12.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
     <script src="js/ui-controllers.js?v=1.2.1"></script>
 

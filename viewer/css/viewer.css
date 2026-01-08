@@ -1329,6 +1329,25 @@
             color: var(--success);
         }
 
+        /* Badge group - buttons side by side */
+        .badge-group {
+            display: flex;
+            gap: 0;
+        }
+        .badge-group .status-badge {
+            border-radius: 0;
+        }
+        .badge-group .status-badge:first-child {
+            border-radius: 6px 0 0 6px;
+            border-right: none;
+        }
+        .badge-group .status-badge:last-child {
+            border-radius: 0 6px 6px 0;
+        }
+        .badge-group .status-badge:hover {
+            background: var(--bg-tertiary);
+        }
+
         /* SAM segmentation UI */
         .status-badge#segment-badge.active {
             background: var(--accent);
