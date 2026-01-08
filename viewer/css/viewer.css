@@ -1329,6 +1329,74 @@
             color: var(--success);
         }
 
+        /* SAM segmentation UI */
+        .status-badge#segment-badge.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .segment-panel {
+            position: fixed;
+            right: 20px;
+            bottom: 80px;
+            width: 320px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 1002;
+            display: none;
+        }
+
+        .segment-panel.active {
+            display: block;
+        }
+
+        .segment-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .segment-panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .segment-panel-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .segment-panel-body {
+            padding: 12px 14px 14px 14px;
+        }
+
+        .segment-hints {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: grid;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .segment-stats {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .segment-error {
+            font-size: 11px;
+            color: var(--danger);
+            white-space: pre-wrap;
+        }
+
         @keyframes spin {
             to { transform: rotate(360deg); }
         }

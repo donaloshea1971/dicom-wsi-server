@@ -142,12 +142,33 @@
             <div class="status-badge" id="space-nav-badge" style="display:none; cursor:pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click to connect SpaceMouse">🎮</div>
             <div class="status-badge" id="color-badge" style="display:none; cursor:pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
             <div class="status-badge" id="analysis-badge" style="display:none; cursor:pointer;" onclick="openAnalysisPanel()" title="Analysis tools (stain deconv, focus quality)">🔬</div>
+            <div class="status-badge" id="segment-badge" style="display:none; cursor:pointer;" onclick="toggleSegmentation()" title="AI segmentation (client-side)">✂️</div>
             <div class="status-badge" id="help-badge" style="cursor:pointer;" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
             <div class="status-badge debug-only" id="viewer-version" style="display:none;">v1.1.0</div>
             <div class="status-badge debug-only" id="server-status" style="display:none;">Server</div>
             <div class="status-badge debug-only" id="cache-badge" style="display:none;">⚡ Cache</div>
             <div class="status-badge debug-only" id="gamma-badge" style="display:none;">γ</div>
             <div class="status-badge debug-only" id="icc-badge" style="display:none;" onclick="toggleICCInfo()">ICC</div>
+        </div>
+
+        <!-- SAM Segmentation Panel -->
+        <div id="segment-panel" class="segment-panel">
+            <div class="segment-panel-header">
+                <div class="segment-panel-title">✂️ AI Segmentation</div>
+                <div class="segment-panel-actions">
+                    <button id="segment-clear-btn" class="btn btn-secondary" type="button" title="Clear mask">Clear</button>
+                    <button id="segment-hide-btn" class="btn btn-primary" type="button" title="Disable">Done</button>
+                </div>
+            </div>
+            <div class="segment-panel-body">
+                <div class="segment-hints">
+                    <div><strong>Click</strong>: segment object</div>
+                    <div><strong>Alt+Click</strong>: negative prompt</div>
+                    <div><strong>Shift+Drag</strong>: box prompt</div>
+                </div>
+                <div id="segment-stats" class="segment-stats">idle</div>
+                <div id="segment-error" class="segment-error"></div>
+            </div>
         </div>
 
         <!-- Keyboard shortcuts help overlay -->
@@ -518,6 +539,7 @@
     <script src="color-correction.js?v=2.3.0"></script>
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
+    <script src="js/sam-segmentation.js?v=0.1.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>

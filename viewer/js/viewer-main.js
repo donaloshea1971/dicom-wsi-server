@@ -356,6 +356,18 @@ async function loadStudy(studyId) {
             showLoading(false);
             connectAnnotationSync(studyId);
 
+            // Client-side AI segmentation (SAM) - attach to this viewer instance
+            try {
+                if (window.SamSegmentation && typeof window.SamSegmentation.attachToViewer === 'function') {
+                    window.SamSegmentation.attachToViewer(viewer, {
+                        key: 'v1',
+                        isAnnotationActive: () => (typeof currentAnnotationTool !== 'undefined' && !!currentAnnotationTool)
+                    });
+                }
+            } catch (e) {
+                console.warn('SAM attach failed:', e);
+            }
+
             if (spaceNavController) {
                 spaceNavController.setViewer(viewer);
             } else if (typeof SpaceNavigatorController !== 'undefined') {
@@ -592,6 +604,18 @@ async function loadStudyInViewer2(studyId, slideName) {
         viewer2.addHandler('open', () => {
             addViewerLabel('osd-viewer-2', compareSlideName2);
             if (syncNavigation) setupSyncNavigation();
+
+            // Client-side AI segmentation (SAM) - attach to viewer2 when it opens (compare mode)
+            try {
+                if (window.SamSegmentation && typeof window.SamSegmentation.attachToViewer === 'function') {
+                    window.SamSegmentation.attachToViewer(viewer2, {
+                        key: 'v2',
+                        isAnnotationActive: () => (typeof currentAnnotationTool !== 'undefined' && !!currentAnnotationTool)
+                    });
+                }
+            } catch (e) {
+                console.warn('SAM attach failed (viewer2):', e);
+            }
         });
         
         // Ensure focus/click selection works even after swaps / reloads
