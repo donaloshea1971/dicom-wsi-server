@@ -1185,7 +1185,7 @@ async function executeDeleteSlide() {
             }
             
             // Refresh the study list
-            await fetchStudies();
+            await refreshStudies();
             
             // Show success message
             showToast('Slide deleted successfully', 'success');
