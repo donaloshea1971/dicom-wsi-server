@@ -287,6 +287,32 @@ async function loadStudy(studyId) {
                 spaceNavController.setViewer(viewer);
             } else if (typeof SpaceNavigatorController !== 'undefined') {
                 spaceNavController = new SpaceNavigatorController(viewer);
+                
+                // Set up button handler for compare mode switching
+                spaceNavController.onButtonPress = function(evt) {
+                    if (compareMode && viewer2) {
+                        // In compare mode: buttons switch active viewer
+                        if (evt.pressed) {
+                            if (evt.button === 'left') {
+                                setActiveViewer(1);
+                                console.log('🎮 SpaceMouse: Switched to LEFT viewer');
+                            } else if (evt.button === 'right') {
+                                setActiveViewer(2);
+                                console.log('🎮 SpaceMouse: Switched to RIGHT viewer');
+                            }
+                        }
+                    } else {
+                        // Single viewer mode: buttons cycle studies
+                        if (evt.pressed) {
+                            if (evt.button === 'left' && typeof window.previousStudy === 'function') {
+                                window.previousStudy();
+                            } else if (evt.button === 'right' && typeof window.nextStudy === 'function') {
+                                window.nextStudy();
+                            }
+                        }
+                    }
+                };
+                
                 spaceNavController.autoConnect().then(connected => {
                     if (connected) updateSpaceNavButton(true, spaceNavController.getConnectionMode());
                 });
@@ -518,11 +544,81 @@ function toggleSyncNavigation() {
  * Swap viewers in comparison mode
  */
 function swapViewers() {
-    if (!compareMode || !viewer2) return;
-    [compareSlideName1, compareSlideName2] = [compareSlideName2, compareSlideName1];
+    if (!compareMode || !viewer2 || !currentStudy || !currentStudy2) return;
+    
+    // Store current studies and names
+    const tempStudy = currentStudy;
+    const tempName = compareSlideName1;
+    
+    // Swap the metadata
+    currentStudy = currentStudy2;
+    currentStudy2 = tempStudy;
+    compareSlideName1 = compareSlideName2;
+    compareSlideName2 = tempName;
+    
+    // Update labels
     addViewerLabel('osd-viewer', compareSlideName1);
     addViewerLabel('osd-viewer-2', compareSlideName2);
-    [currentStudy, currentStudy2] = [currentStudy2, currentStudy];
+    
+    // Reload both viewers with swapped content
+    // Store viewport state if sync is enabled
+    const zoom1 = viewer.viewport.getZoom();
+    const center1 = viewer.viewport.getCenter();
+    const zoom2 = viewer2.viewport.getZoom();
+    const center2 = viewer2.viewport.getCenter();
+    
+    // Reload viewer 1 with what was in viewer 2
+    loadStudyIntoViewer(viewer, currentStudy, () => {
+        if (syncNavigation) {
+            viewer.viewport.zoomTo(zoom2);
+            viewer.viewport.panTo(center2);
+        }
+    });
+    
+    // Reload viewer 2 with what was in viewer 1  
+    loadStudyIntoViewer(viewer2, currentStudy2, () => {
+        if (syncNavigation) {
+            viewer2.viewport.zoomTo(zoom1);
+            viewer2.viewport.panTo(center1);
+        }
+    });
+    
+    console.log('🔄 Swapped viewers:', compareSlideName1, '↔', compareSlideName2);
+}
+
+/**
+ * Load a study into a specific viewer instance
+ */
+async function loadStudyIntoViewer(targetViewer, studyId, onComplete) {
+    if (!targetViewer || !studyId) return;
+    
+    let authHeaders = {};
+    try {
+        if (auth0Client) {
+            const token = await auth0Client.getTokenSilently();
+            authHeaders = { 'Authorization': `Bearer ${token}` };
+        }
+    } catch (e) {}
+    
+    // Get series for this study
+    const seriesRes = await fetch(`/api/studies/${studyId}`, { headers: authHeaders });
+    const seriesData = await seriesRes.json();
+    const seriesId = seriesData.Series?.[0];
+    
+    if (!seriesId) return;
+    
+    // Close current and open new
+    targetViewer.close();
+    targetViewer.addTiledImage({
+        tileSource: new OpenSeadragon.WsiTileSource({
+            seriesId: seriesId,
+            studyId: studyId,
+            ajaxHeaders: authHeaders
+        }),
+        success: () => {
+            if (onComplete) onComplete();
+        }
+    });
 }
 
 /**
