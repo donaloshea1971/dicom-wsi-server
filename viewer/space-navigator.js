@@ -1179,25 +1179,35 @@ class SpaceNavigatorController {
         // Check if any PAN input is active (after exponential curve)
         const hasPanInput = Math.abs(mapped.panX) > 0.001 || Math.abs(mapped.panY) > 0.001;
         
-        // Pan with momentum - scale by zoom level AND screen size for consistent physical motion
+        // Pan with momentum - scale by zoom level
         const currentZoom = viewport.getZoom();
         
-        // Screen resolution scaling: larger screens need faster pan to feel the same
-        // Use physical pixels (CSS pixels × devicePixelRatio) to account for OS display scaling
-        const containerSize = viewport.getContainerSize();
-        const physicalWidth = containerSize.x * (window.devicePixelRatio || 1);
-        const screenScale = physicalWidth / REFERENCE_WIDTH;
+        // 1. Time-independent frame multiplier
+        // This ensures consistent speed and decay regardless of display refresh rate
+        const now = performance.now();
+        const deltaMs = this._lastDecayTime ? (now - this._lastDecayTime) : REFERENCE_FRAME_MS;
+        this._lastDecayTime = now;
         
-        const panFactor = (this.sensitivity.pan * screenScale) / currentZoom;
+        // Normalize to 144fps baseline (6.94ms per frame)
+        const frameMultiplier = deltaMs / REFERENCE_FRAME_MS;
+
+        // FIX: Removed screenScale from panFactor. 
+        // OSD's panBy uses relative viewport units (0.0 to 1.0), which already scale 
+        // naturally with resolution. Adding screenScale caused velocity to increase 
+        // exponentially on high-resolution displays.
+        const panFactor = this.sensitivity.pan / currentZoom;
         
         if (hasPanInput) {
             // Active input: calculate target and smooth
             const targetX = mapped.panX * panFactor;
             const targetY = mapped.panY * panFactor;
             
-            // Apply smoothing (exponential moving average) for fluid diagonal motion
-            this._smoothedPan.x = this._smoothedPan.x * (1 - this.smoothing) + targetX * this.smoothing;
-            this._smoothedPan.y = this._smoothedPan.y * (1 - this.smoothing) + targetY * this.smoothing;
+            // FIX: Time-independent smoothing (exponential moving average).
+            // This ensures the same feel at 60Hz and 144Hz.
+            const lerpFactor = 1 - Math.pow(1 - this.smoothing, frameMultiplier);
+            
+            this._smoothedPan.x = this._smoothedPan.x * (1 - lerpFactor) + targetX * lerpFactor;
+            this._smoothedPan.y = this._smoothedPan.y * (1 - lerpFactor) + targetY * lerpFactor;
             
             // Store velocity for momentum
             this._velocity.x = this._smoothedPan.x;
@@ -1206,17 +1216,10 @@ class SpaceNavigatorController {
             
         } else if (this._hasActiveInput || Math.abs(this._velocity.x) > 0.0001 || Math.abs(this._velocity.y) > 0.0001) {
             // No input but we have momentum - apply TIME-BASED decay
-            // This ensures consistent coast duration regardless of display refresh rate
-            const now = performance.now();
-            const deltaMs = this._lastDecayTime ? (now - this._lastDecayTime) : REFERENCE_FRAME_MS;
-            this._lastDecayTime = now;
             
-            // Normalize to 144fps baseline (6.94ms per frame) - if frame took longer, decay more
-            const frameMultiplier = deltaMs / REFERENCE_FRAME_MS;
-            
-            // Apply screen scale + time correction
-            // decay^(screenScale * frameMultiplier) handles both screen size AND frame rate
-            const scaledDecay = Math.pow(this._momentumDecay, screenScale * frameMultiplier);
+            // FIX: Removed screenScale from decay calculation. 
+            // Momentum decay should only depend on time to ensure consistent coast duration.
+            const scaledDecay = Math.pow(this._momentumDecay, frameMultiplier);
             this._velocity.x *= scaledDecay;
             this._velocity.y *= scaledDecay;
             this._smoothedPan.x = this._velocity.x;
