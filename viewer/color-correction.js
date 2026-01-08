@@ -739,176 +739,228 @@ class ColorCorrectionFilter {
     }
     
     /**
-     * Initialize stain deconvolution - uses CSS approximation
-     * (True deconvolution requires per-pixel math, approximated here with color matrix)
+     * Initialize stain deconvolution with canvas overlay
      */
     _initStainDeconvolution() {
-        // CSS filters can't do true deconvolution, but we can approximate
-        // using hue-rotate and color adjustments for visual effect
-        this._applyStainAdjustment();
+        // Create overlay canvas for deconvolution output
+        if (!this.stainCanvas) {
+            this.stainCanvas = document.createElement('canvas');
+            this.stainCanvas.id = 'stain-deconv-canvas';
+            this.stainCanvas.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 10;
+            `;
+        }
+        
+        if (this.viewerElement && !this.viewerElement.contains(this.stainCanvas)) {
+            this.viewerElement.appendChild(this.stainCanvas);
+        }
+        
+        // Precompute inverse stain matrix (Ruifrok H&E)
+        this._computeInverseStainMatrix();
+        
+        // Hook into viewer updates
+        if (this.viewer) {
+            this._stainUpdateHandler = () => this._applyStainDeconvolution();
+            this.viewer.addHandler('animation-finish', this._stainUpdateHandler);
+            this.viewer.addHandler('open', this._stainUpdateHandler);
+            // Initial render
+            setTimeout(() => this._applyStainDeconvolution(), 100);
+        }
+        
+        console.log('🔬 Stain deconvolution initialized with canvas overlay');
     }
     
     /**
-     * Apply stain adjustment using CSS filters (approximation)
-     * True deconvolution would require WebGL shader processing
+     * Compute inverse of stain matrix for deconvolution
+     * Using Ruifrok & Johnston standard H&E vectors
      */
-    _applyStainAdjustment() {
-        if (!this.styleElement || !this.viewerElement) return;
+    _computeInverseStainMatrix() {
+        // Normalized stain vectors (optical density)
+        // H: Hematoxylin (blue-purple, stains nuclei)
+        // E: Eosin (pink, stains cytoplasm)
+        const M = [
+            [0.650, 0.072, 0.268],  // R channel contributions from H, E, residual
+            [0.704, 0.990, 0.570],  // G channel
+            [0.286, 0.105, 0.776],  // B channel
+        ];
         
+        // Compute inverse using Gaussian elimination (3x3)
+        this.invStainMatrix = this._invertMatrix3x3(M);
+        console.log('🔬 Inverse stain matrix computed');
+    }
+    
+    /**
+     * Invert a 3x3 matrix
+     */
+    _invertMatrix3x3(m) {
+        const det = 
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        
+        if (Math.abs(det) < 1e-10) {
+            console.warn('🔬 Stain matrix is singular, using identity');
+            return [[1,0,0], [0,1,0], [0,0,1]];
+        }
+        
+        const invDet = 1 / det;
+        return [
+            [
+                (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * invDet,
+                (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * invDet,
+                (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * invDet
+            ],
+            [
+                (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * invDet,
+                (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * invDet,
+                (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * invDet
+            ],
+            [
+                (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * invDet,
+                (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * invDet,
+                (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * invDet
+            ]
+        ];
+    }
+    
+    /**
+     * Apply color deconvolution to viewer canvas
+     * This is the core Ruifrok algorithm
+     */
+    _applyStainDeconvolution() {
+        if (!this.stainEnabled || !this.viewer || !this.stainCanvas) return;
+        
+        const sourceCanvas = this.viewer.drawer.canvas;
+        if (!sourceCanvas) return;
+        
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        
+        if (width === 0 || height === 0) return;
+        
+        // Resize overlay canvas to match
+        this.stainCanvas.width = width;
+        this.stainCanvas.height = height;
+        
+        const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        const destCtx = this.stainCanvas.getContext('2d');
+        
+        // Get source image data
+        let imageData;
+        try {
+            imageData = sourceCtx.getImageData(0, 0, width, height);
+        } catch (e) {
+            console.warn('🔬 Cannot read canvas (CORS?):', e.message);
+            return;
+        }
+        
+        const data = imageData.data;
+        const inv = this.invStainMatrix;
         const H = this.stainParams.hematoxylin;
         const E = this.stainParams.eosin;
         const mode = this.stainParams.viewMode;
         
-        let filters = [];
-        
-        // Build filter chain based on mode and stain intensities
-        switch (mode) {
-            case 'hematoxylin':
-                // Show only H channel - shift to blue/purple, remove pink
-                filters.push('saturate(0.3)');  // Reduce saturation
-                filters.push('hue-rotate(-20deg)');  // Shift toward blue
-                filters.push(`brightness(${0.8 + H * 0.2})`);
-                filters.push(`contrast(${0.8 + H * 0.4})`);
-                // Apply blue tint via SVG filter
-                this._updateStainFilter('hematoxylin');
-                filters.push('url(#stain-deconv)');
-                break;
-                
-            case 'eosin':
-                // Show only E channel - shift to pink, remove blue
-                filters.push('saturate(0.4)');
-                filters.push('hue-rotate(10deg)');  // Shift toward pink
-                filters.push(`brightness(${0.9 + E * 0.1})`);
-                filters.push(`contrast(${0.8 + E * 0.3})`);
-                this._updateStainFilter('eosin');
-                filters.push('url(#stain-deconv)');
-                break;
-                
-            case 'combined':
-            default:
-                // Adjust both channels - modify color balance
-                // H affects blue/purple, E affects pink/red
-                const hueShift = (H - E) * 10;  // Shift hue based on H/E balance
-                const satAdjust = 0.8 + (H + E) * 0.2;
-                
-                if (hueShift !== 0) filters.push(`hue-rotate(${hueShift}deg)`);
-                if (satAdjust !== 1) filters.push(`saturate(${satAdjust})`);
-                
-                // Adjust overall based on combined intensity
-                const avgIntensity = (H + E) / 2;
-                if (avgIntensity !== 1) {
-                    filters.push(`contrast(${0.7 + avgIntensity * 0.3})`);
-                }
-                break;
-        }
-        
-        // Apply combined with existing filters
-        this._updateStainStyles(filters);
-    }
-    
-    /**
-     * Update SVG filter for stain channel isolation
-     */
-    _updateStainFilter(channel) {
-        let svgFilter = document.getElementById('stain-deconv-svg');
-        if (!svgFilter) {
-            svgFilter = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svgFilter.id = 'stain-deconv-svg';
-            svgFilter.style.position = 'absolute';
-            svgFilter.style.width = '0';
-            svgFilter.style.height = '0';
-            document.body.appendChild(svgFilter);
-        }
-        
-        // Color matrix values for stain isolation
-        // These approximate the deconvolution by adjusting RGB channels
-        let matrix;
-        if (channel === 'hematoxylin') {
-            // Enhance blue/purple (H), suppress pink (E)
-            // R' = 0.3R + 0.3G + 0.4B  (blue contribution)
-            // G' = 0.2R + 0.3G + 0.5B
-            // B' = 0.1R + 0.2G + 0.7B
-            matrix = `
-                0.3 0.3 0.4 0 0
-                0.2 0.3 0.5 0 0
-                0.1 0.2 0.7 0 0
-                0   0   0   1 0
-            `;
-        } else if (channel === 'eosin') {
-            // Enhance pink (E), suppress blue (H)
-            // R' = 0.6R + 0.3G + 0.1B
-            // G' = 0.4R + 0.5G + 0.1B
-            // B' = 0.3R + 0.4G + 0.3B
-            matrix = `
-                0.6 0.3 0.1 0 0
-                0.4 0.5 0.1 0 0
-                0.3 0.4 0.3 0 0
-                0   0   0   1 0
-            `;
-        } else {
-            // Identity matrix
-            matrix = `
-                1 0 0 0 0
-                0 1 0 0 0
-                0 0 1 0 0
-                0 0 0 1 0
-            `;
-        }
-        
-        svgFilter.innerHTML = `
-            <filter id="stain-deconv">
-                <feColorMatrix type="matrix" values="${matrix}"/>
-            </filter>
-        `;
-    }
-    
-    /**
-     * Update styles for stain deconvolution
-     */
-    _updateStainStyles(stainFilters) {
-        if (!this.styleElement) return;
-        
-        // Combine with existing gamma/brightness/contrast filters
-        const baseFilters = [];
-        
-        // Add base adjustments
-        const brightness = 1 + this.params.brightness;
-        if (brightness !== 1) baseFilters.push(`brightness(${brightness})`);
-        if (this.params.contrast !== 1) baseFilters.push(`contrast(${this.params.contrast})`);
-        if (this.params.saturation !== 1) baseFilters.push(`saturate(${this.params.saturation})`);
-        
-        // Gamma
-        const effectiveGamma = this.iccEnabled 
-            ? this.iccGamma * this.params.gamma 
-            : this.params.gamma;
-        if (effectiveGamma !== 1.0) {
-            this.updateSvgGamma(effectiveGamma);
-            baseFilters.push('url(#gamma-correction)');
-        }
-        
-        // Combine stain filters with base filters
-        const allFilters = [...stainFilters, ...baseFilters];
-        const filterString = allFilters.length > 0 ? allFilters.join(' ') : 'none';
-        
-        if (this.viewerElement) {
-            this.viewerElement.classList.add('color-corrected');
-        }
-        
-        this.styleElement.textContent = `
-            #osd-viewer.color-corrected {
-                filter: ${filterString};
+        // Process each pixel
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            
+            // Convert RGB to optical density (OD)
+            // OD = -log10(I/255), clamped to avoid log(0)
+            const odR = -Math.log10(Math.max(r, 1) / 255);
+            const odG = -Math.log10(Math.max(g, 1) / 255);
+            const odB = -Math.log10(Math.max(b, 1) / 255);
+            
+            // Apply inverse stain matrix to get stain concentrations
+            // [H, E, R] = inv(M) * [odR, odG, odB]
+            let cH = inv[0][0] * odR + inv[0][1] * odG + inv[0][2] * odB;
+            let cE = inv[1][0] * odR + inv[1][1] * odG + inv[1][2] * odB;
+            let cR = inv[2][0] * odR + inv[2][1] * odG + inv[2][2] * odB;
+            
+            // Clamp negative concentrations
+            cH = Math.max(0, cH);
+            cE = Math.max(0, cE);
+            cR = Math.max(0, cR);
+            
+            // Apply user adjustments
+            cH *= H;
+            cE *= E;
+            
+            // Apply view mode
+            let finalOdR, finalOdG, finalOdB;
+            
+            if (mode === 'hematoxylin') {
+                // Show only H channel
+                finalOdR = 0.650 * cH;
+                finalOdG = 0.704 * cH;
+                finalOdB = 0.286 * cH;
+            } else if (mode === 'eosin') {
+                // Show only E channel
+                finalOdR = 0.072 * cE;
+                finalOdG = 0.990 * cE;
+                finalOdB = 0.105 * cE;
+            } else {
+                // Combined - reconstruct with adjusted concentrations
+                finalOdR = 0.650 * cH + 0.072 * cE + 0.268 * cR;
+                finalOdG = 0.704 * cH + 0.990 * cE + 0.570 * cR;
+                finalOdB = 0.286 * cH + 0.105 * cE + 0.776 * cR;
             }
-        `;
+            
+            // Convert back from OD to RGB
+            // I = 255 * 10^(-OD)
+            data[i] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdR)));
+            data[i + 1] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdG)));
+            data[i + 2] = Math.min(255, Math.max(0, 255 * Math.pow(10, -finalOdB)));
+            // Alpha unchanged
+        }
+        
+        // Write to overlay canvas
+        destCtx.putImageData(imageData, 0, 0);
+        this.stainCanvas.style.display = 'block';
+    }
+    
+    /**
+     * Schedule stain update (debounced for performance)
+     */
+    _applyStainAdjustment() {
+        if (!this.stainEnabled) return;
+        
+        // Debounce updates
+        if (this._stainDebounce) {
+            cancelAnimationFrame(this._stainDebounce);
+        }
+        this._stainDebounce = requestAnimationFrame(() => {
+            this._applyStainDeconvolution();
+        });
     }
     
     /**
      * Stop stain rendering (cleanup)
      */
     _stopStainRendering() {
-        // Remove stain SVG filter
-        const svgFilter = document.getElementById('stain-deconv-svg');
-        if (svgFilter) {
-            svgFilter.remove();
+        // Hide overlay canvas
+        if (this.stainCanvas) {
+            this.stainCanvas.style.display = 'none';
+        }
+        
+        // Remove viewer handlers
+        if (this.viewer && this._stainUpdateHandler) {
+            this.viewer.removeHandler('animation-finish', this._stainUpdateHandler);
+            this.viewer.removeHandler('open', this._stainUpdateHandler);
+            this._stainUpdateHandler = null;
+        }
+        
+        // Cancel pending updates
+        if (this._stainDebounce) {
+            cancelAnimationFrame(this._stainDebounce);
+            this._stainDebounce = null;
         }
     }
 }
