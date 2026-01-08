@@ -141,6 +141,7 @@
             <div class="status-badge" id="zoom-level">1.0x</div>
             <div class="status-badge" id="space-nav-badge" style="display:none; cursor:pointer;" onclick="toggleSpaceNavigator()" oncontextmenu="openSpaceMouseMenu(event)" title="Click to connect SpaceMouse">🎮</div>
             <div class="status-badge" id="color-badge" style="display:none; cursor:pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
+            <div class="status-badge" id="analysis-badge" style="display:none; cursor:pointer;" onclick="openAnalysisPanel()" title="Analysis tools (stain deconv, focus quality)">🔬</div>
             <div class="status-badge" id="help-badge" style="cursor:pointer;" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
             <div class="status-badge debug-only" id="viewer-version" style="display:none;">v1.1.0</div>
             <div class="status-badge debug-only" id="server-status" style="display:none;">Server</div>
@@ -364,75 +365,90 @@
                     <input type="range" id="saturation-slider" min="0" max="2.0" step="0.1" value="1.0" oninput="updateColorParam('saturation', this.value)" style="width: 100%;">
                 </div>
                 
-                <!-- Stain Deconvolution -->
-                <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">STAIN DECONVOLUTION</span>
-                        <button id="stain-toggle-btn" class="btn" onclick="toggleStainDeconv()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
-                    </div>
-                    <div id="stain-controls" style="opacity: 0.5; pointer-events: none;">
-                        <!-- Stain Type Selector -->
-                        <div style="display: flex; gap: 4px; margin-bottom: 12px;">
-                            <button id="stain-type-he" class="btn btn-primary" onclick="setStainType('HE')" style="flex: 1; padding: 4px 8px; font-size: 10px;">H&E</button>
-                            <button id="stain-type-hdab" class="btn" onclick="setStainType('HDAB')" style="flex: 1; padding: 4px 8px; font-size: 10px;">H-DAB</button>
-                        </div>
-                        <!-- Balance Slider -->
-                        <div style="margin-bottom: 12px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                                <span id="stain1-label" style="color: #6B5B95; font-size: 11px; font-weight: 600;">H</span>
-                                <span style="color: var(--text-secondary); font-size: 10px;">BALANCE</span>
-                                <span id="stain2-label" style="color: #E8B4B8; font-size: 11px; font-weight: 600;">E</span>
-                            </div>
-                            <input type="range" id="stain-balance-slider" min="-1" max="1" step="0.05" value="0" oninput="updateStainBalance(this.value)" style="width: 100%;">
-                            <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
-                                <span id="h-intensity">H: 1.00</span>
-                                <span id="e-intensity">E: 1.00</span>
-                            </div>
-                        </div>
-                        <!-- View Mode -->
-                        <div style="display: flex; gap: 4px; margin-top: 8px;">
-                            <button id="view-combined" class="btn btn-primary" onclick="setStainView('combined')" style="flex: 1; padding: 4px 6px; font-size: 10px;">Combined</button>
-                            <button id="view-h-only" class="btn" onclick="setStainView('hematoxylin')" style="flex: 1; padding: 4px 6px; font-size: 10px;">H Only</button>
-                            <button id="view-stain2-only" class="btn" onclick="setStainView('eosin')" style="flex: 1; padding: 4px 6px; font-size: 10px;"><span id="stain2-btn-label">E Only</span></button>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Focus Quality Heatmap -->
-                <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🔍 FOCUS QUALITY</span>
-                        <button id="focus-toggle-btn" class="btn" onclick="toggleFocusQuality()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
-                    </div>
-                    <div id="focus-controls" style="opacity: 0.5; pointer-events: none;">
-                        <div style="margin-bottom: 10px;">
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">SMOOTHING: <span id="focus-smoothing-value">3.0</span></label>
-                            <input type="range" id="focus-smoothing-slider" min="1" max="8" step="0.5" value="3" oninput="updateFocusParam('smoothing', this.value)" style="width: 100%;">
-                        </div>
-                        <div style="margin-bottom: 10px;">
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">OPACITY: <span id="focus-opacity-value">0.50</span></label>
-                            <input type="range" id="focus-opacity-slider" min="0.1" max="1" step="0.05" value="0.5" oninput="updateFocusParam('opacity', this.value)" style="width: 100%;">
-                        </div>
-                        <div style="margin-bottom: 8px;">
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">SENSITIVITY: <span id="focus-threshold-value">0.05</span></label>
-                            <input type="range" id="focus-threshold-slider" min="0" max="0.3" step="0.01" value="0.05" oninput="updateFocusParam('threshold', this.value)" style="width: 100%;">
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text-secondary); margin-top: 8px;">
-                            <span style="color: #0000ff;">●</span> Blur
-                            <span style="color: #00ff00;">●</span> Mid
-                            <span style="color: #ff0000;">●</span> Sharp
-                        </div>
-                    </div>
-                </div>
-                
                 <div id="icc-status-panel" style="margin-top: 16px; padding: 10px; background: var(--bg-primary); border-radius: 6px; font-size: 11px; color: var(--text-secondary); display: none;">
                     <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
                 </div>
                 <div style="display: flex; gap: 8px; margin-top: 20px;">
-                    <button class="btn" onclick="openPerformanceEvaluation()" style="flex: 1;" title="Open display/performance evaluation (BYOD evidence)">Performance Eval</button>
+                    <button class="btn" onclick="openAnalysisPanel()" style="flex: 1;" title="Stain deconvolution & focus analysis">🔬 Analysis</button>
                     <button class="btn" onclick="resetColorCorrection()" style="flex: 1;">Reset</button>
                     <button class="btn btn-primary" onclick="closeColorPanel()" style="flex: 1;">Done</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Analysis Tools Panel (no overlay - see-through) -->
+    <div id="analysis-panel" style="display: none; position: fixed; top: 80px; right: 20px; width: 320px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 1001;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <h3 style="margin: 0; font-size: 14px; color: var(--text-primary);">🔬 Analysis Tools</h3>
+            <button onclick="closeAnalysisPanel()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 20px; padding: 0;">&times;</button>
+        </div>
+        <div style="padding: 20px; max-height: calc(100vh - 200px); overflow-y: auto;">
+            <!-- Stain Deconvolution -->
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">STAIN DECONVOLUTION</span>
+                    <button id="stain-toggle-btn" class="btn" onclick="toggleStainDeconv()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
+                </div>
+                <div id="stain-controls" style="opacity: 0.5; pointer-events: none;">
+                    <!-- Stain Type Selector -->
+                    <div style="display: flex; gap: 4px; margin-bottom: 12px;">
+                        <button id="stain-type-he" class="btn btn-primary" onclick="setStainType('HE')" style="flex: 1; padding: 4px 8px; font-size: 10px;">H&E</button>
+                        <button id="stain-type-hdab" class="btn" onclick="setStainType('HDAB')" style="flex: 1; padding: 4px 8px; font-size: 10px;">H-DAB</button>
+                    </div>
+                    <!-- Balance Slider -->
+                    <div style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                            <span id="stain1-label" style="color: #6B5B95; font-size: 11px; font-weight: 600;">H</span>
+                            <span style="color: var(--text-secondary); font-size: 10px;">BALANCE</span>
+                            <span id="stain2-label" style="color: #E8B4B8; font-size: 11px; font-weight: 600;">E</span>
+                        </div>
+                        <input type="range" id="stain-balance-slider" min="-1" max="1" step="0.05" value="0" oninput="updateStainBalance(this.value)" style="width: 100%;">
+                        <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--text-secondary);">
+                            <span id="h-intensity">H: 1.00</span>
+                            <span id="e-intensity">E: 1.00</span>
+                        </div>
+                    </div>
+                    <!-- View Mode -->
+                    <div style="display: flex; gap: 4px; margin-top: 8px;">
+                        <button id="view-combined" class="btn btn-primary" onclick="setStainView('combined')" style="flex: 1; padding: 4px 6px; font-size: 10px;">Combined</button>
+                        <button id="view-h-only" class="btn" onclick="setStainView('hematoxylin')" style="flex: 1; padding: 4px 6px; font-size: 10px;">H Only</button>
+                        <button id="view-stain2-only" class="btn" onclick="setStainView('eosin')" style="flex: 1; padding: 4px 6px; font-size: 10px;"><span id="stain2-btn-label">E Only</span></button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Focus Quality Heatmap -->
+            <div style="padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🔍 FOCUS QUALITY</span>
+                    <button id="focus-toggle-btn" class="btn" onclick="toggleFocusQuality()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
+                </div>
+                <div id="focus-controls" style="opacity: 0.5; pointer-events: none;">
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">SMOOTHING: <span id="focus-smoothing-value">3.0</span></label>
+                        <input type="range" id="focus-smoothing-slider" min="1" max="8" step="0.5" value="3" oninput="updateFocusParam('smoothing', this.value)" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">OPACITY: <span id="focus-opacity-value">0.50</span></label>
+                        <input type="range" id="focus-opacity-slider" min="0.1" max="1" step="0.05" value="0.5" oninput="updateFocusParam('opacity', this.value)" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 8px;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">SENSITIVITY: <span id="focus-threshold-value">0.05</span></label>
+                        <input type="range" id="focus-threshold-slider" min="0" max="0.3" step="0.01" value="0.05" oninput="updateFocusParam('threshold', this.value)" style="width: 100%;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text-secondary); margin-top: 8px;">
+                        <span style="color: #0000ff;">●</span> Blur
+                        <span style="color: #00ff00;">●</span> Mid
+                        <span style="color: #ff0000;">●</span> Sharp
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Buttons -->
+            <div style="display: flex; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <button class="btn" onclick="openPerformanceEvaluation()" style="flex: 1;" title="Performance evaluation">Perf Eval</button>
+                <button class="btn btn-primary" onclick="closeAnalysisPanel()" style="flex: 1;">Done</button>
             </div>
         </div>
     </div>
@@ -506,7 +522,7 @@
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.9.0"></script>
+    <script src="js/viewer-main.js?v=1.10.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
     <script src="js/ui-controllers.js?v=1.1.5"></script>
 

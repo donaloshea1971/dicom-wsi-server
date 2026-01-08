@@ -50,6 +50,27 @@ function closeColorPanel(event) {
 }
 
 /**
+ * Open analysis tools panel (stain deconv, focus quality)
+ */
+function openAnalysisPanel() {
+    const panel = document.getElementById('analysis-panel');
+    if (panel) {
+        panel.style.display = 'block';
+        // Update UI state
+        if (typeof updateStainUI === 'function') updateStainUI();
+        if (typeof updateFocusUI === 'function') updateFocusUI();
+    }
+}
+
+/**
+ * Close analysis tools panel
+ */
+function closeAnalysisPanel() {
+    const panel = document.getElementById('analysis-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+/**
  * Toggle keyboard help overlay
  */
 function toggleKeyboardHelp() {
