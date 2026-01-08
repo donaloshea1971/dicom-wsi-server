@@ -1054,7 +1054,7 @@ class ColorCorrectionFilter {
         // Upload source canvas as texture
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);  // Flip Y to match canvas coords
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);  // Don't flip - canvas to canvas same coords
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
