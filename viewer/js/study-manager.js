@@ -258,8 +258,9 @@ function renderStudyCard(study, ownershipType) {
         : '';
     
     // Edit button only for owned slides (icon-only style)
+    // Use data attributes to avoid escaping issues with special characters in names
     const editBtn = ownershipType === 'owned'
-        ? `<button class="action-btn edit-btn" onclick="event.stopPropagation(); openSlideEditDialog('${study.ID}', '${slideName.replace(/'/g, "\\'")}', '${stain || ''}')" title="Edit slide metadata">
+        ? `<button class="action-btn edit-btn" data-slide-id="${study.ID}" data-slide-name="${encodeURIComponent(slideName)}" data-slide-stain="${stain || ''}" onclick="event.stopPropagation(); openSlideEditDialogFromButton(this)" title="Edit slide metadata">
                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -503,9 +504,22 @@ function toggleCaseGroup(header) {
 }
 
 /**
+ * Open slide edit dialog from button click (extracts data from button attributes)
+ */
+function openSlideEditDialogFromButton(btn) {
+    const slideId = btn.dataset.slideId;
+    const slideName = decodeURIComponent(btn.dataset.slideName || '');
+    const stain = btn.dataset.slideStain || '';
+    console.log('✏️ Edit button clicked:', { slideId, slideName, stain });
+    openSlideEditDialog(slideId, slideName, stain);
+}
+
+/**
  * Open slide edit dialog
  */
 async function openSlideEditDialog(slideId, fallbackName, fallbackStain) {
+    console.log('✏️ openSlideEditDialog called:', { slideId, fallbackName, fallbackStain });
+    
     currentEditSlideId = slideId;
     const idInput = document.getElementById('slide-edit-id');
     const nameInput = document.getElementById('slide-edit-name');
@@ -514,6 +528,8 @@ async function openSlideEditDialog(slideId, fallbackName, fallbackStain) {
     const blockSelect = document.getElementById('slide-edit-block');
     const patientSelect = document.getElementById('slide-edit-patient');
     const dialog = document.getElementById('slide-edit-dialog');
+    
+    console.log('✏️ Dialog element found:', !!dialog);
 
     if (idInput) idInput.value = slideId;
     if (nameInput) nameInput.value = fallbackName || '';
@@ -522,7 +538,12 @@ async function openSlideEditDialog(slideId, fallbackName, fallbackStain) {
     if (blockSelect) blockSelect.innerHTML = '<option value="">-- No Block --</option>';
     if (patientSelect) patientSelect.innerHTML = '<option value="">-- No Patient --</option>';
     
-    if (dialog) dialog.style.display = 'flex';
+    if (dialog) {
+        dialog.style.display = 'flex';
+        console.log('✏️ Dialog display set to flex');
+    } else {
+        console.error('✏️ ERROR: slide-edit-dialog element not found!');
+    }
     
     try {
         const slideRes = await authFetch(`/api/slides/${slideId}`);
