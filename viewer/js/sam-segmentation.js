@@ -502,15 +502,16 @@
       const h = state.cached.captureH;
 
       // Build prompt inputs via processor
+      // SAM expects 4D tensors: [batch_size, point_batch_size, nb_points, coords]
       let inputs;
       if (prompt.type === 'point') {
         inputs = await state.processor(imageForProcessor, {
-          input_points: [[[prompt.x, prompt.y]]],
-          input_labels: [[prompt.label]],
+          input_points: [[[[prompt.x, prompt.y]]]],  // 4D: [1, 1, 1, 2]
+          input_labels: [[[prompt.label]]],          // 3D: [1, 1, 1]
         });
       } else if (prompt.type === 'box') {
         inputs = await state.processor(imageForProcessor, {
-          input_boxes: [[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]],
+          input_boxes: [[[[prompt.x0, prompt.y0, prompt.x1, prompt.y1]]]],  // 4D
         });
       } else {
         throw new Error('Unsupported prompt type');
