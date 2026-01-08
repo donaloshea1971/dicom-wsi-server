@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>PathView Pro - Performance Evaluation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/viewer.css?v=1.2.1">
+    <style>
+        /* Keep everything self-contained; reuse viewer theme vars from viewer.css */
+        .perf-container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .perf-header { display:flex; justify-content: space-between; gap: 12px; align-items:center; margin-bottom: 16px; }
+        .perf-header h1 { font-size: 18px; margin: 0; }
+        .perf-sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+        .perf-grid { display:grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+        @media (max-width: 980px) { .perf-grid { grid-template-columns: 1fr; } }
+        .perf-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+        .perf-card h3 { margin: 0 0 10px 0; font-size: 14px; }
+        .perf-card p { margin: 0 0 10px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.4; }
+        .perf-row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .perf-row .btn { padding: 8px 10px; font-size: 12px; }
+        .perf-mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; color: var(--text-secondary); }
+        .perf-kv { display:grid; grid-template-columns: 1fr 2fr; gap: 8px; font-size: 12px; }
+        .perf-kv div { padding: 6px 8px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; }
+        .perf-kv .k { color: var(--text-muted); }
+        .perf-kv .v { color: var(--text-primary); word-break: break-word; }
+        .perf-tabs { display:flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+        .perf-tab { background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); border-radius: 999px; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+        .perf-tab.active { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); }
+        .perf-panel { display:none; }
+        .perf-panel.active { display:block; }
+        .perf-canvas { width: 100%; height: auto; display:block; background: #000; border-radius: 10px; border: 1px solid var(--border); }
+        .perf-two { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        @media (max-width: 980px) { .perf-two { grid-template-columns: 1fr; } }
+        textarea.perf-text { width: 100%; min-height: 140px; resize: vertical; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px; }
+        .perf-badge { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-secondary); }
+        .perf-warn { color: #fbbf24; }
+        .perf-good { color: var(--success); }
+        .perf-danger { color: var(--danger); }
+        .perf-form label { display:block; margin: 10px 0 6px; color: var(--text-secondary); font-size: 12px; }
+        .perf-form select, .perf-form input { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px; }
+        .perf-form .perf-row { justify-content: flex-end; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/>
+                <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+            </svg>
+            PathView Pro
+        </div>
+        <div class="header-controls">
+            <button class="btn" onclick="PerfEval.goBack()">← Back to Viewer</button>
+            <button class="btn btn-primary" onclick="PerfEval.exportEvidence()">Export Evidence</button>
+        </div>
+    </header>
+
+    <div class="perf-container">
+        <div class="perf-header">
+            <div>
+                <h1>Performance Evaluation</h1>
+                <div class="perf-sub">Display patterns + interaction benchmark + optional real-slide tile sampling. Designed for BYOD evidence capture.</div>
+            </div>
+            <div class="perf-mono" id="perf-topline"></div>
+        </div>
+
+        <div class="perf-grid">
+            <div class="perf-card">
+                <div class="perf-tabs">
+                    <button class="perf-tab active" data-tab="patterns">Display Patterns</button>
+                    <button class="perf-tab" data-tab="interaction">Interaction Benchmark</button>
+                    <button class="perf-tab" data-tab="wsi">Real WSI Tile Check</button>
+                </div>
+
+                <div class="perf-panel active" id="tab-patterns">
+                    <p>Use these patterns to spot clipping, banding, tint/uniformity issues, and sharpness artifacts. Keep OS “night light”/True Tone off and set browser zoom to 100%.</p>
+                    <div class="perf-two">
+                        <div>
+                            <h3>Grayscale / Banding</h3>
+                            <canvas id="canvas-grayscale" class="perf-canvas" width="1024" height="420"></canvas>
+                            <p class="perf-mono">Check: near-black steps visible, smooth ramp without banding, no crushed blacks/whites.</p>
+                        </div>
+                        <div>
+                            <h3>Sharpness / Moiré</h3>
+                            <canvas id="canvas-sharpness" class="perf-canvas" width="1024" height="420"></canvas>
+                            <p class="perf-mono">Check: 1‑px lines visible, line pairs resolve cleanly, no strong ringing/halo.</p>
+                        </div>
+                        <div>
+                            <h3>Uniformity</h3>
+                            <canvas id="canvas-uniformity" class="perf-canvas" width="1024" height="360"></canvas>
+                            <p class="perf-mono">Check: corners match center, no warm/cool cast, no vignette.</p>
+                        </div>
+                        <div>
+                            <h3>Color Patches (stain-like)</h3>
+                            <canvas id="canvas-color" class="perf-canvas" width="1024" height="360"></canvas>
+                            <p class="perf-mono">Check: neutrals look neutral, reds/purples not clipped, smooth gradients.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="perf-panel" id="tab-interaction">
+                    <p>Simulates WSI-like pan/zoom over a large procedural field. Measures frame pacing and input latency on this device, independent of network/server.</p>
+                    <div class="perf-row" style="margin-bottom:10px;">
+                        <button class="btn btn-primary" onclick="PerfEval.startInteractionBench()">Run 10s benchmark</button>
+                        <button class="btn" onclick="PerfEval.resetInteractionBench()">Reset</button>
+                        <span class="perf-badge" id="bench-status">idle</span>
+                    </div>
+                    <canvas id="canvas-bench" class="perf-canvas" width="1200" height="700"></canvas>
+                    <div class="perf-kv" style="margin-top:10px;">
+                        <div class="k">FPS (avg)</div><div class="v" id="bench-fps">—</div>
+                        <div class="k">Frame time p95</div><div class="v" id="bench-p95">—</div>
+                        <div class="k">Dropped frames (>\u226633ms)</div><div class="v" id="bench-dropped">—</div>
+                        <div class="k">Input-to-draw p95</div><div class="v" id="bench-input">—</div>
+                    </div>
+                    <p class="perf-mono">Tip: try pinch/scroll zoom and quick pans. If FPS collapses, the device may not be suitable for primary Dx use.</p>
+                </div>
+
+                <div class="perf-panel" id="tab-wsi">
+                    <p>This optionally samples tile fetch/decode timings from the server using the current slide (if provided). Requires authentication and a loaded study/slide id.</p>
+                    <div class="perf-row" style="margin-bottom:10px;">
+                        <button class="btn btn-primary" onclick="PerfEval.runWsiTileCheck()">Run tile check</button>
+                        <button class="btn" onclick="PerfEval.clearWsiTileCheck()">Clear</button>
+                        <span class="perf-badge" id="wsi-status">idle</span>
+                    </div>
+                    <div class="perf-kv">
+                        <div class="k">Study</div><div class="v" id="wsi-study">—</div>
+                        <div class="k">Series</div><div class="v" id="wsi-series">—</div>
+                        <div class="k">Tile p50 / p95</div><div class="v" id="wsi-lat">—</div>
+                        <div class="k">Tiles sampled</div><div class="v" id="wsi-count">—</div>
+                        <div class="k">Notes</div><div class="v" id="wsi-notes">—</div>
+                    </div>
+                    <p class="perf-mono">This is a *system* check (network+server+device). It complements the display-only patterns.</p>
+                </div>
+            </div>
+
+            <div class="perf-card">
+                <h3>Device & Display Snapshot</h3>
+                <p>Auto-captured fields for BYOD evidence. Review your OS scaling and browser zoom.</p>
+                <div class="perf-kv" id="device-kv"></div>
+
+                <h3 style="margin-top:14px;">Attestation</h3>
+                <p>These inputs capture environment/setup factors that strongly affect perceived image quality.</p>
+                <div class="perf-form">
+                    <label>Ambient lighting</label>
+                    <select id="att-ambient">
+                        <option value="controlled_low">Controlled / low glare</option>
+                        <option value="office_normal">Office / normal</option>
+                        <option value="bright_glare">Bright / glare present</option>
+                    </select>
+
+                    <label>OS night mode / True Tone / Night Light</label>
+                    <select id="att-night">
+                        <option value="off">Off</option>
+                        <option value="on">On</option>
+                        <option value="unknown">Unknown</option>
+                    </select>
+
+                    <label>Browser zoom</label>
+                    <select id="att-zoom">
+                        <option value="100">100%</option>
+                        <option value="not_100">Not 100%</option>
+                        <option value="unknown">Unknown</option>
+                    </select>
+
+                    <label>Calibration</label>
+                    <select id="att-cal">
+                        <option value="none">None / unknown</option>
+                        <option value="os_profile">OS/profile calibration (no hardware proof)</option>
+                        <option value="hardware_colorimeter">Hardware colorimeter calibration</option>
+                    </select>
+
+                    <label>Notes (optional)</label>
+                    <input id="att-notes" placeholder="e.g., external monitor model, room lighting notes, calibration date">
+
+                    <div class="perf-row">
+                        <button class="btn" onclick="PerfEval.copySummary()">Copy summary</button>
+                        <button class="btn btn-primary" onclick="PerfEval.exportEvidence()">Export Evidence</button>
+                    </div>
+                </div>
+
+                <h3 style="margin-top:14px;">Evidence Preview</h3>
+                <textarea class="perf-text" id="evidence-preview" readonly></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth utilities used by the main viewer -->
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+    <script src="js/auth.js?v=1.1.0"></script>
+    <script src="js/performance-eval.js?v=1.0.0"></script>
+</body>
+</html>
+
