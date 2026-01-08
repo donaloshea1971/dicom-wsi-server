@@ -208,9 +208,24 @@ services:
 
 volumes:
   orthanc-storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/volume_lon1_01/orthanc-storage
   postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/volume_lon1_01/postgres-data
   redis-data:
   uploads:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/volume_lon1_01/uploads
   ssl-certs:
   ssl-challenges:
 
