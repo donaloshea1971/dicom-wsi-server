@@ -3481,18 +3481,29 @@ async def complete_dicom_chunked_upload(
         
         logger.info(f"📦 Assembled DICOM: {actual_size / (1024*1024):.1f} MB")
         
-        # Send to Orthanc
+        # Send to Orthanc using streaming to avoid loading entire file into memory
         upload["message"] = "Sending to DICOM server..."
         upload["progress"] = 90
         
-        async with httpx.AsyncClient(timeout=600.0) as client:  # 10 minute timeout for large files
+        # Stream the file in chunks to Orthanc
+        def file_stream():
             with open(temp_dicom, "rb") as f:
-                response = await client.post(
-                    f"{settings.orthanc_url}/instances",
-                    content=f.read(),
-                    headers={"Content-Type": "application/dicom"},
-                    auth=(settings.orthanc_username, settings.orthanc_password)
-                )
+                while True:
+                    chunk = f.read(8 * 1024 * 1024)  # 8MB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+        
+        async with httpx.AsyncClient(timeout=1800.0) as client:  # 30 minute timeout for very large files
+            response = await client.post(
+                f"{settings.orthanc_url}/instances",
+                content=file_stream(),
+                headers={
+                    "Content-Type": "application/dicom",
+                    "Content-Length": str(actual_size)  # Required for streaming
+                },
+                auth=(settings.orthanc_username, settings.orthanc_password)
+            )
         
         if response.status_code not in (200, 201):
             raise HTTPException(
