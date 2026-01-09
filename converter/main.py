@@ -733,7 +733,14 @@ async def get_calibration(study_id: str, user: User = Depends(require_user)):
             if "0028,0030" in tags:
                 ps = tags["0028,0030"].get("Value", [])
                 if ps:
-                    pixel_spacing = [float(ps[0]), float(ps[1]) if len(ps) > 1 else float(ps[0])]
+                    try:
+                        # Validate values are actual numbers, not just "." or empty
+                        ps0 = str(ps[0]).strip()
+                        ps1 = str(ps[1]).strip() if len(ps) > 1 else ps0
+                        if ps0 and ps0 != "." and ps1 and ps1 != ".":
+                            pixel_spacing = [float(ps0), float(ps1)]
+                    except (ValueError, IndexError) as e:
+                        logger.warning(f"Invalid PixelSpacing value: {ps}, skipping")
             
             # SharedFunctionalGroupsSequence for WSI
             if not pixel_spacing and "5200,9229" in tags:
@@ -744,7 +751,13 @@ async def get_calibration(study_id: str, user: User = Depends(require_user)):
                     if pms and "0028,0030" in pms[0]:
                         ps = pms[0]["0028,0030"].get("Value", [])
                         if ps:
-                            pixel_spacing = [float(ps[0]), float(ps[1]) if len(ps) > 1 else float(ps[0])]
+                            try:
+                                ps0 = str(ps[0]).strip()
+                                ps1 = str(ps[1]).strip() if len(ps) > 1 else ps0
+                                if ps0 and ps0 != "." and ps1 and ps1 != ".":
+                                    pixel_spacing = [float(ps0), float(ps1)]
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Invalid PixelSpacing in SFGS: {ps}, skipping")
             
             # ImagedVolumeWidth/Height for WSI (in mm)
             imaged_volume_width = None
