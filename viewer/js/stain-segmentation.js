@@ -512,13 +512,26 @@
 
   function attachToViewer(viewer, opts) {
     const key = (opts && opts.key) || 'v1';
+    console.log('[StainSeg] attachToViewer called, key:', key, 'viewer:', !!viewer);
+    
+    if (!viewer) {
+      console.warn('[StainSeg] attachToViewer called with null viewer');
+      return;
+    }
+    
     const entry = controllers.get(key) || { viewer, key, state: createState() };
     entry.viewer = viewer;
     entry.key = key;
     controllers.set(key, entry);
+    
+    console.log('[StainSeg] Controller registered, controllers.size:', controllers.size);
 
     ensureOverlayCanvas(viewer, key);
     resizeOverlayToViewer(viewer, ensureOverlayCanvas(viewer, key));
+    
+    // Clear any previous "load a slide first" error since we now have a viewer
+    clearError();
+    updateUIFromState(entry.state);
 
     // React to nav changes if enabled
     if (viewer && typeof viewer.addHandler === 'function') {
@@ -552,13 +565,14 @@
   }
 
   function toggleEnabled() {
+    console.log('[StainSeg] toggleEnabled called, controllers.size:', controllers.size);
     const entry = getPrimaryController();
     if (!entry) {
-      console.warn('[StainSeg] No viewer attached - load a slide first');
+      console.warn('[StainSeg] No viewer attached - load a slide first. Controllers:', Array.from(controllers.keys()));
       setError('Load a slide first');
       return;
     }
-    console.log('[StainSeg] Toggle enabled:', !entry.state.enabled);
+    console.log('[StainSeg] Toggle enabled:', !entry.state.enabled, 'viewer:', !!entry.viewer);
     setEnabled(!entry.state.enabled);
   }
 

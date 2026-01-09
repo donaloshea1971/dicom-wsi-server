@@ -370,8 +370,12 @@ async function loadStudy(studyId) {
 
             // Classic segmentation (threshold + blob size) - optional, used from Analysis panel
             try {
+                console.log('[viewer-main] About to attach StainSegmentation, window.StainSegmentation:', !!window.StainSegmentation);
                 if (window.StainSegmentation && typeof window.StainSegmentation.attachToViewer === 'function') {
                     window.StainSegmentation.attachToViewer(viewer, { key: 'v1' });
+                    console.log('[viewer-main] StainSegmentation attached successfully');
+                } else {
+                    console.warn('[viewer-main] StainSegmentation not available at attachment time');
                 }
             } catch (e) {
                 console.warn('StainSegmentation attach failed:', e);
