@@ -325,57 +325,57 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
             res_unit = 3  # Default to centimeter
             
             if page_idx == 0:
-                # Get resolution tags if present
-                if 282 in page.tags:  # XResolution
-                    x_val = page.tags[282].value
-                    try:
-                        if isinstance(x_val, tuple) and len(x_val) >= 2:
-                            num, denom = int(x_val[0]), int(x_val[1])
-                            # Check for valid denominator (avoid division by zero)
-                            if denom > 0 and num > 0:
-                                x_res = (num, denom)
-                                logger.info(f"  XResolution from DCX: {x_res}")
-                            else:
-                                logger.warning(f"  Invalid XResolution in DCX: {x_val}, using default")
-                        elif hasattr(x_val, 'numerator') and hasattr(x_val, 'denominator'):
-                            # Handle Fraction objects
-                            if x_val.denominator > 0 and x_val.numerator > 0:
-                                x_res = (int(x_val.numerator), int(x_val.denominator))
-                                logger.info(f"  XResolution from DCX (Fraction): {x_res}")
-                            else:
-                                logger.warning(f"  Invalid XResolution Fraction in DCX: {x_val}, using default")
-                        else:
-                            x_res = (int(x_val), 1) if int(x_val) > 0 else None
-                    except Exception as e:
-                        logger.warning(f"  Error parsing XResolution: {e}, using default")
+                # Get resolution tags if present - wrap everything in try/except
+                # because tifffile may raise exceptions for malformed RATIONAL values
+                try:
+                    if 282 in page.tags:  # XResolution
+                        try:
+                            x_val = page.tags[282].value
+                            if isinstance(x_val, tuple) and len(x_val) >= 2:
+                                num, denom = int(x_val[0]), int(x_val[1])
+                                if denom > 0 and num > 0:
+                                    x_res = (num, denom)
+                                    logger.info(f"  XResolution from DCX: {x_res}")
+                            elif hasattr(x_val, 'numerator') and hasattr(x_val, 'denominator'):
+                                if x_val.denominator > 0 and x_val.numerator > 0:
+                                    x_res = (int(x_val.numerator), int(x_val.denominator))
+                                    logger.info(f"  XResolution from DCX (Fraction): {x_res}")
+                            elif isinstance(x_val, (int, float)) and x_val > 0:
+                                x_res = (int(x_val), 1)
+                                logger.info(f"  XResolution from DCX (scalar): {x_res}")
+                        except Exception as e:
+                            logger.warning(f"  Error reading XResolution tag: {e}")
+                except Exception as e:
+                    logger.warning(f"  Error accessing XResolution: {e}")
                     
-                if 283 in page.tags:  # YResolution
-                    y_val = page.tags[283].value
-                    try:
-                        if isinstance(y_val, tuple) and len(y_val) >= 2:
-                            num, denom = int(y_val[0]), int(y_val[1])
-                            if denom > 0 and num > 0:
-                                y_res = (num, denom)
-                                logger.info(f"  YResolution from DCX: {y_res}")
-                            else:
-                                logger.warning(f"  Invalid YResolution in DCX: {y_val}, using default")
-                        elif hasattr(y_val, 'numerator') and hasattr(y_val, 'denominator'):
-                            if y_val.denominator > 0 and y_val.numerator > 0:
-                                y_res = (int(y_val.numerator), int(y_val.denominator))
-                                logger.info(f"  YResolution from DCX (Fraction): {y_res}")
-                            else:
-                                logger.warning(f"  Invalid YResolution Fraction in DCX: {y_val}, using default")
-                        else:
-                            y_res = (int(y_val), 1) if int(y_val) > 0 else None
-                    except Exception as e:
-                        logger.warning(f"  Error parsing YResolution: {e}, using default")
+                try:
+                    if 283 in page.tags:  # YResolution
+                        try:
+                            y_val = page.tags[283].value
+                            if isinstance(y_val, tuple) and len(y_val) >= 2:
+                                num, denom = int(y_val[0]), int(y_val[1])
+                                if denom > 0 and num > 0:
+                                    y_res = (num, denom)
+                                    logger.info(f"  YResolution from DCX: {y_res}")
+                            elif hasattr(y_val, 'numerator') and hasattr(y_val, 'denominator'):
+                                if y_val.denominator > 0 and y_val.numerator > 0:
+                                    y_res = (int(y_val.numerator), int(y_val.denominator))
+                                    logger.info(f"  YResolution from DCX (Fraction): {y_res}")
+                            elif isinstance(y_val, (int, float)) and y_val > 0:
+                                y_res = (int(y_val), 1)
+                                logger.info(f"  YResolution from DCX (scalar): {y_res}")
+                        except Exception as e:
+                            logger.warning(f"  Error reading YResolution tag: {e}")
+                except Exception as e:
+                    logger.warning(f"  Error accessing YResolution: {e}")
                     
-                if 296 in page.tags:  # ResolutionUnit
-                    try:
+                try:
+                    if 296 in page.tags:  # ResolutionUnit
                         res_unit = int(page.tags[296].value)
                         logger.info(f"  ResolutionUnit from DCX: {res_unit}")
-                    except:
-                        res_unit = 3
+                except Exception as e:
+                    logger.warning(f"  Error reading ResolutionUnit: {e}")
+                    res_unit = 3
                 
                 # If no valid resolution found, use a reasonable default for pathology (0.25 µm/pixel = 40000 pixels/cm)
                 if not x_res:
