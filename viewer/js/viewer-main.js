@@ -1291,3 +1291,195 @@ function toggleFullscreen() {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
     else document.exitFullscreen();
 }
+
+// ============== WATERSHED SEGMENTATION ==============
+
+var watershedEnabled = false;
+var watershedParams = {
+    minSeedDistance: 8,
+    minCircularity: 0.30,
+    maxEccentricity: 0.95,
+    minArea: 30,
+    maxArea: 10000,
+};
+var watershedOverlayCanvas = null;
+var watershedResult = null;
+
+function toggleWatershed() {
+    watershedEnabled = !watershedEnabled;
+    updateWatershedUI();
+    
+    if (!watershedEnabled) {
+        clearWatershed();
+    }
+}
+
+function updateWatershedUI() {
+    const btn = document.getElementById('watershed-toggle-btn');
+    const controls = document.getElementById('watershed-controls');
+    
+    if (btn) {
+        btn.textContent = watershedEnabled ? 'ON' : 'OFF';
+        btn.classList.toggle('btn-primary', watershedEnabled);
+    }
+    if (controls) {
+        controls.style.opacity = watershedEnabled ? '1' : '0.5';
+        controls.style.pointerEvents = watershedEnabled ? 'auto' : 'none';
+    }
+    
+    // Update slider displays
+    const seedVal = document.getElementById('watershed-seed-distance-value');
+    const circVal = document.getElementById('watershed-circularity-value');
+    const eccVal = document.getElementById('watershed-eccentricity-value');
+    const minAreaVal = document.getElementById('watershed-min-area-value');
+    const maxAreaVal = document.getElementById('watershed-max-area-value');
+    
+    if (seedVal) seedVal.textContent = watershedParams.minSeedDistance;
+    if (circVal) circVal.textContent = Number(watershedParams.minCircularity).toFixed(2);
+    if (eccVal) eccVal.textContent = Number(watershedParams.maxEccentricity).toFixed(2);
+    if (minAreaVal) minAreaVal.textContent = watershedParams.minArea;
+    if (maxAreaVal) maxAreaVal.textContent = watershedParams.maxArea;
+}
+
+function setWatershedParam(name, value) {
+    if (name === 'minSeedDistance') watershedParams.minSeedDistance = parseInt(value, 10);
+    else if (name === 'minCircularity') watershedParams.minCircularity = parseFloat(value);
+    else if (name === 'maxEccentricity') watershedParams.maxEccentricity = parseFloat(value);
+    else if (name === 'minArea') watershedParams.minArea = parseInt(value, 10);
+    else if (name === 'maxArea') watershedParams.maxArea = parseInt(value, 10);
+    
+    updateWatershedUI();
+}
+
+function runWatershed() {
+    if (!viewer) {
+        showWatershedError('No viewer available');
+        return;
+    }
+    
+    if (!window.WatershedSegmentation) {
+        showWatershedError('Watershed module not loaded');
+        return;
+    }
+    
+    if (!window.StainSegmentation) {
+        showWatershedError('Enable classic segmentation first to create binary mask');
+        return;
+    }
+    
+    const statsEl = document.getElementById('watershed-stats');
+    const errorEl = document.getElementById('watershed-error');
+    if (errorEl) errorEl.textContent = '';
+    if (statsEl) statsEl.textContent = 'Running watershed...';
+    
+    // Get the binary mask from StainSegmentation
+    // We need to capture it first
+    try {
+        const viewerEl = viewer.element;
+        const maskCanvas = viewerEl.querySelector('canvas.stain-seg-mask-canvas');
+        
+        if (!maskCanvas) {
+            showWatershedError('No segmentation mask found. Run classic segmentation first.');
+            return;
+        }
+        
+        // Get the mask as binary array
+        const ctx = maskCanvas.getContext('2d');
+        const w = maskCanvas.width;
+        const h = maskCanvas.height;
+        const imgData = ctx.getImageData(0, 0, w, h);
+        
+        // Convert to binary (check alpha > 0)
+        const binaryMask = new Uint8Array(w * h);
+        for (let i = 0; i < w * h; i++) {
+            binaryMask[i] = imgData.data[i * 4 + 3] > 127 ? 1 : 0;
+        }
+        
+        // Check if mask has any content
+        let maskSum = 0;
+        for (let i = 0; i < binaryMask.length; i++) maskSum += binaryMask[i];
+        if (maskSum < 10) {
+            showWatershedError('Segmentation mask is empty. Adjust threshold and run classic segmentation first.');
+            return;
+        }
+        
+        // Run watershed
+        const result = window.WatershedSegmentation.run(binaryMask, w, h, watershedParams);
+        
+        if (!result) {
+            showWatershedError('Watershed failed');
+            return;
+        }
+        
+        watershedResult = result;
+        
+        // Render to overlay
+        ensureWatershedOverlay();
+        window.WatershedSegmentation.renderToCanvas(result, watershedOverlayCanvas, 0.6);
+        
+        // Show stats
+        if (statsEl) {
+            statsEl.textContent = `${result.count} nuclei (${result.totalDetected} detected) · ${result.timeMs}ms`;
+        }
+        
+        console.log('[Watershed] Complete:', result.count, 'nuclei in', result.timeMs, 'ms');
+        
+    } catch (e) {
+        console.error('[Watershed] Error:', e);
+        showWatershedError(e.message || String(e));
+    }
+}
+
+function ensureWatershedOverlay() {
+    if (!viewer) return;
+    
+    const viewerEl = viewer.element;
+    let canvas = viewerEl.querySelector('canvas.watershed-overlay-canvas');
+    
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'watershed-overlay-canvas';
+        canvas.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 18;
+        `;
+        viewerEl.appendChild(canvas);
+    }
+    
+    // Match viewer size
+    const rect = viewerEl.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width);
+    canvas.height = Math.floor(rect.height);
+    
+    watershedOverlayCanvas = canvas;
+}
+
+function clearWatershed() {
+    watershedResult = null;
+    
+    if (watershedOverlayCanvas) {
+        const ctx = watershedOverlayCanvas.getContext('2d');
+        ctx.clearRect(0, 0, watershedOverlayCanvas.width, watershedOverlayCanvas.height);
+    }
+    
+    const statsEl = document.getElementById('watershed-stats');
+    const errorEl = document.getElementById('watershed-error');
+    if (statsEl) statsEl.textContent = '';
+    if (errorEl) errorEl.textContent = '';
+}
+
+function showWatershedError(msg) {
+    const el = document.getElementById('watershed-error');
+    if (el) el.textContent = msg;
+}
+
+// Expose to window
+window.toggleWatershed = toggleWatershed;
+window.setWatershedParam = setWatershedParam;
+window.runWatershed = runWatershed;
+window.clearWatershed = clearWatershed;

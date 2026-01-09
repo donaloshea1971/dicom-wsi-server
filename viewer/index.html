@@ -534,6 +534,78 @@
                     <div id="stain-seg-error" style="margin-top: 6px; font-size: 11px; color: var(--danger); white-space: pre-wrap;"></div>
                 </div>
             </div>
+
+            <!-- Nuclear Separation (Watershed) -->
+            <div style="padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🔬 NUCLEAR SEPARATION</span>
+                    <button id="watershed-toggle-btn" class="btn" onclick="window.toggleWatershed && window.toggleWatershed()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
+                </div>
+                <div id="watershed-controls" style="opacity: 0.5; pointer-events: none;">
+                    <div style="margin-bottom: 10px; font-size: 11px; color: var(--text-secondary);">
+                        Separates touching nuclei using watershed algorithm on distance transform.
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                            MIN SEED DISTANCE: <span id="watershed-seed-distance-value">8</span>px
+                        </label>
+                        <input type="range" id="watershed-seed-distance-slider" min="3" max="30" step="1" value="8"
+                               oninput="window.setWatershedParam && window.setWatershedParam('minSeedDistance', this.value)"
+                               style="width: 100%;">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MIN CIRCULARITY: <span id="watershed-circularity-value">0.30</span>
+                            </label>
+                            <input type="range" id="watershed-circularity-slider" min="0" max="1" step="0.05" value="0.30"
+                                   oninput="window.setWatershedParam && window.setWatershedParam('minCircularity', this.value)"
+                                   style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MAX ECCENTRICITY: <span id="watershed-eccentricity-value">0.95</span>
+                            </label>
+                            <input type="range" id="watershed-eccentricity-slider" min="0" max="1" step="0.05" value="0.95"
+                                   oninput="window.setWatershedParam && window.setWatershedParam('maxEccentricity', this.value)"
+                                   style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MIN AREA: <span id="watershed-min-area-value">30</span>
+                            </label>
+                            <input type="range" id="watershed-min-area-slider" min="5" max="500" step="5" value="30"
+                                   oninput="window.setWatershedParam && window.setWatershedParam('minArea', this.value)"
+                                   style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MAX AREA: <span id="watershed-max-area-value">10000</span>
+                            </label>
+                            <input type="range" id="watershed-max-area-slider" min="100" max="50000" step="100" value="10000"
+                                   oninput="window.setWatershedParam && window.setWatershedParam('maxArea', this.value)"
+                                   style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                        <button class="btn btn-primary" id="watershed-run-btn"
+                                onclick="window.runWatershed && window.runWatershed()"
+                                style="flex: 1; padding: 6px 8px; font-size: 11px;">⚡ Run Watershed</button>
+                        <button class="btn"
+                                onclick="window.clearWatershed && window.clearWatershed()"
+                                style="flex: 1; padding: 6px 8px; font-size: 11px;">Clear</button>
+                    </div>
+
+                    <div id="watershed-stats" style="margin-top: 10px; font-size: 10px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;"></div>
+                    <div id="watershed-error" style="margin-top: 6px; font-size: 11px; color: var(--danger); white-space: pre-wrap;"></div>
+                </div>
+            </div>
             
             <!-- Buttons -->
             <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
@@ -651,10 +723,11 @@
     <script src="space-navigator.js?v=1.20.3"></script>
     <script src="js/sam-segmentation.js?v=0.9.0"></script>
     <script src="js/stain-segmentation.js?v=0.8.0"></script>
+    <script src="js/watershed-segmentation.js?v=1.0.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>
-    <script src="js/viewer-main.js?v=1.14.0"></script>
+    <script src="js/viewer-main.js?v=1.15.0"></script>
     <script src="js/annotation-ui.js?v=1.1.0"></script>
     <script src="js/ui-controllers.js?v=1.2.1"></script>
 
