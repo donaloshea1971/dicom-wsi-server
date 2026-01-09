@@ -215,6 +215,10 @@ def preprocess_for_conversion(file_path: Path, output_dir: Path, job=None) -> Pa
         logger.info(f"Processing DCX file: {file_path.name}")
         
         try:
+            # Import from same directory (works in Docker)
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from dcx_handler import convert_dcx_streaming
             
             output_path = output_dir / f"{file_path.stem}_decoded.tiff"
