@@ -28,6 +28,7 @@ BIGTIFF_VERSION = 43
 TIFF_VERSION = 42
 
 # TIFF tag IDs we care about
+TAG_NEW_SUBFILE_TYPE = 254
 TAG_IMAGE_WIDTH = 256
 TAG_IMAGE_LENGTH = 257
 TAG_BITS_PER_SAMPLE = 258
@@ -35,12 +36,21 @@ TAG_COMPRESSION = 259
 TAG_PHOTOMETRIC = 262
 TAG_SAMPLES_PER_PIXEL = 277
 TAG_ROWS_PER_STRIP = 278
+TAG_X_RESOLUTION = 282
+TAG_Y_RESOLUTION = 283
+TAG_RESOLUTION_UNIT = 296
 TAG_TILE_WIDTH = 322
 TAG_TILE_LENGTH = 323
 TAG_TILE_OFFSETS = 324
 TAG_TILE_BYTE_COUNTS = 325
 TAG_SAMPLE_FORMAT = 339
 TAG_JPEG_TABLES = 347
+
+# TIFF data types
+TIFF_SHORT = 3      # 16-bit unsigned
+TIFF_LONG = 4       # 32-bit unsigned
+TIFF_RATIONAL = 5   # Two LONGs: numerator and denominator
+TIFF_LONG8 = 16     # 64-bit unsigned (BigTIFF)
 
 
 def deobfuscate_tile(tile_data: bytes) -> bytes:
@@ -103,9 +113,17 @@ class BigTiffWriter:
                    samples_per_pixel: int = 3,
                    bits_per_sample: Tuple[int, ...] = (8, 8, 8),
                    jpeg_tables: Optional[bytes] = None,
-                   is_reduced: bool = False) -> int:
+                   is_reduced: bool = False,
+                   x_resolution: Optional[Tuple[int, int]] = None,
+                   y_resolution: Optional[Tuple[int, int]] = None,
+                   resolution_unit: int = 3) -> int:  # 3 = centimeter
         """
         Write a single page/IFD with pre-compressed JPEG tiles.
+        
+        Args:
+            x_resolution: Tuple of (numerator, denominator) for X resolution
+            y_resolution: Tuple of (numerator, denominator) for Y resolution
+            resolution_unit: 1=none, 2=inch, 3=centimeter
         
         Returns the offset where this IFD was written.
         """
@@ -134,36 +152,46 @@ class BigTiffWriter:
         entries = []
         
         # Image dimensions
-        entries.append(self._make_entry(TAG_IMAGE_WIDTH, 3, 1, width))  # SHORT
-        entries.append(self._make_entry(TAG_IMAGE_LENGTH, 3, 1, height))  # SHORT
+        entries.append(self._make_entry(TAG_IMAGE_WIDTH, TIFF_SHORT, 1, width))
+        entries.append(self._make_entry(TAG_IMAGE_LENGTH, TIFF_SHORT, 1, height))
         
         # Bits per sample (need to write array for RGB)
         if samples_per_pixel > 1:
             bps_offset = self._write_array(bits_per_sample, '<H')
-            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, 3, samples_per_pixel, bps_offset))
+            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, TIFF_SHORT, samples_per_pixel, bps_offset))
         else:
-            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, 3, 1, bits_per_sample[0]))
+            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, TIFF_SHORT, 1, bits_per_sample[0]))
         
         # Compression (7 = new-style JPEG)
-        entries.append(self._make_entry(TAG_COMPRESSION, 3, 1, 7))
+        entries.append(self._make_entry(TAG_COMPRESSION, TIFF_SHORT, 1, 7))
         
         # Photometric (2 = RGB, 6 = YCbCr for JPEG)
-        entries.append(self._make_entry(TAG_PHOTOMETRIC, 3, 1, 6))  # YCbCr is standard for JPEG
+        entries.append(self._make_entry(TAG_PHOTOMETRIC, TIFF_SHORT, 1, 6))  # YCbCr is standard for JPEG
         
         # Samples per pixel
-        entries.append(self._make_entry(TAG_SAMPLES_PER_PIXEL, 3, 1, samples_per_pixel))
+        entries.append(self._make_entry(TAG_SAMPLES_PER_PIXEL, TIFF_SHORT, 1, samples_per_pixel))
+        
+        # Resolution tags (critical for wsidicomizer pixel spacing)
+        if x_resolution:
+            x_res_offset = self._write_rational(x_resolution[0], x_resolution[1])
+            entries.append(self._make_entry(TAG_X_RESOLUTION, TIFF_RATIONAL, 1, x_res_offset))
+        if y_resolution:
+            y_res_offset = self._write_rational(y_resolution[0], y_resolution[1])
+            entries.append(self._make_entry(TAG_Y_RESOLUTION, TIFF_RATIONAL, 1, y_res_offset))
+        if x_resolution or y_resolution:
+            entries.append(self._make_entry(TAG_RESOLUTION_UNIT, TIFF_SHORT, 1, resolution_unit))
         
         # Tile dimensions
-        entries.append(self._make_entry(TAG_TILE_WIDTH, 3, 1, tile_width))
-        entries.append(self._make_entry(TAG_TILE_LENGTH, 3, 1, tile_height))
+        entries.append(self._make_entry(TAG_TILE_WIDTH, TIFF_SHORT, 1, tile_width))
+        entries.append(self._make_entry(TAG_TILE_LENGTH, TIFF_SHORT, 1, tile_height))
         
         # Tile offsets (array of LONG8)
         offsets_pos = self._write_array(tile_offsets, '<Q')
-        entries.append(self._make_entry(TAG_TILE_OFFSETS, 16, len(tile_offsets), offsets_pos))
+        entries.append(self._make_entry(TAG_TILE_OFFSETS, TIFF_LONG8, len(tile_offsets), offsets_pos))
         
         # Tile byte counts (array of LONG8)
         counts_pos = self._write_array(tile_byte_counts, '<Q')
-        entries.append(self._make_entry(TAG_TILE_BYTE_COUNTS, 16, len(tile_byte_counts), counts_pos))
+        entries.append(self._make_entry(TAG_TILE_BYTE_COUNTS, TIFF_LONG8, len(tile_byte_counts), counts_pos))
         
         # JPEG tables if provided
         if jpeg_tables:
@@ -172,7 +200,7 @@ class BigTiffWriter:
         
         # Subfile type for reduced resolution images
         if is_reduced:
-            entries.append(self._make_entry(254, 4, 1, 1))  # NewSubfileType = reduced
+            entries.append(self._make_entry(TAG_NEW_SUBFILE_TYPE, TIFF_LONG, 1, 1))  # reduced
         
         # Sort entries by tag number (required by TIFF spec)
         entries.sort(key=lambda e: e[0])
@@ -228,6 +256,20 @@ class BigTiffWriter:
             self.current_offset += padding
         return offset
     
+    def _write_rational(self, numerator: int, denominator: int) -> int:
+        """Write a RATIONAL value (two 32-bit unsigned ints) and return offset"""
+        offset = self.current_offset
+        self.file.seek(offset)
+        self.file.write(struct.pack('<I', numerator))    # 32-bit unsigned
+        self.file.write(struct.pack('<I', denominator))  # 32-bit unsigned
+        self.current_offset = self.file.tell()
+        # Align to 8-byte boundary
+        padding = (8 - (self.current_offset % 8)) % 8
+        if padding:
+            self.file.write(b'\x00' * padding)
+            self.current_offset += padding
+        return offset
+    
     def finalize(self):
         """Update header to point to first IFD and link IFDs together"""
         # Update first IFD offset in header
@@ -259,6 +301,8 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
     
     # First pass: collect page metadata only (no tile data)
     page_metadata = []
+    global_resolution = None  # Store resolution from first page
+    
     with tifffile.TiffFile(str(input_path)) as tif:
         total_pages = len(tif.pages)
         for page_idx, page in enumerate(tif.pages):
@@ -275,6 +319,55 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
             tile_width = page.tags.get(322, type('', (), {'value': 512})()).value
             tile_height = page.tags.get(323, type('', (), {'value': 512})()).value
             
+            # Extract resolution from first page (full resolution)
+            x_res = None
+            y_res = None
+            res_unit = 3  # Default to centimeter
+            
+            if page_idx == 0:
+                # Get resolution tags if present
+                if 282 in page.tags:  # XResolution
+                    x_val = page.tags[282].value
+                    if isinstance(x_val, tuple):
+                        x_res = (int(x_val[0]), int(x_val[1])) if len(x_val) == 2 else (int(x_val[0]), 1)
+                    else:
+                        x_res = (int(x_val), 1)
+                    logger.info(f"  XResolution from DCX: {x_res}")
+                    
+                if 283 in page.tags:  # YResolution
+                    y_val = page.tags[283].value
+                    if isinstance(y_val, tuple):
+                        y_res = (int(y_val[0]), int(y_val[1])) if len(y_val) == 2 else (int(y_val[0]), 1)
+                    else:
+                        y_res = (int(y_val), 1)
+                    logger.info(f"  YResolution from DCX: {y_res}")
+                    
+                if 296 in page.tags:  # ResolutionUnit
+                    res_unit = int(page.tags[296].value)
+                    logger.info(f"  ResolutionUnit from DCX: {res_unit}")
+                
+                # If no resolution found, use a reasonable default for pathology (0.25 µm/pixel = 40000 pixels/cm)
+                if not x_res:
+                    x_res = (40000, 1)  # 40000 pixels per cm = 0.25 µm/pixel
+                    logger.warning(f"  No XResolution in DCX, using default: {x_res}")
+                if not y_res:
+                    y_res = (40000, 1)
+                    logger.warning(f"  No YResolution in DCX, using default: {y_res}")
+                
+                global_resolution = {
+                    'x_res': x_res,
+                    'y_res': y_res,
+                    'unit': res_unit
+                }
+            
+            # For reduced resolution pages, scale the resolution
+            if page_idx > 0 and global_resolution:
+                # Calculate scale factor based on dimensions
+                scale = page_metadata[0]['width'] / width if page_metadata else 1
+                x_res = (int(global_resolution['x_res'][0] / scale), global_resolution['x_res'][1])
+                y_res = (int(global_resolution['y_res'][0] / scale), global_resolution['y_res'][1])
+                res_unit = global_resolution['unit']
+            
             page_metadata.append({
                 'width': width,
                 'height': height,
@@ -284,8 +377,11 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
                 'tile_offsets': tile_offsets,
                 'tile_sizes': tile_sizes,
                 'is_reduced': page_idx > 0,
+                'x_resolution': x_res,
+                'y_resolution': y_res,
+                'resolution_unit': res_unit,
             })
-            logger.info(f"Page {page_idx}: {width}x{height}, {len(tile_offsets)} tiles")
+            logger.info(f"Page {page_idx}: {width}x{height}, {len(tile_offsets)} tiles, res={x_res}")
     
     # Second pass: stream tiles one page at a time
     logger.info(f"Writing lossless TIFF: {output_path}")
@@ -320,6 +416,9 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
                 jpeg_tiles=jpeg_tiles,
                 samples_per_pixel=meta['samples'],
                 is_reduced=meta['is_reduced'],
+                x_resolution=meta.get('x_resolution'),
+                y_resolution=meta.get('y_resolution'),
+                resolution_unit=meta.get('resolution_unit', 3),
             )
             
             # Free memory for this page's tiles before processing next
