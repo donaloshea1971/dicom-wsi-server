@@ -8,7 +8,7 @@
 (function() {
   'use strict';
 
-  const WATERSHED_VERSION = 1;
+  const WATERSHED_VERSION = 2;
 
   // ============== SHADER SOURCES ==============
 
@@ -81,6 +81,7 @@
   `;
 
   // Find seeds (local maxima in distance transform)
+  // Note: WebGL 1.0 requires constant loop bounds, so we use fixed max radius
   const FS_FIND_SEEDS = `
     precision highp float;
     uniform sampler2D u_distance;
@@ -99,12 +100,18 @@
       }
       
       // Check if local maximum in neighborhood
+      // Use fixed loop bounds (max 30 pixels radius)
       bool isMax = true;
-      float radius = u_minSeedDistance;
       
-      for (float dy = -radius; dy <= radius; dy += 1.0) {
-        for (float dx = -radius; dx <= radius; dx += 1.0) {
-          if (dx == 0.0 && dy == 0.0) continue;
+      for (int iy = -30; iy <= 30; iy++) {
+        if (!isMax) break;
+        float dy = float(iy);
+        if (abs(dy) > u_minSeedDistance) continue;
+        
+        for (int ix = -30; ix <= 30; ix++) {
+          float dx = float(ix);
+          if (abs(dx) > u_minSeedDistance) continue;
+          if (ix == 0 && iy == 0) continue;
           
           vec2 neighborUV = v_texCoord + vec2(dx, dy) / u_resolution;
           if (neighborUV.x < 0.0 || neighborUV.x > 1.0 || neighborUV.y < 0.0 || neighborUV.y > 1.0) continue;
@@ -115,7 +122,6 @@
             break;
           }
         }
-        if (!isMax) break;
       }
       
       // Also require minimum distance value (filters tiny fragments)
