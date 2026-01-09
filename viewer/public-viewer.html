@@ -197,7 +197,7 @@
                 document.getElementById('viewer-container').style.display = 'block';
                 
                 // Initialize OpenSeadragon with public tile source
-                await initViewer(data.study_id);
+                await initViewer(data.study_id, data.series_id);
                 
             } catch (e) {
                 console.error('Failed to load public slide:', e);
@@ -205,15 +205,10 @@
             }
         }
 
-        async function initViewer(studyId) {
+        async function initViewer(studyId, seriesId) {
             try {
-                // Get series info
-                const seriesRes = await fetch(`/api/studies/${studyId}/series`);
-                if (!seriesRes.ok) throw new Error('Failed to get series');
-                const seriesData = await seriesRes.json();
-                const seriesId = seriesData[0]?.MainDicomTags?.SeriesInstanceUID || seriesData[0]?.ID;
-                
-                if (!seriesId) throw new Error('No series found');
+                // Use series_id from public endpoint response (no auth needed)
+                if (!seriesId) throw new Error('No series found in share data');
 
                 // Get pyramid info using public endpoint
                 const pyramidRes = await fetch(`/api/public/${token}/pyramid/${seriesId}`);

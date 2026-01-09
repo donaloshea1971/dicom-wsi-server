@@ -3813,9 +3813,27 @@ async def access_public_link(token: str, password: Optional[str] = None):
                 WHERE id = $1
             """, share["id"])
             
-            # Return study info
+            # Get series info from Orthanc (needed for tile loading)
+            study_id = share["orthanc_study_id"]
+            series_id = None
+            try:
+                study_resp = await orthanc_client.get(f"/studies/{study_id}")
+                if study_resp.status_code == 200:
+                    study_data = study_resp.json()
+                    if study_data.get("Series"):
+                        # Get first series
+                        first_series = study_data["Series"][0]
+                        series_resp = await orthanc_client.get(f"/series/{first_series}")
+                        if series_resp.status_code == 200:
+                            series_data = series_resp.json()
+                            series_id = series_data.get("MainDicomTags", {}).get("SeriesInstanceUID") or first_series
+            except Exception as e:
+                logger.warning(f"Failed to get series info for public link: {e}")
+            
+            # Return study info including series
             return {
-                "study_id": share["orthanc_study_id"],
+                "study_id": study_id,
+                "series_id": series_id,  # Include series ID for tile loading
                 "display_name": share["display_name"] or share["title"] or "Shared Slide",
                 "stain": share["stain"],
                 "owner_name": share["owner_name"],
