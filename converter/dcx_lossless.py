@@ -328,31 +328,62 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
                 # Get resolution tags if present
                 if 282 in page.tags:  # XResolution
                     x_val = page.tags[282].value
-                    if isinstance(x_val, tuple):
-                        x_res = (int(x_val[0]), int(x_val[1])) if len(x_val) == 2 else (int(x_val[0]), 1)
-                    else:
-                        x_res = (int(x_val), 1)
-                    logger.info(f"  XResolution from DCX: {x_res}")
+                    try:
+                        if isinstance(x_val, tuple) and len(x_val) >= 2:
+                            num, denom = int(x_val[0]), int(x_val[1])
+                            # Check for valid denominator (avoid division by zero)
+                            if denom > 0 and num > 0:
+                                x_res = (num, denom)
+                                logger.info(f"  XResolution from DCX: {x_res}")
+                            else:
+                                logger.warning(f"  Invalid XResolution in DCX: {x_val}, using default")
+                        elif hasattr(x_val, 'numerator') and hasattr(x_val, 'denominator'):
+                            # Handle Fraction objects
+                            if x_val.denominator > 0 and x_val.numerator > 0:
+                                x_res = (int(x_val.numerator), int(x_val.denominator))
+                                logger.info(f"  XResolution from DCX (Fraction): {x_res}")
+                            else:
+                                logger.warning(f"  Invalid XResolution Fraction in DCX: {x_val}, using default")
+                        else:
+                            x_res = (int(x_val), 1) if int(x_val) > 0 else None
+                    except Exception as e:
+                        logger.warning(f"  Error parsing XResolution: {e}, using default")
                     
                 if 283 in page.tags:  # YResolution
                     y_val = page.tags[283].value
-                    if isinstance(y_val, tuple):
-                        y_res = (int(y_val[0]), int(y_val[1])) if len(y_val) == 2 else (int(y_val[0]), 1)
-                    else:
-                        y_res = (int(y_val), 1)
-                    logger.info(f"  YResolution from DCX: {y_res}")
+                    try:
+                        if isinstance(y_val, tuple) and len(y_val) >= 2:
+                            num, denom = int(y_val[0]), int(y_val[1])
+                            if denom > 0 and num > 0:
+                                y_res = (num, denom)
+                                logger.info(f"  YResolution from DCX: {y_res}")
+                            else:
+                                logger.warning(f"  Invalid YResolution in DCX: {y_val}, using default")
+                        elif hasattr(y_val, 'numerator') and hasattr(y_val, 'denominator'):
+                            if y_val.denominator > 0 and y_val.numerator > 0:
+                                y_res = (int(y_val.numerator), int(y_val.denominator))
+                                logger.info(f"  YResolution from DCX (Fraction): {y_res}")
+                            else:
+                                logger.warning(f"  Invalid YResolution Fraction in DCX: {y_val}, using default")
+                        else:
+                            y_res = (int(y_val), 1) if int(y_val) > 0 else None
+                    except Exception as e:
+                        logger.warning(f"  Error parsing YResolution: {e}, using default")
                     
                 if 296 in page.tags:  # ResolutionUnit
-                    res_unit = int(page.tags[296].value)
-                    logger.info(f"  ResolutionUnit from DCX: {res_unit}")
+                    try:
+                        res_unit = int(page.tags[296].value)
+                        logger.info(f"  ResolutionUnit from DCX: {res_unit}")
+                    except:
+                        res_unit = 3
                 
-                # If no resolution found, use a reasonable default for pathology (0.25 µm/pixel = 40000 pixels/cm)
+                # If no valid resolution found, use a reasonable default for pathology (0.25 µm/pixel = 40000 pixels/cm)
                 if not x_res:
                     x_res = (40000, 1)  # 40000 pixels per cm = 0.25 µm/pixel
-                    logger.warning(f"  No XResolution in DCX, using default: {x_res}")
+                    logger.warning(f"  No valid XResolution in DCX, using default: {x_res}")
                 if not y_res:
                     y_res = (40000, 1)
-                    logger.warning(f"  No YResolution in DCX, using default: {y_res}")
+                    logger.warning(f"  No valid YResolution in DCX, using default: {y_res}")
                 
                 global_resolution = {
                     'x_res': x_res,
