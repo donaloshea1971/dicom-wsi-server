@@ -29,7 +29,7 @@
   let webglCtx = null;
   let webglProgram = null;
   let webglTexture = null;
-  const WEBGL_VERSION = 2; // Increment to force shader recompilation
+  const WEBGL_VERSION = 3; // Increment to force shader recompilation
 
   function initWebGL() {
     if (webglCtx && webglCtx.version === WEBGL_VERSION) return webglCtx;
@@ -127,15 +127,16 @@
 
     const texCoordBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    // Flip Y in tex coords: canvas Y=0 at top, but we render bottom-to-top
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-      0, 0,  1, 0,  0, 1,
-      0, 1,  1, 0,  1, 1,
+      0, 1,  1, 1,  0, 0,
+      0, 0,  1, 1,  1, 0,
     ]), gl.STATIC_DRAW);
     const texCoordLoc = gl.getAttribLocation(program, 'a_texCoord');
     gl.enableVertexAttribArray(texCoordLoc);
     gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 0, 0);
 
-    // Upload texture
+    // Upload texture (no flip - we handle orientation via tex coords)
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -155,15 +156,10 @@
     const pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-    // Convert to binary array (flipped Y)
+    // Convert to binary array (orientation handled via tex coords)
     const out = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const srcY = h - 1 - y;  // Flip Y
-        const srcIdx = (srcY * w + x) * 4;
-        const dstIdx = y * w + x;
-        out[dstIdx] = pixels[srcIdx] > 127 ? 1 : 0;
-      }
+    for (let i = 0; i < w * h; i++) {
+      out[i] = pixels[i * 4] > 127 ? 1 : 0;
     }
 
     // Cleanup
