@@ -29,7 +29,7 @@
   let webglCtx = null;
   let webglProgram = null;
   let webglTexture = null;
-  const WEBGL_VERSION = 5; // Increment to force shader recompilation
+  const WEBGL_VERSION = 6; // Increment to force shader recompilation
 
   function initWebGL() {
     if (webglCtx && webglCtx.version === WEBGL_VERSION) return webglCtx;
@@ -155,15 +155,10 @@
     const pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-    // Convert to binary array with Y-flip (WebGL Y=0 at bottom → Canvas Y=0 at top)
+    // Convert to binary array (NO Y-flip - texture was already inverted during upload)
     const out = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const srcY = h - 1 - y;  // Flip Y
-        const srcIdx = (srcY * w + x) * 4;
-        const dstIdx = y * w + x;
-        out[dstIdx] = pixels[srcIdx] > 127 ? 1 : 0;
-      }
+    for (let i = 0; i < w * h; i++) {
+      out[i] = pixels[i * 4] > 127 ? 1 : 0;
     }
 
     // Cleanup
