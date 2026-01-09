@@ -22,14 +22,14 @@
     downsample: 2,
     maskColor: '#00d4aa',
     maskAlpha: 0.35,
-    useWebGL: true,     // Try WebGL for threshold step
+    useWebGL: false,    // TEMP: disabled to test CPU path orientation
   };
 
   // WebGL threshold shader
   let webglCtx = null;
   let webglProgram = null;
   let webglTexture = null;
-  const WEBGL_VERSION = 3; // Increment to force shader recompilation
+  const WEBGL_VERSION = 4; // Increment to force shader recompilation
 
   function initWebGL() {
     if (webglCtx && webglCtx.version === WEBGL_VERSION) return webglCtx;
@@ -127,10 +127,9 @@
 
     const texCoordBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-    // Flip Y in tex coords: canvas Y=0 at top, but we render bottom-to-top
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-      0, 1,  1, 1,  0, 0,
-      0, 0,  1, 1,  1, 0,
+      0, 0,  1, 0,  0, 1,
+      0, 1,  1, 0,  1, 1,
     ]), gl.STATIC_DRAW);
     const texCoordLoc = gl.getAttribLocation(program, 'a_texCoord');
     gl.enableVertexAttribArray(texCoordLoc);
