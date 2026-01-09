@@ -250,16 +250,17 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
     """
     Convert DCX to standard BigTIFF with lossless JPEG tile transcoding.
     
+    STREAMING version - processes one page at a time to minimize memory usage.
     No decode/re-encode - just copy the raw JPEG bytes!
     """
     import tifffile
     
-    logger.info(f"Lossless DCX transcode: {input_path} -> {output_path}")
+    logger.info(f"Lossless DCX transcode (streaming): {input_path} -> {output_path}")
     
+    # First pass: collect page metadata only (no tile data)
+    page_metadata = []
     with tifffile.TiffFile(str(input_path)) as tif:
-        # Process each pyramid level
-        all_pages = []
-        
+        total_pages = len(tif.pages)
         for page_idx, page in enumerate(tif.pages):
             if 324 not in page.tags or 325 not in page.tags:
                 logger.warning(f"Page {page_idx} has no tiles, skipping")
@@ -274,48 +275,58 @@ def convert_dcx_lossless(input_path: Path, output_path: Path,
             tile_width = page.tags.get(322, type('', (), {'value': 512})()).value
             tile_height = page.tags.get(323, type('', (), {'value': 512})()).value
             
-            logger.info(f"Page {page_idx}: {width}x{height}, {len(tile_offsets)} tiles")
-            
-            # Deobfuscate all tiles
-            jpeg_tiles = []
-            with open(input_path, 'rb') as f:
-                for tile_idx, (offset, size) in enumerate(zip(tile_offsets, tile_sizes)):
-                    f.seek(offset)
-                    raw_tile = f.read(size)
-                    jpeg_data = deobfuscate_tile(raw_tile)
-                    jpeg_tiles.append(jpeg_data)
-                    
-                    if tile_idx % 500 == 0 and progress_callback:
-                        overall = (page_idx + tile_idx / len(tile_offsets)) / len(tif.pages)
-                        progress_callback(int(overall * 90), 
-                                         f"Deobfuscating level {page_idx+1}, tile {tile_idx}/{len(tile_offsets)}")
-            
-            all_pages.append({
+            page_metadata.append({
                 'width': width,
                 'height': height,
                 'tile_width': tile_width,
                 'tile_height': tile_height,
                 'samples': samples,
-                'tiles': jpeg_tiles,
+                'tile_offsets': tile_offsets,
+                'tile_sizes': tile_sizes,
                 'is_reduced': page_idx > 0,
             })
+            logger.info(f"Page {page_idx}: {width}x{height}, {len(tile_offsets)} tiles")
     
-    # Write output TIFF
+    # Second pass: stream tiles one page at a time
     logger.info(f"Writing lossless TIFF: {output_path}")
-    if progress_callback:
-        progress_callback(90, "Writing TIFF...")
     
     with BigTiffWriter(output_path) as writer:
-        for page_idx, page_data in enumerate(all_pages):
+        for page_idx, meta in enumerate(page_metadata):
+            if progress_callback:
+                progress_callback(
+                    int((page_idx / len(page_metadata)) * 95),
+                    f"Processing level {page_idx + 1}/{len(page_metadata)}"
+                )
+            
+            # Stream tiles for this page only - don't hold all pages in memory
+            jpeg_tiles = []
+            with open(input_path, 'rb') as f:
+                for tile_idx, (offset, size) in enumerate(zip(meta['tile_offsets'], meta['tile_sizes'])):
+                    f.seek(offset)
+                    raw_tile = f.read(size)
+                    jpeg_data = deobfuscate_tile(raw_tile)
+                    jpeg_tiles.append(jpeg_data)
+                    
+                    # Log progress for large pages
+                    if tile_idx > 0 and tile_idx % 1000 == 0:
+                        logger.info(f"  Page {page_idx}: processed {tile_idx}/{len(meta['tile_offsets'])} tiles")
+            
+            # Write this page immediately
             writer.write_page(
-                width=page_data['width'],
-                height=page_data['height'],
-                tile_width=page_data['tile_width'],
-                tile_height=page_data['tile_height'],
-                jpeg_tiles=page_data['tiles'],
-                samples_per_pixel=page_data['samples'],
-                is_reduced=page_data['is_reduced'],
+                width=meta['width'],
+                height=meta['height'],
+                tile_width=meta['tile_width'],
+                tile_height=meta['tile_height'],
+                jpeg_tiles=jpeg_tiles,
+                samples_per_pixel=meta['samples'],
+                is_reduced=meta['is_reduced'],
             )
+            
+            # Free memory for this page's tiles before processing next
+            del jpeg_tiles
+            
+            logger.info(f"  Page {page_idx} written")
+        
         writer.finalize()
     
     logger.info(f"Lossless transcode complete: {output_path}")

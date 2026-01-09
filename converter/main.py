@@ -219,7 +219,7 @@ def preprocess_for_conversion(file_path: Path, output_dir: Path, job=None) -> Pa
             import sys
             import os
             sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            from dcx_handler import convert_dcx_streaming
+            from dcx_lossless import convert_dcx_lossless
             
             output_path = output_dir / f"{file_path.stem}_decoded.tiff"
             
@@ -229,7 +229,7 @@ def preprocess_for_conversion(file_path: Path, output_dir: Path, job=None) -> Pa
                     job.progress = 20 + int(progress * 0.3)
                     job.message = message
             
-            convert_dcx_streaming(file_path, output_path, progress_cb)
+            convert_dcx_lossless(file_path, output_path, progress_cb)
             logger.info(f"DCX deobfuscation complete: {output_path}")
             return output_path
             
