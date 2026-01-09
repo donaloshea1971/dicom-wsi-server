@@ -1131,6 +1131,7 @@ def detect_format(filename: str) -> str:
         ".svs": "aperio",
         ".tif": "generic_tiff",
         ".tiff": "generic_tiff",
+        ".dcx": "generic_tiff",  # DCX multiresolution TIFF
         ".isyntax": "philips",
         ".mrxs": "mirax",
         ".scn": "leica",
@@ -1697,7 +1698,7 @@ async def upload_wsi(
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file format: {Path(file.filename).suffix}. "
-                   f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .bif, .mrxs, .zip"
+                   f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .dcx, .bif, .mrxs, .zip"
         )
     
     if source_format == "dicom":
@@ -3083,7 +3084,7 @@ async def init_chunked_upload(
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported file format: {Path(request.filename).suffix}. "
-                       f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .bif, .mrxs, .zip, .dcm"
+                       f"Supported: .ndpi, .svs, .isyntax, .scn, .tiff, .dcx, .bif, .mrxs, .zip, .dcm"
             )
         
         # Validate file size

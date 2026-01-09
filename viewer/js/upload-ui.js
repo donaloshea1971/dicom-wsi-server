@@ -9,7 +9,7 @@ var isUploading = false;
 
 // File detection constants
 const DICOM_EXTENSIONS = ['.dcm', '.dicom'];
-const CONVERT_EXTENSIONS = ['.svs', '.ndpi', '.mrxs', '.scn', '.tiff', '.tif', '.vsi', '.bif'];
+const CONVERT_EXTENSIONS = ['.svs', '.ndpi', '.mrxs', '.scn', '.tiff', '.tif', '.dcx', '.vsi', '.bif'];
 
 /**
  * Initialize dropzone and file input listeners

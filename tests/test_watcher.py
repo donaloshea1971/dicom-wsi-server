@@ -43,7 +43,7 @@ class TestWSIFileHandler:
         handler = WSIFileHandler()
         
         # Test each supported format
-        supported_formats = [".ndpi", ".svs", ".tif", ".tiff", ".isyntax", 
+        supported_formats = [".ndpi", ".svs", ".tif", ".tiff", ".dcx", ".isyntax", 
                            ".mrxs", ".scn", ".bif", ".vsi"]
         
         for ext in supported_formats:

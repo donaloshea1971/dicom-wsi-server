@@ -20,7 +20,7 @@ CONVERTER_URL = os.getenv("CONVERTER_INTERNAL_URL", "http://localhost:8000")
 
 # Supported extensions
 SUPPORTED_EXTENSIONS = {
-    ".ndpi", ".svs", ".tif", ".tiff", ".isyntax",
+    ".ndpi", ".svs", ".tif", ".tiff", ".dcx", ".isyntax",
     ".mrxs", ".scn", ".bif", ".vsi"
 }
 

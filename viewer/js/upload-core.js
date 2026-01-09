@@ -448,6 +448,7 @@ function getFormatName(filename) {
         'scn': 'Leica SCN',
         'tiff': 'TIFF',
         'tif': 'TIFF',
+        'dcx': 'DCX Multiresolution TIFF',
         'vsi': 'Olympus VSI',
         'bif': 'Ventana BIF',
         'isyntax': 'Philips iSyntax',

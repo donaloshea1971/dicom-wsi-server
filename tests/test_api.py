@@ -474,7 +474,7 @@ class TestFileFormatValidation:
         """Test all supported formats are accepted."""
         from main import app
         
-        supported = [".svs", ".ndpi", ".tif", ".tiff", ".isyntax",
+        supported = [".svs", ".ndpi", ".tif", ".tiff", ".dcx", ".isyntax",
                     ".mrxs", ".scn", ".bif", ".vsi"]
         
         for ext in supported:

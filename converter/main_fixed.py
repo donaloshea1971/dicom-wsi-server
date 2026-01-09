@@ -97,6 +97,7 @@ def detect_format(filename: str) -> str:
         ".svs": "aperio",
         ".tif": "generic_tiff",
         ".tiff": "generic_tiff",
+        ".dcx": "generic_tiff",  # DCX multiresolution TIFF
         ".isyntax": "philips",
         ".mrxs": "mirax",
         ".scn": "leica",
