@@ -144,14 +144,11 @@ class BigTiffWriter:
             self.file.write(b'\x00' * padding)
             self.current_offset += padding
         
-        # Now write the IFD
-        ifd_offset = self.current_offset
-        self.ifd_offsets.append(ifd_offset)
-        
-        # Build IFD entries
+        # Build IFD entries - write all external data (arrays, rationals) FIRST
+        # before setting the IFD offset, to avoid overwriting them
         entries = []
         
-        # Image dimensions
+        # Image dimensions (inline values, no external data)
         entries.append(self._make_entry(TAG_IMAGE_WIDTH, TIFF_SHORT, 1, width))
         entries.append(self._make_entry(TAG_IMAGE_LENGTH, TIFF_SHORT, 1, height))
         
@@ -172,12 +169,14 @@ class BigTiffWriter:
         entries.append(self._make_entry(TAG_SAMPLES_PER_PIXEL, TIFF_SHORT, 1, samples_per_pixel))
         
         # Resolution tags (critical for wsidicomizer pixel spacing)
+        # In BigTIFF, RATIONAL fits in the 8-byte value field (4+4 bytes), so store inline
         if x_resolution:
-            x_res_offset = self._write_rational(x_resolution[0], x_resolution[1])
-            entries.append(self._make_entry(TAG_X_RESOLUTION, TIFF_RATIONAL, 1, x_res_offset))
+            # Pack numerator and denominator as two 32-bit ints into one 64-bit value
+            x_res_inline = (x_resolution[1] << 32) | x_resolution[0]  # denom in high 32, num in low 32
+            entries.append(self._make_entry(TAG_X_RESOLUTION, TIFF_RATIONAL, 1, x_res_inline))
         if y_resolution:
-            y_res_offset = self._write_rational(y_resolution[0], y_resolution[1])
-            entries.append(self._make_entry(TAG_Y_RESOLUTION, TIFF_RATIONAL, 1, y_res_offset))
+            y_res_inline = (y_resolution[1] << 32) | y_resolution[0]
+            entries.append(self._make_entry(TAG_Y_RESOLUTION, TIFF_RATIONAL, 1, y_res_inline))
         if x_resolution or y_resolution:
             entries.append(self._make_entry(TAG_RESOLUTION_UNIT, TIFF_SHORT, 1, resolution_unit))
         
@@ -185,11 +184,11 @@ class BigTiffWriter:
         entries.append(self._make_entry(TAG_TILE_WIDTH, TIFF_SHORT, 1, tile_width))
         entries.append(self._make_entry(TAG_TILE_LENGTH, TIFF_SHORT, 1, tile_height))
         
-        # Tile offsets (array of LONG8)
+        # Tile offsets (array of LONG8) - external data
         offsets_pos = self._write_array(tile_offsets, '<Q')
         entries.append(self._make_entry(TAG_TILE_OFFSETS, TIFF_LONG8, len(tile_offsets), offsets_pos))
         
-        # Tile byte counts (array of LONG8)
+        # Tile byte counts (array of LONG8) - external data
         counts_pos = self._write_array(tile_byte_counts, '<Q')
         entries.append(self._make_entry(TAG_TILE_BYTE_COUNTS, TIFF_LONG8, len(tile_byte_counts), counts_pos))
         
@@ -205,7 +204,11 @@ class BigTiffWriter:
         # Sort entries by tag number (required by TIFF spec)
         entries.sort(key=lambda e: e[0])
         
-        # Write IFD
+        # NOW set IFD offset - after all external data has been written
+        ifd_offset = self.current_offset
+        self.ifd_offsets.append(ifd_offset)
+        
+        # Write IFD at current position (not seeking back)
         self.file.seek(ifd_offset)
         # Number of entries (LONG8 for BigTIFF)
         self.file.write(struct.pack('<Q', len(entries)))
