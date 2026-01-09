@@ -512,10 +512,11 @@
         const normX = prompt.x / w;
         const normY = prompt.y / h;
         
-        // 4D for points: [batch][point_batch][points][coords]
-        const pointsArray = [[[[normX, normY]]]];
-        // 3D for labels: [batch][point_batch][points]  
-        const labelsArray = [[[prompt.label]]];
+        // NOTE: In Transformers.js SAM, AutoProcessor typically adds the image batch dimension.
+        // Passing an already-batched structure here can result in a 5D tensor and shape errors.
+        // Provide prompts as [point_batch][points][2] and [point_batch][points].
+        const pointsArray = [[[normX, normY]]];
+        const labelsArray = [[prompt.label]];
         
         console.log('[SAM] Normalized point:', normX.toFixed(3), normY.toFixed(3));
         console.log('[SAM] input_points (4D):', JSON.stringify(pointsArray));
@@ -544,6 +545,13 @@
         throw new Error('Unsupported prompt type');
       }
       console.log('[SAM] Processor returned inputs:', Object.keys(inputs));
+      if (DEFAULTS.debug) {
+        const ip = inputs && inputs.input_points;
+        const il = inputs && inputs.input_labels;
+        const getDims = (t) => (t && (t.dims || t.dims_)) || null;
+        console.log('[SAM][debug] input_points dims:', getDims(ip));
+        console.log('[SAM][debug] input_labels dims:', getDims(il));
+      }
 
       // Try embedding-only decode first: attach image_embeddings if accepted
       let outputs = null;

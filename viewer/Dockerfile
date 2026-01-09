@@ -17,6 +17,7 @@ COPY annotations.js /usr/share/nginx/html/
 COPY space-navigator.js /usr/share/nginx/html/
 COPY spacemouse-calibration.html /usr/share/nginx/html/
 COPY performance-eval.html /usr/share/nginx/html/
+COPY public-viewer.html /usr/share/nginx/html/
 COPY sw.js /usr/share/nginx/html/
 COPY demo-video.mp4 /usr/share/nginx/html/
 COPY test-auth.html /usr/share/nginx/html/
@@ -156,6 +157,12 @@ http {
         location = /viewer {
             root /usr/share/nginx/html;
             try_files /viewer.html =404;
+        }
+
+        # Public viewer (no auth - token-based access)
+        location ~ ^/viewer/public/ {
+            root /usr/share/nginx/html;
+            try_files /public-viewer.html =404;
         }
 
         # Let's Encrypt challenge (for certbot)

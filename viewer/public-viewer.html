@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Slide - PathView Pro</title>
+    <link rel="stylesheet" href="/css/viewer.css?v=1.2.5">
+    <script src="https://cdn.jsdelivr.net/npm/openseadragon@4.1.0/build/openseadragon/openseadragon.min.js"></script>
+    <style>
+        .public-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 100;
+        }
+        .public-header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+        .public-header .shared-by {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .public-viewer-container {
+            position: fixed;
+            top: 50px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        #public-viewer {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-primary);
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        .loading-overlay h2 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+        }
+        .loading-overlay p {
+            color: var(--text-secondary);
+        }
+        .error-message {
+            background: rgba(255,100,100,0.1);
+            border: 1px solid #f66;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 400px;
+            text-align: center;
+        }
+        .error-message h3 {
+            color: #f66;
+            margin: 0 0 10px;
+        }
+        .password-form {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 350px;
+            text-align: center;
+        }
+        .password-form h3 {
+            color: var(--text-primary);
+            margin: 0 0 15px;
+        }
+        .password-form input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        .password-form button {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .password-form button:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <h2>Loading shared slide...</h2>
+        <p>Please wait</p>
+    </div>
+
+    <!-- Header -->
+    <div class="public-header" id="public-header" style="display: none;">
+        <div>
+            <h1 id="slide-title">Shared Slide</h1>
+            <span class="shared-by" id="shared-by"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span style="font-size: 12px; color: var(--text-secondary);">
+                Powered by <a href="/" style="color: var(--accent);">PathView Pro</a>
+            </span>
+        </div>
+    </div>
+
+    <!-- Viewer container -->
+    <div class="public-viewer-container" id="viewer-container" style="display: none;">
+        <div id="public-viewer"></div>
+    </div>
+
+    <script>
+        // Get token from URL path
+        const pathParts = window.location.pathname.split('/');
+        const tokenIndex = pathParts.indexOf('public');
+        const token = tokenIndex >= 0 ? pathParts[tokenIndex + 1] : null;
+
+        let viewer = null;
+        let studyInfo = null;
+
+        async function loadPublicSlide(password = null) {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            
+            if (!token) {
+                showError('Invalid link', 'No share token found in URL');
+                return;
+            }
+
+            try {
+                // Fetch study info
+                let url = `/api/public/${token}`;
+                if (password) {
+                    url += `?password=${encodeURIComponent(password)}`;
+                }
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    if (response.status === 410) {
+                        showError('Link Expired', error.detail || 'This share link has expired or reached its view limit.');
+                    } else if (response.status === 404) {
+                        showError('Not Found', 'This share link does not exist or has been deleted.');
+                    } else if (response.status === 401) {
+                        showError('Incorrect Password', 'The password you entered is incorrect.');
+                    } else {
+                        showError('Error', error.detail || 'Failed to load shared slide.');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+                
+                // Check if password required
+                if (data.requires_password) {
+                    showPasswordForm(data.title);
+                    return;
+                }
+
+                studyInfo = data;
+                
+                // Update UI
+                document.getElementById('slide-title').textContent = data.display_name || data.title || 'Shared Slide';
+                document.getElementById('shared-by').textContent = data.owner_name ? `Shared by ${data.owner_name}` : '';
+                
+                // Hide loading, show viewer
+                loadingOverlay.style.display = 'none';
+                document.getElementById('public-header').style.display = 'flex';
+                document.getElementById('viewer-container').style.display = 'block';
+                
+                // Initialize OpenSeadragon with public tile source
+                await initViewer(data.study_id);
+                
+            } catch (e) {
+                console.error('Failed to load public slide:', e);
+                showError('Connection Error', 'Failed to connect to the server. Please try again.');
+            }
+        }
+
+        async function initViewer(studyId) {
+            try {
+                // Get series info
+                const seriesRes = await fetch(`/api/studies/${studyId}/series`);
+                if (!seriesRes.ok) throw new Error('Failed to get series');
+                const seriesData = await seriesRes.json();
+                const seriesId = seriesData[0]?.MainDicomTags?.SeriesInstanceUID || seriesData[0]?.ID;
+                
+                if (!seriesId) throw new Error('No series found');
+
+                // Get pyramid info using public endpoint
+                const pyramidRes = await fetch(`/api/public/${token}/pyramid/${seriesId}`);
+                if (!pyramidRes.ok) throw new Error('Failed to get pyramid info');
+                const pyramid = await pyramidRes.json();
+
+                // Create tile source using public tile endpoint
+                const tileSource = {
+                    width: pyramid.width,
+                    height: pyramid.height,
+                    tileSize: pyramid.tile_size || 512,
+                    tileOverlap: 0,
+                    minLevel: 0,
+                    maxLevel: pyramid.levels - 1,
+                    getTileUrl: function(level, x, y) {
+                        const actualLevel = (pyramid.levels - 1) - level;
+                        return `/api/public/${token}/tiles/${seriesId}/${actualLevel}/${x}/${y}?_=${Date.now()}`;
+                    }
+                };
+
+                viewer = OpenSeadragon({
+                    id: 'public-viewer',
+                    prefixUrl: 'https://cdn.jsdelivr.net/npm/openseadragon@4.1.0/build/openseadragon/images/',
+                    tileSources: tileSource,
+                    showNavigator: true,
+                    navigatorPosition: 'BOTTOM_RIGHT',
+                    navigatorSizeRatio: 0.15,
+                    showNavigationControl: true,
+                    zoomPerClick: 2,
+                    animationTime: 0.3,
+                    gestureSettingsMouse: { scrollToZoom: true },
+                    crossOriginPolicy: 'Anonymous'
+                });
+
+                console.log('Public viewer initialized');
+
+            } catch (e) {
+                console.error('Failed to initialize viewer:', e);
+                showError('Viewer Error', 'Failed to load the slide viewer. ' + e.message);
+            }
+        }
+
+        function showError(title, message) {
+            document.getElementById('loading-overlay').innerHTML = `
+                <div class="error-message">
+                    <h3>${title}</h3>
+                    <p>${message}</p>
+                    <p style="margin-top: 15px;"><a href="/" style="color: var(--accent);">Go to PathView Pro</a></p>
+                </div>
+            `;
+        }
+
+        function showPasswordForm(title) {
+            document.getElementById('loading-overlay').innerHTML = `
+                <div class="password-form">
+                    <h3>🔒 Password Protected</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 15px;">${title || 'This slide'} requires a password</p>
+                    <input type="password" id="password-input" placeholder="Enter password" autofocus>
+                    <button onclick="submitPassword()">Unlock</button>
+                </div>
+            `;
+            document.getElementById('password-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') submitPassword();
+            });
+        }
+
+        function submitPassword() {
+            const password = document.getElementById('password-input').value;
+            if (password) {
+                document.getElementById('loading-overlay').innerHTML = `
+                    <h2>Verifying password...</h2>
+                `;
+                loadPublicSlide(password);
+            }
+        }
+
+        // Start loading
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPublicSlide();
+        });
+    </script>
+</body>
+</html>
