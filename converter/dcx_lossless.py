@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""
+DCX Lossless Transcoder
+
+Converts obfuscated DCX files to standard TIFF by copying the raw JPEG tile
+data WITHOUT decoding/re-encoding. This preserves 100% original quality.
+
+The approach:
+1. Read DCX structure (BigTIFF with obfuscated JPEG tiles)
+2. Deobfuscate each tile (XOR with key, strip key bytes)  
+3. Write new BigTIFF with raw JPEG bytes at tile offsets
+"""
+
+import struct
+import io
+import logging
+from pathlib import Path
+from typing import List, Tuple, Optional, BinaryIO
+
+logger = logging.getLogger(__name__)
+
+# DCX obfuscation key size
+KEY_SIZE = 1024
+
+# TIFF constants
+TIFF_MAGIC_LE = b'II'  # Little-endian
+BIGTIFF_VERSION = 43
+TIFF_VERSION = 42
+
+# TIFF tag IDs we care about
+TAG_IMAGE_WIDTH = 256
+TAG_IMAGE_LENGTH = 257
+TAG_BITS_PER_SAMPLE = 258
+TAG_COMPRESSION = 259
+TAG_PHOTOMETRIC = 262
+TAG_SAMPLES_PER_PIXEL = 277
+TAG_ROWS_PER_STRIP = 278
+TAG_TILE_WIDTH = 322
+TAG_TILE_LENGTH = 323
+TAG_TILE_OFFSETS = 324
+TAG_TILE_BYTE_COUNTS = 325
+TAG_SAMPLE_FORMAT = 339
+TAG_JPEG_TABLES = 347
+
+
+def deobfuscate_tile(tile_data: bytes) -> bytes:
+    """Deobfuscate a DCX tile by XORing with key from end"""
+    if len(tile_data) <= KEY_SIZE:
+        return tile_data
+    
+    data = bytearray(tile_data)
+    key_offset = len(data) - KEY_SIZE
+    key = data[key_offset:]
+    
+    # XOR first KEY_SIZE bytes
+    for i in range(min(KEY_SIZE, key_offset)):
+        data[i] ^= key[i]
+    
+    # Return without key
+    return bytes(data[:key_offset])
+
+
+class BigTiffWriter:
+    """
+    Writes BigTIFF files with pre-compressed JPEG tiles.
+    """
+    
+    def __init__(self, output_path: Path):
+        self.output_path = output_path
+        self.file: Optional[BinaryIO] = None
+        self.current_offset = 0
+        self.ifd_offsets: List[int] = []
+        self.next_ifd_positions: List[int] = []  # Position of "next IFD offset" field for each IFD
+        
+    def __enter__(self):
+        self.file = open(self.output_path, 'wb')
+        self._write_header()
+        return self
+    
+    def __exit__(self, *args):
+        if self.file:
+            self.file.close()
+    
+    def _write_header(self):
+        """Write BigTIFF header"""
+        # Magic number (II = little-endian)
+        self.file.write(TIFF_MAGIC_LE)
+        # Version (43 for BigTIFF)
+        self.file.write(struct.pack('<H', BIGTIFF_VERSION))
+        # Byte size of offsets (8 for BigTIFF)
+        self.file.write(struct.pack('<H', 8))
+        # Always 0
+        self.file.write(struct.pack('<H', 0))
+        # Offset to first IFD (will be updated)
+        self.first_ifd_offset_pos = self.file.tell()
+        self.file.write(struct.pack('<Q', 0))  # Placeholder
+        self.current_offset = self.file.tell()
+    
+    def write_page(self, 
+                   width: int, height: int,
+                   tile_width: int, tile_height: int,
+                   jpeg_tiles: List[bytes],
+                   samples_per_pixel: int = 3,
+                   bits_per_sample: Tuple[int, ...] = (8, 8, 8),
+                   jpeg_tables: Optional[bytes] = None,
+                   is_reduced: bool = False) -> int:
+        """
+        Write a single page/IFD with pre-compressed JPEG tiles.
+        
+        Returns the offset where this IFD was written.
+        """
+        # First, write all tile data and collect offsets
+        tile_offsets = []
+        tile_byte_counts = []
+        
+        for jpeg_data in jpeg_tiles:
+            tile_offsets.append(self.current_offset)
+            tile_byte_counts.append(len(jpeg_data))
+            self.file.seek(self.current_offset)
+            self.file.write(jpeg_data)
+            self.current_offset += len(jpeg_data)
+        
+        # Align to 8-byte boundary
+        padding = (8 - (self.current_offset % 8)) % 8
+        if padding:
+            self.file.write(b'\x00' * padding)
+            self.current_offset += padding
+        
+        # Now write the IFD
+        ifd_offset = self.current_offset
+        self.ifd_offsets.append(ifd_offset)
+        
+        # Build IFD entries
+        entries = []
+        
+        # Image dimensions
+        entries.append(self._make_entry(TAG_IMAGE_WIDTH, 3, 1, width))  # SHORT
+        entries.append(self._make_entry(TAG_IMAGE_LENGTH, 3, 1, height))  # SHORT
+        
+        # Bits per sample (need to write array for RGB)
+        if samples_per_pixel > 1:
+            bps_offset = self._write_array(bits_per_sample, '<H')
+            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, 3, samples_per_pixel, bps_offset))
+        else:
+            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, 3, 1, bits_per_sample[0]))
+        
+        # Compression (7 = new-style JPEG)
+        entries.append(self._make_entry(TAG_COMPRESSION, 3, 1, 7))
+        
+        # Photometric (2 = RGB, 6 = YCbCr for JPEG)
+        entries.append(self._make_entry(TAG_PHOTOMETRIC, 3, 1, 6))  # YCbCr is standard for JPEG
+        
+        # Samples per pixel
+        entries.append(self._make_entry(TAG_SAMPLES_PER_PIXEL, 3, 1, samples_per_pixel))
+        
+        # Tile dimensions
+        entries.append(self._make_entry(TAG_TILE_WIDTH, 3, 1, tile_width))
+        entries.append(self._make_entry(TAG_TILE_LENGTH, 3, 1, tile_height))
+        
+        # Tile offsets (array of LONG8)
+        offsets_pos = self._write_array(tile_offsets, '<Q')
+        entries.append(self._make_entry(TAG_TILE_OFFSETS, 16, len(tile_offsets), offsets_pos))
+        
+        # Tile byte counts (array of LONG8)
+        counts_pos = self._write_array(tile_byte_counts, '<Q')
+        entries.append(self._make_entry(TAG_TILE_BYTE_COUNTS, 16, len(tile_byte_counts), counts_pos))
+        
+        # JPEG tables if provided
+        if jpeg_tables:
+            tables_offset = self._write_bytes(jpeg_tables)
+            entries.append(self._make_entry(TAG_JPEG_TABLES, 7, len(jpeg_tables), tables_offset))
+        
+        # Subfile type for reduced resolution images
+        if is_reduced:
+            entries.append(self._make_entry(254, 4, 1, 1))  # NewSubfileType = reduced
+        
+        # Sort entries by tag number (required by TIFF spec)
+        entries.sort(key=lambda e: e[0])
+        
+        # Write IFD
+        self.file.seek(ifd_offset)
+        # Number of entries (LONG8 for BigTIFF)
+        self.file.write(struct.pack('<Q', len(entries)))
+        
+        # Write entries
+        for tag, dtype, count, value in entries:
+            self.file.write(struct.pack('<H', tag))     # Tag ID
+            self.file.write(struct.pack('<H', dtype))   # Data type
+            self.file.write(struct.pack('<Q', count))   # Count
+            self.file.write(struct.pack('<Q', value))   # Value/offset
+        
+        # Next IFD offset (0 = none for now, will link in finalize)
+        next_ifd_pos = self.file.tell()
+        self.next_ifd_positions.append(next_ifd_pos)
+        self.file.write(struct.pack('<Q', 0))
+        
+        self.current_offset = self.file.tell()
+        
+        return ifd_offset
+    
+    def _make_entry(self, tag: int, dtype: int, count: int, value: int) -> Tuple:
+        """Create an IFD entry tuple"""
+        return (tag, dtype, count, value)
+    
+    def _write_array(self, values: List[int], fmt: str) -> int:
+        """Write an array of values and return the offset"""
+        offset = self.current_offset
+        self.file.seek(offset)
+        for v in values:
+            self.file.write(struct.pack(fmt, v))
+        self.current_offset = self.file.tell()
+        # Align
+        padding = (8 - (self.current_offset % 8)) % 8
+        if padding:
+            self.file.write(b'\x00' * padding)
+            self.current_offset += padding
+        return offset
+    
+    def _write_bytes(self, data: bytes) -> int:
+        """Write raw bytes and return the offset"""
+        offset = self.current_offset
+        self.file.seek(offset)
+        self.file.write(data)
+        self.current_offset = self.file.tell()
+        padding = (8 - (self.current_offset % 8)) % 8
+        if padding:
+            self.file.write(b'\x00' * padding)
+            self.current_offset += padding
+        return offset
+    
+    def finalize(self):
+        """Update header to point to first IFD and link IFDs together"""
+        # Update first IFD offset in header
+        if self.ifd_offsets:
+            self.file.seek(self.first_ifd_offset_pos)
+            self.file.write(struct.pack('<Q', self.ifd_offsets[0]))
+        
+        # Link IFDs together (each IFD's "next" pointer to the following IFD)
+        for i in range(len(self.ifd_offsets) - 1):
+            next_ifd_pos = self.next_ifd_positions[i]
+            next_ifd_offset = self.ifd_offsets[i + 1]
+            self.file.seek(next_ifd_pos)
+            self.file.write(struct.pack('<Q', next_ifd_offset))
+        
+        logger.info(f"Linked {len(self.ifd_offsets)} IFDs")
+
+
+def convert_dcx_lossless(input_path: Path, output_path: Path,
+                         progress_callback=None) -> bool:
+    """
+    Convert DCX to standard BigTIFF with lossless JPEG tile transcoding.
+    
+    No decode/re-encode - just copy the raw JPEG bytes!
+    """
+    import tifffile
+    
+    logger.info(f"Lossless DCX transcode: {input_path} -> {output_path}")
+    
+    with tifffile.TiffFile(str(input_path)) as tif:
+        # Process each pyramid level
+        all_pages = []
+        
+        for page_idx, page in enumerate(tif.pages):
+            if 324 not in page.tags or 325 not in page.tags:
+                logger.warning(f"Page {page_idx} has no tiles, skipping")
+                continue
+            
+            width = page.shape[1] if len(page.shape) > 1 else page.shape[0]
+            height = page.shape[0]
+            samples = page.shape[2] if len(page.shape) > 2 else 1
+            
+            tile_offsets = list(page.tags[324].value)
+            tile_sizes = list(page.tags[325].value)
+            tile_width = page.tags.get(322, type('', (), {'value': 512})()).value
+            tile_height = page.tags.get(323, type('', (), {'value': 512})()).value
+            
+            logger.info(f"Page {page_idx}: {width}x{height}, {len(tile_offsets)} tiles")
+            
+            # Deobfuscate all tiles
+            jpeg_tiles = []
+            with open(input_path, 'rb') as f:
+                for tile_idx, (offset, size) in enumerate(zip(tile_offsets, tile_sizes)):
+                    f.seek(offset)
+                    raw_tile = f.read(size)
+                    jpeg_data = deobfuscate_tile(raw_tile)
+                    jpeg_tiles.append(jpeg_data)
+                    
+                    if tile_idx % 500 == 0 and progress_callback:
+                        overall = (page_idx + tile_idx / len(tile_offsets)) / len(tif.pages)
+                        progress_callback(int(overall * 90), 
+                                         f"Deobfuscating level {page_idx+1}, tile {tile_idx}/{len(tile_offsets)}")
+            
+            all_pages.append({
+                'width': width,
+                'height': height,
+                'tile_width': tile_width,
+                'tile_height': tile_height,
+                'samples': samples,
+                'tiles': jpeg_tiles,
+                'is_reduced': page_idx > 0,
+            })
+    
+    # Write output TIFF
+    logger.info(f"Writing lossless TIFF: {output_path}")
+    if progress_callback:
+        progress_callback(90, "Writing TIFF...")
+    
+    with BigTiffWriter(output_path) as writer:
+        for page_idx, page_data in enumerate(all_pages):
+            writer.write_page(
+                width=page_data['width'],
+                height=page_data['height'],
+                tile_width=page_data['tile_width'],
+                tile_height=page_data['tile_height'],
+                jpeg_tiles=page_data['tiles'],
+                samples_per_pixel=page_data['samples'],
+                is_reduced=page_data['is_reduced'],
+            )
+        writer.finalize()
+    
+    logger.info(f"Lossless transcode complete: {output_path}")
+    if progress_callback:
+        progress_callback(100, "Complete")
+    
+    return True
+
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(level=logging.INFO)
+    
+    if len(sys.argv) > 1:
+        input_file = Path(sys.argv[1])
+        output_file = input_file.with_suffix('.tiff')
+        
+        print(f"Lossless transcode: {input_file} -> {output_file}")
+        convert_dcx_lossless(input_file, output_file,
+                            lambda p, m: print(f"  [{p}%] {m}"))
+        
+        # Verify output
+        import tifffile
+        with tifffile.TiffFile(str(output_file)) as tif:
+            print(f"\nOutput verification:")
+            print(f"  Pages: {len(tif.pages)}")
+            for i, page in enumerate(tif.pages):
+                print(f"  Page {i}: {page.shape}, compression={page.compression}")
+    else:
+        print("Usage: python dcx_lossless.py <input.dcx>")

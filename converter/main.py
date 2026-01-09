@@ -3256,7 +3256,10 @@ async def complete_chunked_upload(
 ):
     """
     Complete the chunked upload - assembles chunks and starts conversion.
+    Returns immediately while conversion runs in background thread.
     """
+    import threading
+    
     if upload_id not in chunked_uploads:
         raise HTTPException(status_code=404, detail="Upload session not found or expired")
     
@@ -3280,8 +3283,20 @@ async def complete_chunked_upload(
     upload["message"] = "Assembling chunks..."
     upload["progress"] = 50
     
-    # Assemble file in background and start conversion
-    background_tasks.add_task(assemble_and_convert, upload_id)
+    # Run assembly and conversion in a separate thread to not block the response
+    # This ensures the endpoint returns immediately while conversion runs in background
+    def run_in_thread():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(assemble_and_convert(upload_id))
+        finally:
+            loop.close()
+    
+    thread = threading.Thread(target=run_in_thread, daemon=True)
+    thread.start()
+    logger.info(f"📦 Started background conversion thread for {upload_id}")
     
     return {
         "upload_id": upload_id,
