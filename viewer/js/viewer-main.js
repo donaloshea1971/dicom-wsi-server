@@ -368,6 +368,15 @@ async function loadStudy(studyId) {
                 console.warn('SAM attach failed:', e);
             }
 
+            // Classic segmentation (threshold + blob size) - optional, used from Analysis panel
+            try {
+                if (window.StainSegmentation && typeof window.StainSegmentation.attachToViewer === 'function') {
+                    window.StainSegmentation.attachToViewer(viewer, { key: 'v1' });
+                }
+            } catch (e) {
+                console.warn('StainSegmentation attach failed:', e);
+            }
+
             if (spaceNavController) {
                 spaceNavController.setViewer(viewer);
             } else if (typeof SpaceNavigatorController !== 'undefined') {

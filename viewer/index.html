@@ -143,7 +143,7 @@
             <div class="status-badge" id="color-badge" style="display:none; cursor:pointer;" onclick="openColorPanel()" title="Color settings">🎨</div>
             <!-- Analysis tools group -->
             <div class="badge-group" id="analysis-group" style="display:none;">
-                <div class="status-badge" id="analysis-badge" style="cursor:pointer;" onclick="openAnalysisPanel()" title="Stain deconvolution & focus quality">🔬</div>
+                <div class="status-badge" id="analysis-badge" style="cursor:pointer;" onclick="openAnalysisPanel()" title="Stain deconvolution & segmentation">🔬</div>
                 <div class="status-badge" id="segment-badge" style="cursor:pointer;" onclick="toggleSegmentation()" title="AI segmentation">✂️</div>
             </div>
             <div class="status-badge" id="help-badge" style="cursor:pointer;" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
@@ -412,7 +412,7 @@
                 <strong style="color: var(--accent);">ICC Profile:</strong> <span id="icc-status-text">Checking...</span>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 20px;">
-                <button class="btn" onclick="openAnalysisPanel()" style="flex: 1;" title="Stain deconvolution & focus analysis">🔬 Analysis</button>
+                <button class="btn" onclick="openAnalysisPanel()" style="flex: 1;" title="Stain deconvolution & segmentation">🔬 Analysis</button>
                 <button class="btn" onclick="resetColorCorrection()" style="flex: 1;">Reset</button>
                 <button class="btn btn-primary" onclick="closeColorPanel()" style="flex: 1;">Done</button>
             </div>
@@ -460,10 +460,86 @@
                 </div>
             </div>
             
-            <!-- Focus Quality Heatmap -->
+            <!-- Segmentation (classic) -->
             <div style="padding-top: 16px; border-top: 1px solid var(--border-color);">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🔍 FOCUS QUALITY</span>
+                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">🫧 SEGMENTATION (CLASSIC)</span>
+                    <button id="stain-seg-toggle-btn" class="btn" onclick="window.StainSegmentation && window.StainSegmentation.toggleEnabled && window.StainSegmentation.toggleEnabled()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
+                </div>
+                <div id="stain-seg-controls" style="opacity: 0.5; pointer-events: none;">
+                    <div style="margin-bottom: 10px; font-size: 11px; color: var(--text-secondary);">
+                        Tip: switch stain view to <strong>H Only</strong> / <strong>E Only</strong> / <strong>DAB</strong> then segment by intensity.
+                    </div>
+
+                    <div style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                            THRESHOLD: <span id="stain-seg-threshold-value">0.50</span>
+                        </label>
+                        <input type="range" id="stain-seg-threshold-slider" min="0" max="1" step="0.01" value="0.50"
+                               oninput="window.StainSegmentation && window.StainSegmentation.setThreshold && window.StainSegmentation.setThreshold(this.value)"
+                               style="width: 100%;">
+                    </div>
+
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MIN AREA: <span id="stain-seg-min-area-value">50</span>
+                            </label>
+                            <input type="range" id="stain-seg-min-area-slider" min="0" max="5000" step="10" value="50"
+                                   oninput="window.StainSegmentation && window.StainSegmentation.setMinArea && window.StainSegmentation.setMinArea(this.value)"
+                                   style="width: 100%;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                                MAX AREA: <span id="stain-seg-max-area-value">50000</span>
+                            </label>
+                            <input type="range" id="stain-seg-max-area-slider" min="0" max="200000" step="100" value="50000"
+                                   oninput="window.StainSegmentation && window.StainSegmentation.setMaxArea && window.StainSegmentation.setMaxArea(this.value)"
+                                   style="width: 100%;">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                        <button class="btn" type="button"
+                                onclick="window.StainSegmentation && window.StainSegmentation.run && window.StainSegmentation.run()"
+                                style="flex: 1; padding: 6px 8px; font-size: 11px;">Run</button>
+                        <button class="btn" type="button"
+                                onclick="window.StainSegmentation && window.StainSegmentation.clear && window.StainSegmentation.clear()"
+                                style="flex: 1; padding: 6px 8px; font-size: 11px;">Clear</button>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--bg-primary); border-radius: 6px;">
+                        <input type="checkbox" id="stain-seg-auto-update" checked style="width: 16px; height: 16px;"
+                               onchange="window.StainSegmentation && window.StainSegmentation.setAutoUpdate && window.StainSegmentation.setAutoUpdate(this.checked)">
+                        <label for="stain-seg-auto-update" style="font-size: 11px; color: var(--text-secondary); cursor: pointer;">
+                            Auto-update on pan/zoom
+                        </label>
+                    </div>
+
+                    <div id="stain-seg-stats" style="margin-top: 10px; font-size: 10px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;"></div>
+                    <div id="stain-seg-error" style="margin-top: 6px; font-size: 11px; color: var(--danger); white-space: pre-wrap;"></div>
+                </div>
+            </div>
+            
+            <!-- Buttons -->
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <button class="btn" onclick="openFocusPanel()" style="flex: 1; min-width: 96px;" title="Open focus quality panel">🔍 Focus</button>
+                <button class="btn" onclick="openPerformanceEvaluation()" style="flex: 1; min-width: 96px;" title="Performance evaluation">Perf Eval</button>
+                <button class="btn btn-primary" onclick="closeAnalysisPanel()" style="flex: 1; min-width: 96px;">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Focus Quality Panel (adjacent to Analysis Tools) -->
+    <div id="focus-panel" style="display: none; position: fixed; top: 80px; right: 360px; width: 320px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 1001;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <h3 style="margin: 0; font-size: 14px; color: var(--text-primary);">🔍 Focus Quality</h3>
+            <button onclick="closeFocusPanel()" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 20px; padding: 0;">&times;</button>
+        </div>
+        <div style="padding: 20px; max-height: calc(100vh - 200px); overflow-y: auto;">
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">HEATMAP</span>
                     <button id="focus-toggle-btn" class="btn" onclick="toggleFocusQuality()" style="padding: 4px 10px; font-size: 11px;">OFF</button>
                 </div>
                 <div id="focus-controls" style="opacity: 0.5; pointer-events: none;">
@@ -486,11 +562,9 @@
                     </div>
                 </div>
             </div>
-            
-            <!-- Buttons -->
+
             <div style="display: flex; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
-                <button class="btn" onclick="openPerformanceEvaluation()" style="flex: 1;" title="Performance evaluation">Perf Eval</button>
-                <button class="btn btn-primary" onclick="closeAnalysisPanel()" style="flex: 1;">Done</button>
+                <button class="btn btn-primary" onclick="closeFocusPanel()" style="flex: 1;">Done</button>
             </div>
         </div>
     </div>
@@ -562,6 +636,7 @@
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
     <script src="js/sam-segmentation.js?v=0.9.0"></script>
+    <script src="js/stain-segmentation.js?v=0.1.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>

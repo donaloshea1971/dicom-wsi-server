@@ -57,7 +57,9 @@ function openAnalysisPanel() {
         panel.style.display = 'block';
         // Update UI state
         if (typeof updateStainUI === 'function') updateStainUI();
-        if (typeof updateFocusUI === 'function') updateFocusUI();
+        if (window.StainSegmentation && typeof window.StainSegmentation.updateUI === 'function') {
+            window.StainSegmentation.updateUI();
+        }
     }
 }
 
@@ -70,6 +72,25 @@ function closeAnalysisPanel() {
 }
 
 /**
+ * Open focus quality panel (separate from analysis tools)
+ */
+function openFocusPanel() {
+    const panel = document.getElementById('focus-panel');
+    if (panel) {
+        panel.style.display = 'block';
+        if (typeof updateFocusUI === 'function') updateFocusUI();
+    }
+}
+
+/**
+ * Close focus quality panel
+ */
+function closeFocusPanel() {
+    const panel = document.getElementById('focus-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+/**
  * Toggle keyboard help overlay
  */
 function toggleKeyboardHelp() {
@@ -78,6 +99,16 @@ function toggleKeyboardHelp() {
         help.style.display = help.style.display === 'none' ? 'flex' : 'none';
     }
 }
+
+// Expose helpers for other scripts
+window.openFocusPanel = openFocusPanel;
+window.closeFocusPanel = closeFocusPanel;
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.StainSegmentation && typeof window.StainSegmentation.updateUI === 'function') {
+        window.StainSegmentation.updateUI();
+    }
+});
 
 /**
  * Escape HTML for safe display
