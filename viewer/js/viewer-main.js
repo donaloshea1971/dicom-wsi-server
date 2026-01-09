@@ -354,9 +354,16 @@ async function loadStudy(studyId) {
 
         let tileAuthHeaders = {};
         try {
-            const token = await auth0Client.getTokenSilently();
-            tileAuthHeaders = { 'Authorization': `Bearer ${token}` };
-        } catch (e) {}
+            if (!window.auth0Client) {
+                console.warn('🔒 [viewer-main] auth0Client not available - tiles will be unauthenticated');
+            } else {
+                const token = await window.auth0Client.getTokenSilently();
+                tileAuthHeaders = { 'Authorization': `Bearer ${token}` };
+                console.log('🔒 [viewer-main] Got auth token for tiles');
+            }
+        } catch (e) {
+            console.error('🔒 [viewer-main] Failed to get tile auth token:', e.message || e);
+        }
 
         viewer = OpenSeadragon({
             id: 'osd-viewer',
@@ -379,9 +386,10 @@ async function loadStudy(studyId) {
             immediateRender: true,
             imageLoaderLimit: 12,
             tileSources: wsiTileSource,
-            crossOriginPolicy: 'Anonymous',
+            crossOriginPolicy: false,  // Don't set crossOrigin, we're using ajax with auth
             loadTilesWithAjax: true,
             ajaxHeaders: tileAuthHeaders,
+            ajaxWithCredentials: false,  // We use Bearer token, not cookies
             preload: true,
         });
 
@@ -581,9 +589,13 @@ async function loadStudyInViewer2(studyId, slideName) {
         
         let authHeaders = {};
         try {
-            const token = await auth0Client.getTokenSilently();
-            authHeaders = { 'Authorization': `Bearer ${token}` };
-        } catch (e) {}
+            if (window.auth0Client) {
+                const token = await window.auth0Client.getTokenSilently();
+                authHeaders = { 'Authorization': `Bearer ${token}` };
+            }
+        } catch (e) {
+            console.warn('🔒 [viewer-main] Viewer2 auth token failed:', e.message || e);
+        }
         
         if (viewer2) viewer2.destroy();
         
@@ -646,9 +658,10 @@ async function loadStudyInViewer2(studyId, slideName) {
             minZoomImageRatio: 0.5,
             immediateRender: true,
             imageLoaderLimit: 12,
-            crossOriginPolicy: 'Anonymous',
+            crossOriginPolicy: false,  // Don't set crossOrigin, we're using ajax with auth
             loadTilesWithAjax: true,
             ajaxHeaders: authHeaders,
+            ajaxWithCredentials: false,  // We use Bearer token, not cookies
             tileSources: tileSource2,
             preload: true
         });

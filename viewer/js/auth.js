@@ -38,6 +38,8 @@ async function initAuth(redirectIfUnauthed = true) {
             useRefreshTokens: true,
             useRefreshTokensFallback: true
         });
+        // Explicitly expose on window for cross-module access
+        window.auth0Client = auth0Client;
 
         // Handle callback if present in URL
         if (window.location.search.includes('code=')) {

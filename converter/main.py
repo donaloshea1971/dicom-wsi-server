@@ -3778,14 +3778,22 @@ async def secure_wsi_proxy(path: str, request: Request, user: Optional[User] = D
     Validates user access before proxying tile/pyramid requests.
     Allows sample/public slides without authentication.
     """
+    # Debug: log incoming auth header presence
+    auth_header = request.headers.get("Authorization")
+    has_auth = bool(auth_header and auth_header.startswith("Bearer "))
+    
     # Extract study ID and check access
     study_id = await extract_study_id_from_wsi_path(path)
     user_id = user.id if user else None
     
+    # Log first tile request per session for debugging
+    if '/tiles/' in path and not has_auth:
+        logger.warning(f"WSI tile request WITHOUT auth header: path={path}")
+    
     if study_id:
         has_access = await can_access_study(user_id, study_id)
         if not has_access:
-            logger.warning(f"WSI access denied: user={user_id}, study={study_id}, path={path}")
+            logger.warning(f"WSI access denied: user={user_id}, study={study_id}, path={path}, hasAuth={has_auth}")
             raise HTTPException(status_code=403, detail="Access denied to this slide")
     else:
         # Could not extract study ID - log but allow (Orthanc will handle unknown paths)
