@@ -473,11 +473,25 @@
 
                     <div style="margin-bottom: 12px;">
                         <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
-                            THRESHOLD: <span id="stain-seg-threshold-value">0.50</span>
+                            LUMINANCE RANGE: <span id="stain-seg-threshold-range">0.00 – 0.50</span>
                         </label>
-                        <input type="range" id="stain-seg-threshold-slider" min="0" max="1" step="0.01" value="0.50"
-                               oninput="window.StainSegmentation && window.StainSegmentation.setThreshold && window.StainSegmentation.setThreshold(this.value)"
-                               style="width: 100%;">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 2px;">MIN: <span id="stain-seg-threshold-min-value">0.00</span></div>
+                                <input type="range" id="stain-seg-threshold-min-slider" min="0" max="1" step="0.01" value="0.00"
+                                       oninput="window.StainSegmentation && window.StainSegmentation.setThresholdMin && window.StainSegmentation.setThresholdMin(this.value)"
+                                       style="width: 100%;">
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-size: 9px; color: var(--text-muted); margin-bottom: 2px;">MAX: <span id="stain-seg-threshold-max-value">0.50</span></div>
+                                <input type="range" id="stain-seg-threshold-max-slider" min="0" max="1" step="0.01" value="0.50"
+                                       oninput="window.StainSegmentation && window.StainSegmentation.setThresholdMax && window.StainSegmentation.setThresholdMax(this.value)"
+                                       style="width: 100%;">
+                            </div>
+                        </div>
+                        <div style="font-size: 9px; color: var(--text-muted); margin-top: 4px; text-align: center;">
+                            ◀ dark pixels · bright pixels ▶
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 10px; margin-bottom: 12px;">
@@ -636,7 +650,7 @@
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
     <script src="js/sam-segmentation.js?v=0.9.0"></script>
-    <script src="js/stain-segmentation.js?v=0.3.0"></script>
+    <script src="js/stain-segmentation.js?v=0.4.0"></script>
     
     <script src="js/auth.js?v=1.1.0"></script>
     <script src="js/study-manager.js?v=1.2.5"></script>

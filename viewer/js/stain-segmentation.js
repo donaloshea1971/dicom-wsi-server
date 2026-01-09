@@ -13,7 +13,8 @@
 
   const DEFAULTS = {
     enabled: false,
-    threshold: 0.5,     // 0..1 (on luminance)
+    thresholdMin: 0.0,  // 0..1 (on luminance) - lower bound
+    thresholdMax: 0.5,  // 0..1 (on luminance) - upper bound (dark pixels)
     minArea: 50,        // in analysis pixels (downsampled)
     maxArea: 50000,     // in analysis pixels (downsampled); 0 means no max
     autoUpdate: true,
@@ -28,9 +29,16 @@
   let webglCtx = null;
   let webglProgram = null;
   let webglTexture = null;
+  const WEBGL_VERSION = 2; // Increment to force shader recompilation
 
   function initWebGL() {
-    if (webglCtx) return webglCtx;
+    if (webglCtx && webglCtx.version === WEBGL_VERSION) return webglCtx;
+    
+    // Reset if version changed
+    if (webglCtx) {
+      webglCtx = null;
+      webglProgram = null;
+    }
     
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -52,12 +60,14 @@
     const fsSource = `
       precision mediump float;
       uniform sampler2D u_image;
-      uniform float u_threshold;
+      uniform float u_thresholdMin;
+      uniform float u_thresholdMax;
       varying vec2 v_texCoord;
       void main() {
         vec4 c = texture2D(u_image, v_texCoord);
         float lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-        float mask = step(u_threshold, lum);
+        // Mask pixels where luminance is within [min, max] range
+        float mask = step(u_thresholdMin, lum) * (1.0 - step(u_thresholdMax, lum));
         gl_FragColor = vec4(mask, mask, mask, 1.0);
       }
     `;
@@ -88,12 +98,12 @@
     }
 
     webglProgram = program;
-    webglCtx = { gl, canvas, program };
-    console.log('[StainSeg] WebGL threshold shader initialized');
+    webglCtx = { gl, canvas, program, version: WEBGL_VERSION };
+    console.log('[StainSeg] WebGL threshold shader initialized (v' + WEBGL_VERSION + ')');
     return webglCtx;
   }
 
-  function thresholdWebGL(imageData, threshold01, w, h) {
+  function thresholdWebGL(imageData, thresholdMin, thresholdMax, w, h) {
     const ctx = initWebGL();
     if (!ctx) return null;
     
@@ -134,8 +144,9 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, imageData.data);
 
-    // Set uniform
-    gl.uniform1f(gl.getUniformLocation(program, 'u_threshold'), threshold01);
+    // Set uniforms for range threshold
+    gl.uniform1f(gl.getUniformLocation(program, 'u_thresholdMin'), thresholdMin);
+    gl.uniform1f(gl.getUniformLocation(program, 'u_thresholdMax'), thresholdMax);
 
     // Draw
     gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -265,7 +276,8 @@
   function createState() {
     return {
       enabled: DEFAULTS.enabled,
-      threshold: DEFAULTS.threshold,
+      thresholdMin: DEFAULTS.thresholdMin,
+      thresholdMax: DEFAULTS.thresholdMax,
       minArea: DEFAULTS.minArea,
       maxArea: DEFAULTS.maxArea,
       autoUpdate: DEFAULTS.autoUpdate,
@@ -317,16 +329,17 @@
     return { imageData, analyzedW: aw, analyzedH: ah, overlayW: overlay.width, overlayH: overlay.height };
   }
 
-  function thresholdToBinary(imageData, threshold01) {
+  function thresholdToBinary(imageData, thresholdMin, thresholdMax) {
     const data = imageData.data;
     const n = (data.length / 4) | 0;
     const out = new Uint8Array(n);
-    const t = clamp(parseFloat(threshold01), 0, 1) * 255;
+    const tMin = clamp(parseFloat(thresholdMin), 0, 1) * 255;
+    const tMax = clamp(parseFloat(thresholdMax), 0, 1) * 255;
     for (let i = 0; i < n; i++) {
       const j = i * 4;
-      // Luminance
+      // Luminance - mask pixels within range [min, max]
       const lum = 0.2126 * data[j] + 0.7152 * data[j + 1] + 0.0722 * data[j + 2];
-      out[i] = lum >= t ? 1 : 0;
+      out[i] = (lum >= tMin && lum < tMax) ? 1 : 0;
     }
     return out;
   }
@@ -449,10 +462,10 @@
       // Try WebGL threshold first, fall back to CPU
       let bin = null;
       if (DEFAULTS.useWebGL) {
-        bin = thresholdWebGL(imageData, state.threshold, analyzedW, analyzedH);
+        bin = thresholdWebGL(imageData, state.thresholdMin, state.thresholdMax, analyzedW, analyzedH);
       }
       if (!bin) {
-        bin = thresholdToBinary(imageData, state.threshold);
+        bin = thresholdToBinary(imageData, state.thresholdMin, state.thresholdMax);
       }
       
       const { out, blobs, total } = connectedComponentsFilter(bin, analyzedW, analyzedH, state.minArea, state.maxArea);
@@ -486,10 +499,22 @@
       controls.style.pointerEvents = state.enabled ? 'auto' : 'none';
     }
 
-    const th = document.getElementById('stain-seg-threshold-slider');
-    const thv = document.getElementById('stain-seg-threshold-value');
-    if (th) th.value = String(state.threshold);
-    if (thv) thv.textContent = Number(state.threshold).toFixed(2);
+    // Threshold range sliders
+    const thMin = document.getElementById('stain-seg-threshold-min-slider');
+    const thMinV = document.getElementById('stain-seg-threshold-min-value');
+    if (thMin) thMin.value = String(state.thresholdMin);
+    if (thMinV) thMinV.textContent = Number(state.thresholdMin).toFixed(2);
+
+    const thMax = document.getElementById('stain-seg-threshold-max-slider');
+    const thMaxV = document.getElementById('stain-seg-threshold-max-value');
+    if (thMax) thMax.value = String(state.thresholdMax);
+    if (thMaxV) thMaxV.textContent = Number(state.thresholdMax).toFixed(2);
+
+    // Update range display
+    const rangeDisplay = document.getElementById('stain-seg-threshold-range');
+    if (rangeDisplay) {
+      rangeDisplay.textContent = `${Number(state.thresholdMin).toFixed(2)} – ${Number(state.thresholdMax).toFixed(2)}`;
+    }
 
     const min = document.getElementById('stain-seg-min-area-slider');
     const minv = document.getElementById('stain-seg-min-area-value');
@@ -576,11 +601,28 @@
     setEnabled(!entry.state.enabled);
   }
 
-  function setThreshold(v) {
+  function setThresholdMin(v) {
     const entry = getPrimaryController();
     if (!entry) return;
     const num = clamp(parseFloat(v), 0, 1);
-    entry.state.threshold = isFinite(num) ? num : entry.state.threshold;
+    entry.state.thresholdMin = isFinite(num) ? num : entry.state.thresholdMin;
+    // Ensure min <= max
+    if (entry.state.thresholdMin > entry.state.thresholdMax) {
+      entry.state.thresholdMax = entry.state.thresholdMin;
+    }
+    updateUIFromState(entry.state);
+    if (entry.state.enabled) scheduleRun(entry);
+  }
+
+  function setThresholdMax(v) {
+    const entry = getPrimaryController();
+    if (!entry) return;
+    const num = clamp(parseFloat(v), 0, 1);
+    entry.state.thresholdMax = isFinite(num) ? num : entry.state.thresholdMax;
+    // Ensure max >= min
+    if (entry.state.thresholdMax < entry.state.thresholdMin) {
+      entry.state.thresholdMin = entry.state.thresholdMax;
+    }
     updateUIFromState(entry.state);
     if (entry.state.enabled) scheduleRun(entry);
   }
@@ -637,7 +679,8 @@
     attachToViewer,
     setEnabled,
     toggleEnabled,
-    setThreshold,
+    setThresholdMin,
+    setThresholdMax,
     setMinArea,
     setMaxArea,
     setAutoUpdate,
