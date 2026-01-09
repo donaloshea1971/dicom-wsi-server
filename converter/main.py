@@ -3426,6 +3426,123 @@ async def complete_chunked_upload(
     }
 
 
+@app.post("/upload/{upload_id}/complete-dicom")
+async def complete_dicom_chunked_upload(
+    upload_id: str,
+    user: User = Depends(require_user)
+):
+    """
+    Complete a chunked DICOM upload - assembles chunks and sends directly to Orthanc.
+    Unlike conversion uploads, this sends the assembled file to Orthanc immediately.
+    """
+    if upload_id not in chunked_uploads:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired")
+    
+    upload = chunked_uploads[upload_id]
+    
+    if upload["status"] != "uploading":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Upload is {upload['status']}, cannot complete"
+        )
+    
+    # Verify all chunks received
+    missing = set(range(upload["total_chunks"])) - set(upload["uploaded_chunks"])
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing chunks: {sorted(list(missing))[:20]}{'...' if len(missing) > 20 else ''}"
+        )
+    
+    upload["status"] = "assembling"
+    upload["message"] = "Assembling DICOM file..."
+    upload["progress"] = 80
+    
+    try:
+        upload_dir = Path(upload["upload_dir"])
+        temp_dicom = upload_dir / "assembled.dcm"
+        
+        # Assemble chunks
+        logger.info(f"📦 Assembling DICOM chunks for {upload_id} ({upload['total_chunks']} chunks)")
+        
+        with open(temp_dicom, "wb") as outfile:
+            for i in range(upload["total_chunks"]):
+                chunk_path = upload_dir / f"chunk_{i:06d}"
+                with open(chunk_path, "rb") as chunk_file:
+                    outfile.write(chunk_file.read())
+        
+        # Verify file size
+        actual_size = temp_dicom.stat().st_size
+        if actual_size != upload["file_size"]:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Assembled file size mismatch: expected {upload['file_size']}, got {actual_size}"
+            )
+        
+        logger.info(f"📦 Assembled DICOM: {actual_size / (1024*1024):.1f} MB")
+        
+        # Send to Orthanc
+        upload["message"] = "Sending to DICOM server..."
+        upload["progress"] = 90
+        
+        async with httpx.AsyncClient(timeout=600.0) as client:  # 10 minute timeout for large files
+            with open(temp_dicom, "rb") as f:
+                response = await client.post(
+                    f"{settings.orthanc_url}/instances",
+                    content=f.read(),
+                    headers={"Content-Type": "application/dicom"},
+                    auth=(settings.orthanc_username, settings.orthanc_password)
+                )
+        
+        if response.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Orthanc rejected DICOM: {response.status_code} - {response.text[:200]}"
+            )
+        
+        result = response.json()
+        logger.info(f"✅ DICOM uploaded to Orthanc: {result.get('ID', 'unknown')}")
+        
+        # Claim ownership
+        study_id = result.get("ParentStudy")
+        if study_id and user.id:
+            try:
+                await set_study_owner(study_id, user.id)
+                logger.info(f"✅ Claimed study {study_id} for user {user.id}")
+            except Exception as e:
+                logger.warning(f"Failed to claim study {study_id}: {e}")
+        
+        # Clean up
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        
+        upload["status"] = "complete"
+        upload["message"] = "DICOM uploaded successfully"
+        upload["progress"] = 100
+        
+        return {
+            "status": "complete",
+            "success": True,
+            "orthanc_id": result.get("ID"),
+            "study_id": study_id,
+            "message": f"DICOM uploaded successfully ({actual_size / (1024*1024):.1f} MB)"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ DICOM upload failed for {upload_id}: {e}")
+        upload["status"] = "error"
+        upload["message"] = str(e)
+        
+        # Clean up on error
+        try:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+        except:
+            pass
+        
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def assemble_and_convert(upload_id: str):
     """Background task to assemble chunks and start conversion"""
     upload = chunked_uploads.get(upload_id)

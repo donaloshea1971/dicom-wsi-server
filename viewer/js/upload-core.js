@@ -9,12 +9,26 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
 
+// Threshold for using chunked upload (50MB)
+const LARGE_DICOM_THRESHOLD = 50 * 1024 * 1024;
+
 /**
  * Upload a DICOM group via REST API
+ * Uses chunked upload for large files (>50MB) to avoid timeouts
  */
 async function uploadDicomGroup(items) {
     const doFetch = (typeof authFetch === 'function') ? authFetch : fetch;
     console.log('🔐 DICOM upload - Using fetch helper:', (doFetch === authFetch) ? 'authFetch' : 'fetch');
+
+    // Get auth token for chunked uploads
+    let token = null;
+    if (typeof auth0Client !== 'undefined' && auth0Client) {
+        try {
+            token = await auth0Client.getTokenSilently();
+        } catch (e) {
+            console.warn('Failed to get auth token for DICOM upload');
+        }
+    }
 
     for (const item of items) {
         item.status = 'uploading';
@@ -22,87 +36,201 @@ async function uploadDicomGroup(items) {
         item.error = null;
         if (typeof updateQueueUI === 'function') updateQueueUI();
 
-        let success = false;
-        let lastError = null;
-
-        for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
-            try {
-                item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
-                if (typeof updateQueueUI === 'function') updateQueueUI();
-
-                console.log('🔐 DICOM upload - Making request to /api/instances');
-                const response = await doFetch('/api/instances', {
-                    method: 'POST',
-                    body: item.file,
-                    headers: {
-                        'Content-Type': 'application/dicom'
-                    }
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    
-                    // Orthanc can return a single object or an array of objects
-                    const instances = Array.isArray(result) ? result : [result];
-                    
-                    for (const res of instances) {
-                        let studyId = res.ParentStudy;
-                        
-                        // Fallback: If ParentStudy is missing (e.g. instance already exists), fetch it
-                        if (!studyId && res.ID) {
-                            try {
-                                const infoRes = await doFetch(`/api/instances/${res.ID}`);
-                                if (infoRes.ok) {
-                                    const info = await infoRes.json();
-                                    studyId = info.ParentStudy;
-                                    console.log(`🔍 Fetched missing study ID: ${studyId}`);
-                                }
-                            } catch (e) {
-                                console.warn('Failed to fetch parent study info', e);
-                            }
-                        }
-                        
-                        if (studyId) {
-                            try {
-                                const claimRes = await doFetch(`/api/studies/${studyId}/claim`, { method: 'POST' });
-                                if (claimRes.ok) {
-                                    console.log(`✅ Claimed study: ${studyId}`);
-                                } else {
-                                    console.warn(`⚠️ Claim failed for study ${studyId}: ${claimRes.status}`);
-                                }
-                            } catch (claimErr) {
-                                console.warn(`⚠️ Error claiming study ${studyId}:`, claimErr);
-                            }
-                        }
-                    }
-                    
-                    item.status = 'complete';
-                    item.progress = 100;
-                    item.message = '';
-                    success = true;
-                } else {
-                    const text = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${text}`);
-                }
-            } catch (e) {
-                lastError = e;
-                console.warn(`DICOM upload attempt ${attempt} failed:`, e.message);
-                
-                if (attempt < MAX_RETRIES) {
-                    item.message = `Retry in ${RETRY_DELAY_MS/1000}s...`;
-                    if (typeof updateQueueUI === 'function') updateQueueUI();
-                    await sleep(RETRY_DELAY_MS * attempt);
-                }
+        try {
+            // Use chunked upload for large DICOMs
+            if (item.file.size > LARGE_DICOM_THRESHOLD) {
+                console.log(`📦 Large DICOM (${formatSize(item.file.size)}) - using chunked upload`);
+                await uploadLargeDicom(item, token);
+            } else {
+                await uploadSmallDicom(item, doFetch);
             }
-        }
-        
-        if (!success) {
+        } catch (e) {
             item.status = 'error';
-            item.error = formatError(lastError);
-            console.error('DICOM upload failed after retries:', lastError);
+            item.error = formatError(e);
+            console.error('DICOM upload failed:', e);
         }
         
         if (typeof updateQueueUI === 'function') updateQueueUI();
+    }
+}
+
+/**
+ * Upload small DICOM file directly (< 50MB)
+ */
+async function uploadSmallDicom(item, doFetch) {
+    let success = false;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+        try {
+            item.message = attempt > 1 ? `Retry ${attempt}/${MAX_RETRIES}...` : 'Uploading...';
+            if (typeof updateQueueUI === 'function') updateQueueUI();
+
+            console.log('🔐 DICOM upload - Making request to /api/instances');
+            const response = await doFetch('/api/instances', {
+                method: 'POST',
+                body: item.file,
+                headers: {
+                    'Content-Type': 'application/dicom'
+                }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                await claimDicomStudy(result, doFetch);
+                
+                item.status = 'complete';
+                item.progress = 100;
+                item.message = '';
+                success = true;
+            } else {
+                const text = await response.text();
+                throw new Error(`HTTP ${response.status}: ${text}`);
+            }
+        } catch (e) {
+            lastError = e;
+            console.warn(`DICOM upload attempt ${attempt} failed:`, e.message);
+            
+            if (attempt < MAX_RETRIES) {
+                item.message = `Retry in ${RETRY_DELAY_MS/1000}s...`;
+                if (typeof updateQueueUI === 'function') updateQueueUI();
+                await sleep(RETRY_DELAY_MS * attempt);
+            }
+        }
+    }
+    
+    if (!success) {
+        throw lastError || new Error('Upload failed after retries');
+    }
+}
+
+/**
+ * Upload large DICOM file using chunked upload
+ */
+async function uploadLargeDicom(item, token) {
+    // Initialize chunked upload
+    item.message = 'Initializing upload...';
+    if (typeof updateQueueUI === 'function') updateQueueUI();
+    
+    const initResponse = await fetchWithRetry('/api/upload/init', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: JSON.stringify({
+            filename: item.file.name,
+            file_size: item.file.size,
+            chunk_size: CHUNK_SIZE,
+            file_type: 'dicom'  // Mark as DICOM for backend handling
+        })
+    });
+    
+    const { upload_id, total_chunks, chunk_size } = initResponse;
+    item.uploadId = upload_id;
+    item.totalChunks = total_chunks;
+    item.chunksUploaded = 0;
+    
+    console.log(`📦 Chunked DICOM upload started: ${upload_id}, ${total_chunks} chunks`);
+    
+    // Upload chunks
+    const chunkQueue = Array.from({ length: total_chunks }, (_, i) => i);
+    const failedChunks = new Set();
+    
+    while (chunkQueue.length > 0 || failedChunks.size > 0) {
+        const batch = [];
+        while (batch.length < CONCURRENT_CHUNKS && chunkQueue.length > 0) {
+            batch.push(chunkQueue.shift());
+        }
+        
+        if (batch.length === 0 && failedChunks.size > 0) {
+            const retryChunks = Array.from(failedChunks).slice(0, CONCURRENT_CHUNKS);
+            retryChunks.forEach(c => failedChunks.delete(c));
+            batch.push(...retryChunks);
+            item.message = `Retrying ${batch.length} failed chunks...`;
+            if (typeof updateQueueUI === 'function') updateQueueUI();
+            await sleep(RETRY_DELAY_MS);
+        }
+        
+        if (batch.length === 0) break;
+        
+        const results = await Promise.all(
+            batch.map(chunkIndex => uploadChunk(item, upload_id, chunkIndex, chunk_size, token))
+        );
+        
+        results.forEach((success, i) => {
+            if (success) {
+                item.chunksUploaded++;
+            } else {
+                failedChunks.add(batch[i]);
+            }
+        });
+        
+        item.progress = Math.round((item.chunksUploaded / total_chunks) * 80);  // 0-80% for upload
+        item.message = `Uploading ${item.chunksUploaded}/${total_chunks} chunks`;
+        if (typeof updateQueueUI === 'function') updateQueueUI();
+        
+        if (failedChunks.size > total_chunks * 0.3) {
+            throw new Error(`Too many chunk failures (${failedChunks.size}/${total_chunks})`);
+        }
+    }
+    
+    // Complete upload and send to Orthanc
+    item.message = 'Sending to DICOM server...';
+    item.progress = 85;
+    if (typeof updateQueueUI === 'function') updateQueueUI();
+    
+    const completeResponse = await fetchWithRetry(`/api/upload/${upload_id}/complete-dicom`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    
+    if (completeResponse.status === 'complete' || completeResponse.success) {
+        item.status = 'complete';
+        item.progress = 100;
+        item.message = '';
+        console.log(`✅ Large DICOM uploaded successfully: ${upload_id}`);
+    } else {
+        throw new Error(completeResponse.error || 'Failed to send DICOM to server');
+    }
+}
+
+/**
+ * Claim ownership of uploaded DICOM study
+ */
+async function claimDicomStudy(result, doFetch) {
+    // Orthanc can return a single object or an array of objects
+    const instances = Array.isArray(result) ? result : [result];
+    
+    for (const res of instances) {
+        let studyId = res.ParentStudy;
+        
+        // Fallback: If ParentStudy is missing (e.g. instance already exists), fetch it
+        if (!studyId && res.ID) {
+            try {
+                const infoRes = await doFetch(`/api/instances/${res.ID}`);
+                if (infoRes.ok) {
+                    const info = await infoRes.json();
+                    studyId = info.ParentStudy;
+                    console.log(`🔍 Fetched missing study ID: ${studyId}`);
+                }
+            } catch (e) {
+                console.warn('Failed to fetch parent study info', e);
+            }
+        }
+        
+        if (studyId) {
+            try {
+                const claimRes = await doFetch(`/api/studies/${studyId}/claim`, { method: 'POST' });
+                if (claimRes.ok) {
+                    console.log(`✅ Claimed study: ${studyId}`);
+                } else {
+                    console.warn(`⚠️ Claim failed for study ${studyId}: ${claimRes.status}`);
+                }
+            } catch (claimErr) {
+                console.warn(`⚠️ Error claiming study ${studyId}:`, claimErr);
+            }
+        }
     }
 }
 
