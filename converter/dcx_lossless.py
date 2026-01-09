@@ -152,10 +152,13 @@ class BigTiffWriter:
         entries.append(self._make_entry(TAG_IMAGE_WIDTH, TIFF_SHORT, 1, width))
         entries.append(self._make_entry(TAG_IMAGE_LENGTH, TIFF_SHORT, 1, height))
         
-        # Bits per sample (need to write array for RGB)
+        # Bits per sample - for RGB (3 values), pack inline (3 SHORTs = 6 bytes fits in 8-byte value field)
         if samples_per_pixel > 1:
-            bps_offset = self._write_array(bits_per_sample, '<H')
-            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, TIFF_SHORT, samples_per_pixel, bps_offset))
+            # Pack up to 4 SHORT values inline (4 * 2 = 8 bytes)
+            bps_inline = 0
+            for i, bps in enumerate(bits_per_sample[:4]):
+                bps_inline |= (bps << (i * 16))
+            entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, TIFF_SHORT, samples_per_pixel, bps_inline))
         else:
             entries.append(self._make_entry(TAG_BITS_PER_SAMPLE, TIFF_SHORT, 1, bits_per_sample[0]))
         
