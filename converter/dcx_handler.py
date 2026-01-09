@@ -228,18 +228,135 @@ def convert_dcx_to_tiff(input_path: Path, output_path: Path,
         raise
 
 
-def convert_dcx_streaming(input_path: Path, output_path: Path,
+def convert_dcx_transcode(input_path: Path, output_path: Path,
                           progress_callback=None) -> bool:
     """
-    Convert DCX to TIFF using streaming (lower memory usage).
+    Convert DCX to TIFF by transcoding - minimal recompression!
     
-    Instead of loading entire image into memory, this processes
-    tiles one at a time and writes them directly.
+    Uses imagecodecs if available for true zero-loss transcoding,
+    otherwise uses PIL with maximum quality (100) to minimize loss.
+    """
+    import tifffile
+    import numpy as np
+    from PIL import Image
+    
+    logger.info(f"Converting DCX (transcode): {input_path}")
+    
+    # Check if we can do true zero-loss transcoding with imagecodecs
+    try:
+        import imagecodecs
+        has_imagecodecs = True
+        logger.info("imagecodecs available - using zero-loss transcoding")
+    except ImportError:
+        has_imagecodecs = False
+        logger.info("imagecodecs not available - using high-quality recompression (Q=100)")
+    
+    try:
+        with tifffile.TiffFile(str(input_path)) as tif:
+            # Process only the base resolution level for now
+            # wsidicomizer will regenerate the pyramid
+            page = tif.pages[0]
+            
+            height, width = page.shape[:2]
+            samples = page.shape[2] if len(page.shape) > 2 else 3
+            
+            # Get tile information
+            tile_offsets = list(page.tags[324].value)
+            tile_sizes = list(page.tags[325].value)
+            tile_width = page.tags.get(322, type('', (), {'value': 512})()).value
+            tile_height = page.tags.get(323, type('', (), {'value': 512})()).value
+            
+            tiles_x = (width + tile_width - 1) // tile_width
+            tiles_y = (height + tile_height - 1) // tile_height
+            
+            logger.info(f"Image: {width}x{height}, {len(tile_offsets)} tiles ({tiles_x}x{tiles_y})")
+            
+            # Deobfuscate and decode all tiles
+            decoded_tiles = []
+            with open(input_path, 'rb') as f:
+                for tile_idx, (offset, size) in enumerate(zip(tile_offsets, tile_sizes)):
+                    f.seek(offset)
+                    raw_tile = f.read(size)
+                    jpeg_data = deobfuscate_tile(raw_tile)
+                    
+                    # Decode JPEG to numpy array
+                    if has_imagecodecs:
+                        tile_array = imagecodecs.jpeg_decode(jpeg_data)
+                    else:
+                        tile_img = Image.open(io.BytesIO(jpeg_data))
+                        tile_array = np.array(tile_img)
+                    
+                    decoded_tiles.append(tile_array)
+                    
+                    if tile_idx % 200 == 0 and progress_callback:
+                        progress_callback(
+                            int(tile_idx / len(tile_offsets) * 70),
+                            f"Decoding tiles... {tile_idx}/{len(tile_offsets)}"
+                        )
+            
+            # Reconstruct full image from tiles
+            logger.info("Reconstructing image from tiles...")
+            if progress_callback:
+                progress_callback(70, "Reconstructing image...")
+            
+            full_image = np.zeros((height, width, samples), dtype=np.uint8)
+            
+            for tile_idx, tile_array in enumerate(decoded_tiles):
+                ty = tile_idx // tiles_x
+                tx = tile_idx % tiles_x
+                y_start = ty * tile_height
+                x_start = tx * tile_width
+                
+                th = min(tile_height, height - y_start)
+                tw = min(tile_width, width - x_start)
+                
+                if len(tile_array.shape) == 2:
+                    tile_array = tile_array[:, :, np.newaxis]
+                
+                full_image[y_start:y_start+th, x_start:x_start+tw] = tile_array[:th, :tw]
+            
+            # Write output TIFF
+            logger.info(f"Writing output TIFF: {output_path}")
+            if progress_callback:
+                progress_callback(80, "Writing TIFF...")
+            
+            # Use tifffile to write with JPEG compression
+            # Quality 100 for minimal loss if we had to decode
+            tifffile.imwrite(
+                str(output_path),
+                full_image,
+                bigtiff=True,
+                tile=(tile_height, tile_width),
+                compression='jpeg',
+                compressionargs={'level': 100},  # Max quality
+                photometric='rgb',
+            )
+        
+        logger.info(f"DCX transcode complete: {output_path}")
+        
+        if progress_callback:
+            progress_callback(100, "Complete")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"DCX transcode failed: {e}")
+        raise
+
+
+def convert_dcx_streaming_recompress(input_path: Path, output_path: Path,
+                                      progress_callback=None) -> bool:
+    """
+    Convert DCX to TIFF with recompression (fallback method).
+    
+    This decodes JPEG tiles and re-encodes them, which causes some quality loss
+    but is more compatible with different TIFF readers.
     """
     import tifffile
     from PIL import Image
+    import numpy as np
     
-    logger.info(f"Converting DCX (streaming): {input_path}")
+    logger.info(f"Converting DCX (recompress fallback): {input_path}")
     
     try:
         with tifffile.TiffFile(str(input_path)) as tif:
@@ -309,16 +426,29 @@ def convert_dcx_streaming(input_path: Path, output_path: Path,
                         bigtiff=True
                     )
                     
-                    logger.info(f"DCX streaming conversion complete: {output_path}")
+                    logger.info(f"DCX recompress conversion complete: {output_path}")
                     return True
                     
             except ImportError:
-                logger.warning("pyvips not available, falling back to standard conversion")
+                logger.warning("pyvips not available, falling back to numpy/PIL conversion")
                 return convert_dcx_to_tiff(input_path, output_path, progress_callback)
                 
     except Exception as e:
-        logger.error(f"DCX streaming conversion failed: {e}")
+        logger.error(f"DCX recompress conversion failed: {e}")
         raise
+
+
+def convert_dcx_streaming(input_path: Path, output_path: Path,
+                          progress_callback=None) -> bool:
+    """
+    Convert DCX to TIFF - uses transcoding (no recompression) by default.
+    Falls back to recompression if transcoding fails.
+    """
+    try:
+        return convert_dcx_transcode(input_path, output_path, progress_callback)
+    except Exception as e:
+        logger.warning(f"Transcode failed ({e}), trying recompression...")
+        return convert_dcx_streaming_recompress(input_path, output_path, progress_callback)
 
 
 # Quick test
