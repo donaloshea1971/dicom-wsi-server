@@ -2774,8 +2774,13 @@ async def get_study(study_id: str, user: User = Depends(require_user)):
 @app.get("/studies/{study_id}/wsi-metadata")
 async def get_wsi_metadata(study_id: str, user: User = Depends(require_user)):
     """
-    Get WSI pyramid metadata for OpenSeadragon tile source
-    Returns tile dimensions, pyramid levels, and instance mappings
+    Get WSI pyramid metadata for OpenSeadragon tile source.
+    Supports multi-series DICOM WSI (Pramana/Leica format) with:
+    - Main pyramid (ExtendedDepthOfField=YES or primary VOLUME series)
+    - Z-stack focal planes (separate series with ExtendedDepthOfField=NO)
+    - Label and macro images
+    
+    Returns tile dimensions, pyramid levels, focal planes, and instance mappings.
     """
     # Check access
     if not user.id or not await can_access_study(user.id, study_id):
@@ -2792,47 +2797,110 @@ async def get_wsi_metadata(study_id: str, user: User = Depends(require_user)):
             study_response.raise_for_status()
             study = study_response.json()
             
-            # Get all instances in the study
-            instances = []
+            # Collect all instances grouped by series
+            series_instances = {}  # seriesUID -> list of instances
+            label_instance = None
+            macro_instance = None
+            
             for series_id in study.get("Series", []):
                 series_response = await client.get(
                     f"{settings.orthanc_url}/series/{series_id}",
                     auth=(settings.orthanc_username, settings.orthanc_password)
                 )
-                if series_response.status_code == 200:
-                    series = series_response.json()
-                    for instance_id in series.get("Instances", []):
-                        # Get instance tags
-                        tags_response = await client.get(
-                            f"{settings.orthanc_url}/instances/{instance_id}/simplified-tags",
-                            auth=(settings.orthanc_username, settings.orthanc_password)
-                        )
-                        if tags_response.status_code == 200:
-                            tags = tags_response.json()
-                            instances.append({
-                                "id": instance_id,
-                                "width": int(tags.get("TotalPixelMatrixColumns", 0) or 0),
-                                "height": int(tags.get("TotalPixelMatrixRows", 0) or 0),
-                                "tileWidth": int(tags.get("Columns", 256) or 256),
-                                "tileHeight": int(tags.get("Rows", 256) or 256),
-                                "numberOfFrames": int(tags.get("NumberOfFrames", 1) or 1),
-                                "imageType": tags.get("ImageType", ""),
-                            })
+                if series_response.status_code != 200:
+                    continue
+                    
+                series = series_response.json()
+                
+                for instance_id in series.get("Instances", []):
+                    # Get instance tags
+                    tags_response = await client.get(
+                        f"{settings.orthanc_url}/instances/{instance_id}/simplified-tags",
+                        auth=(settings.orthanc_username, settings.orthanc_password)
+                    )
+                    if tags_response.status_code != 200:
+                        continue
+                        
+                    tags = tags_response.json()
+                    
+                    # Parse ImageType to identify LABEL, OVERVIEW/MACRO, or VOLUME
+                    image_type = tags.get("ImageType", "")
+                    if isinstance(image_type, str):
+                        image_type_list = [t.strip() for t in image_type.split("\\")]
+                    else:
+                        image_type_list = image_type if image_type else []
+                    
+                    instance_data = {
+                        "id": instance_id,
+                        "seriesId": series_id,
+                        "seriesInstanceUID": tags.get("SeriesInstanceUID", ""),
+                        "instanceNumber": int(tags.get("InstanceNumber", 0) or 0),
+                        "width": int(tags.get("TotalPixelMatrixColumns", 0) or 0),
+                        "height": int(tags.get("TotalPixelMatrixRows", 0) or 0),
+                        "tileWidth": int(tags.get("Columns", 256) or 256),
+                        "tileHeight": int(tags.get("Rows", 256) or 256),
+                        "numberOfFrames": int(tags.get("NumberOfFrames", 1) or 1),
+                        "imageType": image_type_list,
+                        "extendedDepthOfField": tags.get("ExtendedDepthOfField", "").upper() == "YES",
+                        "numberOfFocalPlanes": int(tags.get("NumberOfFocalPlanes", 0) or 0),
+                    }
+                    
+                    # Categorize by ImageType
+                    if "LABEL" in image_type_list:
+                        label_instance = instance_data
+                    elif "OVERVIEW" in image_type_list or "THUMBNAIL" in image_type_list:
+                        macro_instance = instance_data
+                    elif "VOLUME" in image_type_list and instance_data["numberOfFrames"] > 1:
+                        # Group VOLUME instances by series
+                        series_uid = instance_data["seriesInstanceUID"]
+                        if series_uid not in series_instances:
+                            series_instances[series_uid] = []
+                        series_instances[series_uid].append(instance_data)
             
-            # Find the main WSI instance (highest resolution with multiple frames)
-            wsi_instances = [i for i in instances if i["numberOfFrames"] > 1 and i["width"] > 0]
-            wsi_instances.sort(key=lambda x: x["width"], reverse=True)
-            
-            if not wsi_instances:
+            if not series_instances:
                 raise HTTPException(status_code=404, detail="No WSI instances found in study")
             
-            main_instance = wsi_instances[0]
+            # Identify main pyramid vs z-stack focal planes
+            # Main pyramid: ExtendedDepthOfField=YES or the series with the most levels
+            main_series_uid = None
+            focal_plane_series = []
+            
+            for series_uid, instances in series_instances.items():
+                # Sort instances by width (descending) to get pyramid order
+                instances.sort(key=lambda x: x["width"], reverse=True)
+                
+                # Check if this series has ExtendedDepthOfField=YES (composite best-focus)
+                has_edof = any(inst["extendedDepthOfField"] for inst in instances)
+                
+                if has_edof:
+                    main_series_uid = series_uid
+                else:
+                    # This is a z-stack focal plane series
+                    focal_plane_series.append({
+                        "seriesUID": series_uid,
+                        "instances": instances,
+                        # Use instance number of highest res to determine focal plane order
+                        "instanceNumber": instances[0]["instanceNumber"] if instances else 0
+                    })
+            
+            # If no EDOF series found, use the series with most instances as main
+            if not main_series_uid:
+                main_series_uid = max(series_instances.keys(), key=lambda k: len(series_instances[k]))
+                # Remove from focal planes if it was added
+                focal_plane_series = [fp for fp in focal_plane_series if fp["seriesUID"] != main_series_uid]
+            
+            main_instances = series_instances[main_series_uid]
+            main_instance = main_instances[0]  # Highest resolution
+            
+            # Sort focal planes by instance number
+            focal_plane_series.sort(key=lambda x: x["instanceNumber"])
             
             # Calculate tiles per row/column
             tiles_x = (main_instance["width"] + main_instance["tileWidth"] - 1) // main_instance["tileWidth"]
             tiles_y = (main_instance["height"] + main_instance["tileHeight"] - 1) // main_instance["tileHeight"]
             
-            return {
+            # Build response
+            response = {
                 "studyId": study_id,
                 "instanceId": main_instance["id"],
                 "width": main_instance["width"],
@@ -2842,6 +2910,8 @@ async def get_wsi_metadata(study_id: str, user: User = Depends(require_user)):
                 "tilesX": tiles_x,
                 "tilesY": tiles_y,
                 "numberOfFrames": main_instance["numberOfFrames"],
+                "extendedDepthOfField": main_instance["extendedDepthOfField"],
+                "numberOfFocalPlanes": main_instance["numberOfFocalPlanes"],
                 "levels": [
                     {
                         "instanceId": inst["id"],
@@ -2849,9 +2919,47 @@ async def get_wsi_metadata(study_id: str, user: User = Depends(require_user)):
                         "height": inst["height"],
                         "numberOfFrames": inst["numberOfFrames"]
                     }
-                    for inst in wsi_instances
-                ]
+                    for inst in main_instances
+                ],
             }
+            
+            # Add focal planes if z-stacks exist
+            if focal_plane_series:
+                response["focalPlanes"] = []
+                for idx, fp in enumerate(focal_plane_series):
+                    fp_levels = [
+                        {
+                            "instanceId": inst["id"],
+                            "width": inst["width"],
+                            "height": inst["height"],
+                            "numberOfFrames": inst["numberOfFrames"]
+                        }
+                        for inst in fp["instances"]
+                    ]
+                    response["focalPlanes"].append({
+                        "index": idx,
+                        "seriesUID": fp["seriesUID"],
+                        "instanceId": fp["instances"][0]["id"] if fp["instances"] else None,
+                        "levels": fp_levels
+                    })
+                logger.info(f"📸 Study {study_id} has {len(focal_plane_series)} z-stack focal planes")
+            
+            # Add label and macro if present
+            if label_instance:
+                response["labelInstance"] = {
+                    "instanceId": label_instance["id"],
+                    "width": label_instance["width"],
+                    "height": label_instance["height"]
+                }
+            
+            if macro_instance:
+                response["macroInstance"] = {
+                    "instanceId": macro_instance["id"],
+                    "width": macro_instance["width"],
+                    "height": macro_instance["height"]
+                }
+            
+            return response
             
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Orthanc error: {str(e)}")

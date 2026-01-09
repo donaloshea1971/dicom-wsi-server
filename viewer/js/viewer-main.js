@@ -16,6 +16,11 @@ var activeViewer = 1; // 1 or 2
 var compareSlideName1 = '';
 var compareSlideName2 = '';
 
+// Focal plane / Z-stack state
+var focalPlanes = null;  // Array of focal plane data from server
+var currentFocalPlane = 0;  // Current focal plane index (0 = main/best-focus)
+var mainPyramidLevels = null;  // Main pyramid instance IDs per level
+
 // Internal compare-mode wiring state (avoid duplicated handlers / stale listeners)
 var _syncNavigationHandlers = null;
 var _compareFocusHandlers = {
@@ -160,6 +165,9 @@ async function loadStudy(studyId) {
     currentStudy = studyId;
     closeMetadataModal();
     
+    // Clear focal plane state when switching images
+    clearFocalPlaneState();
+    
     if (annotationManager) {
         annotationManager.destroy();
         annotationManager = null;
@@ -215,6 +223,21 @@ async function loadStudy(studyId) {
             }
         } else {
             pyramid = await pyramidResponse.json();
+        }
+        
+        // Check for z-stack focal planes via new metadata endpoint
+        try {
+            const wsiMetaResponse = await authFetch(`/api/studies/${studyId}/wsi-metadata`);
+            if (wsiMetaResponse.ok) {
+                const wsiMeta = await wsiMetaResponse.json();
+                if (wsiMeta.focalPlanes && wsiMeta.focalPlanes.length > 0) {
+                    mainPyramidLevels = wsiMeta.levels;
+                    setupFocalPlaneUI(wsiMeta.focalPlanes);
+                    console.log(`📸 Study has ${wsiMeta.focalPlanes.length} z-stack focal planes`);
+                }
+            }
+        } catch (fpErr) {
+            console.warn('Focal plane check failed:', fpErr.message);
         }
 
         if (viewer) viewer.destroy();
@@ -289,6 +312,9 @@ async function loadStudy(studyId) {
                 this.minLevel = 0;
                 this.maxLevel = this.wsiLevels.length - 1;
                 this.ready = true;
+                // Focal plane support - stores instance IDs per pyramid level
+                this.focalPlaneLevels = options.focalPlaneLevels || null;
+                this.currentFocalPlaneLevels = null;  // Active focal plane levels (null = main pyramid)
             };
             OpenSeadragon.WsiTileSource.prototype = Object.create(OpenSeadragon.TileSource.prototype);
             OpenSeadragon.WsiTileSource.prototype.constructor = OpenSeadragon.WsiTileSource;
@@ -299,6 +325,17 @@ async function loadStudy(studyId) {
             OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
                 const wsi = this.wsiLevels[level];
                 if (!wsi || x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) return null;
+                
+                // Check if we have focal plane instance IDs to use
+                if (this.currentFocalPlaneLevels && this.currentFocalPlaneLevels[level]) {
+                    // Use focal plane instance ID
+                    const fpLevel = this.currentFocalPlaneLevels[level];
+                    const instanceId = fpLevel.instanceId;
+                    // Calculate frame number from x,y coordinates
+                    const frameNumber = y * Math.ceil(fpLevel.width / wsi.tileWidth) + x;
+                    return `/api/instances/${instanceId}/frames/${frameNumber}?_=${this.sessionId}_fp`;
+                }
+                
                 if (this.pyramid?.IsVirtualPyramid && this.pyramid.Type === 'LeicaMultiFile') {
                     const instanceId = this.pyramid.InstanceIDs[wsi.wsiIndex];
                     const left = x * wsi.tileWidth;
@@ -311,7 +348,8 @@ async function loadStudy(studyId) {
         
         const wsiTileSource = new OpenSeadragon.WsiTileSource({
             width: pyramid.TotalWidth, height: pyramid.TotalHeight, sessionId: Date.now(),
-            wsiSeriesId: seriesId, wsiLevels: wsiLevels, pyramid: pyramid
+            wsiSeriesId: seriesId, wsiLevels: wsiLevels, pyramid: pyramid,
+            focalPlaneLevels: mainPyramidLevels  // Pass focal plane levels if available
         });
 
         let tileAuthHeaders = {};
@@ -1132,6 +1170,116 @@ function updateFocusUI() {
     if (smoothingValue) smoothingValue.textContent = colorCorrection.focusParams.smoothing.toFixed(1);
     if (opacityValue) opacityValue.textContent = colorCorrection.focusParams.opacity.toFixed(2);
     if (thresholdValue) thresholdValue.textContent = colorCorrection.focusParams.threshold.toFixed(2);
+}
+
+// =========================================================================
+// Focal Plane / Z-Stack Functions
+// =========================================================================
+
+/**
+ * Setup focal plane UI based on available z-stacks
+ */
+function setupFocalPlaneUI(focalPlaneData) {
+    focalPlanes = focalPlaneData;
+    currentFocalPlane = 0;
+    
+    const control = document.getElementById('focal-plane-control');
+    const divider = document.getElementById('focal-plane-divider');
+    const slider = document.getElementById('focal-plane-slider');
+    const label = document.getElementById('focal-plane-label');
+    
+    if (!focalPlaneData || focalPlaneData.length === 0) {
+        // No z-stacks - hide the control
+        if (control) control.style.display = 'none';
+        if (divider) divider.style.display = 'none';
+        focalPlanes = null;
+        return;
+    }
+    
+    // Show focal plane control
+    if (control) control.style.display = 'flex';
+    if (divider) divider.style.display = 'block';
+    
+    // Configure slider: 0 = main (best focus), 1+ = focal planes
+    const maxPlane = focalPlaneData.length;  // 0=main, 1..n=focal planes
+    if (slider) {
+        slider.min = 0;
+        slider.max = maxPlane;
+        slider.value = 0;
+    }
+    if (label) {
+        label.textContent = `Best Focus`;
+    }
+    
+    console.log(`📸 Z-Stack: ${focalPlaneData.length} focal planes available`);
+}
+
+/**
+ * Set the current focal plane and reload tiles
+ */
+function setFocalPlane(planeIndex) {
+    if (!focalPlanes || planeIndex < 0) return;
+    
+    const maxPlane = focalPlanes.length;
+    if (planeIndex > maxPlane) planeIndex = maxPlane;
+    
+    currentFocalPlane = planeIndex;
+    
+    // Update label
+    const label = document.getElementById('focal-plane-label');
+    if (label) {
+        if (planeIndex === 0) {
+            label.textContent = 'Best Focus';
+        } else {
+            label.textContent = `Plane ${planeIndex}/${maxPlane}`;
+        }
+    }
+    
+    // Get the appropriate pyramid levels for this focal plane
+    let targetLevels = null;
+    if (planeIndex === 0) {
+        // Main pyramid (best focus / EDOF) - use null to indicate default
+        targetLevels = null;
+    } else {
+        const fpData = focalPlanes[planeIndex - 1];
+        if (fpData && fpData.levels) {
+            targetLevels = fpData.levels;
+        } else {
+            console.warn(`Focal plane ${planeIndex} has no level data`);
+            return;
+        }
+    }
+    
+    // Update the tile source's focal plane levels and force redraw
+    if (viewer && viewer.world.getItemCount() > 0) {
+        const tiledImage = viewer.world.getItemAt(0);
+        const tileSource = tiledImage.source;
+        
+        if (tileSource) {
+            tileSource.currentFocalPlaneLevels = targetLevels;
+            
+            // Force reload of all tiles by resetting the cache
+            // This clears and redraws all tiles with the new focal plane
+            tiledImage.reset();
+            
+            console.log(`📸 Switched to focal plane ${planeIndex}:`, 
+                targetLevels ? targetLevels[0]?.instanceId?.substring(0, 8) : 'main (best focus)');
+        }
+    }
+}
+
+/**
+ * Clear focal plane state (when changing studies)
+ */
+function clearFocalPlaneState() {
+    focalPlanes = null;
+    currentFocalPlane = 0;
+    mainPyramidLevels = null;
+    
+    const control = document.getElementById('focal-plane-control');
+    const divider = document.getElementById('focal-plane-divider');
+    if (control) control.style.display = 'none';
+    if (divider) divider.style.display = 'none';
 }
 
 /**
