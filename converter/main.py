@@ -3485,8 +3485,8 @@ async def complete_dicom_chunked_upload(
         upload["message"] = "Sending to DICOM server..."
         upload["progress"] = 90
         
-        # Stream the file in chunks to Orthanc
-        def file_stream():
+        # Stream the file in chunks to Orthanc using async generator
+        async def file_stream():
             with open(temp_dicom, "rb") as f:
                 while True:
                     chunk = f.read(8 * 1024 * 1024)  # 8MB chunks
