@@ -21,7 +21,147 @@
     downsample: 2,
     maskColor: '#00d4aa',
     maskAlpha: 0.35,
+    useWebGL: true,     // Try WebGL for threshold step
   };
+
+  // WebGL threshold shader
+  let webglCtx = null;
+  let webglProgram = null;
+  let webglTexture = null;
+
+  function initWebGL() {
+    if (webglCtx) return webglCtx;
+    
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) {
+      console.log('[StainSeg] WebGL not available, using CPU fallback');
+      return null;
+    }
+
+    const vsSource = `
+      attribute vec2 a_position;
+      attribute vec2 a_texCoord;
+      varying vec2 v_texCoord;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+        v_texCoord = a_texCoord;
+      }
+    `;
+
+    const fsSource = `
+      precision mediump float;
+      uniform sampler2D u_image;
+      uniform float u_threshold;
+      varying vec2 v_texCoord;
+      void main() {
+        vec4 c = texture2D(u_image, v_texCoord);
+        float lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+        float mask = step(u_threshold, lum);
+        gl_FragColor = vec4(mask, mask, mask, 1.0);
+      }
+    `;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSource);
+    gl.compileShader(vs);
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+      console.warn('[StainSeg] VS compile error:', gl.getShaderInfoLog(vs));
+      return null;
+    }
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSource);
+    gl.compileShader(fs);
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+      console.warn('[StainSeg] FS compile error:', gl.getShaderInfoLog(fs));
+      return null;
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.warn('[StainSeg] Program link error:', gl.getProgramInfoLog(program));
+      return null;
+    }
+
+    webglProgram = program;
+    webglCtx = { gl, canvas, program };
+    console.log('[StainSeg] WebGL threshold shader initialized');
+    return webglCtx;
+  }
+
+  function thresholdWebGL(imageData, threshold01, w, h) {
+    const ctx = initWebGL();
+    if (!ctx) return null;
+    
+    const { gl, canvas, program } = ctx;
+    canvas.width = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+
+    gl.useProgram(program);
+
+    // Setup geometry
+    const posBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,  1, -1,  -1, 1,
+      -1, 1,   1, -1,   1, 1,
+    ]), gl.STATIC_DRAW);
+    const posLoc = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const texCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      0, 0,  1, 0,  0, 1,
+      0, 1,  1, 0,  1, 1,
+    ]), gl.STATIC_DRAW);
+    const texCoordLoc = gl.getAttribLocation(program, 'a_texCoord');
+    gl.enableVertexAttribArray(texCoordLoc);
+    gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 0, 0);
+
+    // Upload texture
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, imageData.data);
+
+    // Set uniform
+    gl.uniform1f(gl.getUniformLocation(program, 'u_threshold'), threshold01);
+
+    // Draw
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    // Read back
+    const pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    // Convert to binary array (flipped Y)
+    const out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const srcY = h - 1 - y;  // Flip Y
+        const srcIdx = (srcY * w + x) * 4;
+        const dstIdx = y * w + x;
+        out[dstIdx] = pixels[srcIdx] > 127 ? 1 : 0;
+      }
+    }
+
+    // Cleanup
+    gl.deleteTexture(texture);
+    gl.deleteBuffer(posBuffer);
+    gl.deleteBuffer(texCoordBuffer);
+
+    return out;
+  }
 
   const controllers = new Map(); // key -> { viewer, state }
 
@@ -306,7 +446,15 @@
       const cap = captureViewportImageData(viewer, key, state);
       const { imageData, analyzedW, analyzedH, overlayW, overlayH } = cap;
 
-      const bin = thresholdToBinary(imageData, state.threshold);
+      // Try WebGL threshold first, fall back to CPU
+      let bin = null;
+      if (DEFAULTS.useWebGL) {
+        bin = thresholdWebGL(imageData, state.threshold, analyzedW, analyzedH);
+      }
+      if (!bin) {
+        bin = thresholdToBinary(imageData, state.threshold);
+      }
+      
       const { out, blobs, total } = connectedComponentsFilter(bin, analyzedW, analyzedH, state.minArea, state.maxArea);
 
       renderBinaryToOverlay(viewer, key, out, analyzedW, analyzedH, overlayW, overlayH, DEFAULTS.maskColor, DEFAULTS.maskAlpha);
@@ -405,7 +553,12 @@
 
   function toggleEnabled() {
     const entry = getPrimaryController();
-    if (!entry) return;
+    if (!entry) {
+      console.warn('[StainSeg] No viewer attached - load a slide first');
+      setError('Load a slide first');
+      return;
+    }
+    console.log('[StainSeg] Toggle enabled:', !entry.state.enabled);
     setEnabled(!entry.state.enabled);
   }
 
