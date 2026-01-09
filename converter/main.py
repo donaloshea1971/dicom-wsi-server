@@ -201,11 +201,39 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
 
 def preprocess_for_conversion(file_path: Path, output_dir: Path, job=None) -> Path:
     """
-    Pre-process a WSI file if it uses unsupported compression.
+    Pre-process a WSI file if it uses unsupported compression or obfuscation.
     Returns the path to use for conversion (may be original or converted file).
     """
-    # Only check TIFF-based formats
     ext = file_path.suffix.lower()
+    
+    # Handle 3DHISTECH DCX files (obfuscated tiles)
+    if ext == '.dcx':
+        if job:
+            job.message = "Deobfuscating DCX file..."
+            job.progress = 20
+        
+        logger.info(f"Processing DCX file: {file_path.name}")
+        
+        try:
+            from dcx_handler import convert_dcx_streaming
+            
+            output_path = output_dir / f"{file_path.stem}_decoded.tiff"
+            
+            def progress_cb(progress, message):
+                if job:
+                    # Map DCX progress (0-100) to job progress (20-50)
+                    job.progress = 20 + int(progress * 0.3)
+                    job.message = message
+            
+            convert_dcx_streaming(file_path, output_path, progress_cb)
+            logger.info(f"DCX deobfuscation complete: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"DCX deobfuscation failed: {e}")
+            raise Exception(f"DCX file deobfuscation failed: {e}")
+    
+    # Only check TIFF-based formats for compression issues
     if ext not in ['.tiff', '.tif', '.svs', '.scn', '.bif']:
         return file_path
     
