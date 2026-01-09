@@ -1389,10 +1389,10 @@ function runWatershed() {
         const h = maskCanvas.height;
         const imgData = ctx.getImageData(0, 0, w, h);
         
-        // Convert to binary (check alpha > 0)
+        // Convert to binary (check alpha > 0, mask uses alpha ~89 at 35% opacity)
         const binaryMask = new Uint8Array(w * h);
         for (let i = 0; i < w * h; i++) {
-            binaryMask[i] = imgData.data[i * 4 + 3] > 127 ? 1 : 0;
+            binaryMask[i] = imgData.data[i * 4 + 3] > 10 ? 1 : 0;
         }
         
         // Check if mask has any content
