@@ -641,10 +641,9 @@
 
       const inputName = (sess.inputNames && sess.inputNames[0]) ? sess.inputNames[0] : 'input';
       const ort = window.ort;
-      const inMeta = (sess.inputMetadata && sess.inputMetadata[inputName]) ? sess.inputMetadata[inputName] : null;
-      const inDims = (inMeta && Array.isArray(inMeta.dimensions)) ? inMeta.dimensions : null;
-      const modelExpectsNHWC = (inDims && inDims.length === 4 && (inDims[3] === 3 || inDims[3] === '3')) ||
-                               (!inDims && false);
+      // StarDist 2D models expect NHWC format [batch, height, width, channels]
+      // ORT-Web doesn't reliably expose inputMetadata, so we default to NHWC for StarDist
+      const modelExpectsNHWC = true;
 
       const inputData = modelExpectsNHWC
         ? rgbaToHWCFloat(cap.imageData, cap.inputW, cap.inputH)
