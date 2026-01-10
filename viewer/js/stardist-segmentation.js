@@ -18,9 +18,9 @@
   // ========= Config defaults =========
   const ORT_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/ort.min.js';
 
-  // Placeholder default. Replace via UI (or window.StarDistSegmentation.setModelUrl()).
-  // Hugging Face pattern: https://huggingface.co/<org>/<repo>/resolve/main/<file>.onnx
-  const DEFAULT_MODEL_URL = '';
+  // Default to local model served by nginx (deployed via viewer/Dockerfile)
+  // Fallback: Hugging Face pattern: https://huggingface.co/<org>/<repo>/resolve/main/<file>.onnx
+  const DEFAULT_MODEL_URL = '/models/stardist_2D_versatile_he_256.onnx';
 
   const DEFAULTS = {
     enabled: false,
