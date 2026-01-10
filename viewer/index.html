@@ -145,6 +145,7 @@
             <div class="badge-group" id="analysis-group" style="display:none;">
                 <div class="status-badge" id="analysis-badge" style="cursor:pointer;" onclick="openAnalysisPanel()" title="Stain deconvolution & segmentation">🔬</div>
                 <div class="status-badge" id="segment-badge" style="cursor:pointer;" onclick="toggleSegmentation()" title="AI segmentation">✂️</div>
+                <div class="status-badge" id="stardist-badge" style="display:none; cursor:pointer;" onclick="toggleStarDist()" title="Nuclei AI">🧬</div>
             </div>
             <div class="status-badge" id="help-badge" style="cursor:pointer;" onclick="toggleKeyboardHelp()" title="Keyboard shortcuts (?)">?</div>
             <div class="status-badge debug-only" id="viewer-version" style="display:none;">v1.1.0</div>
@@ -190,6 +191,61 @@
                 </div>
                 <div id="segment-stats" class="segment-stats" style="font-size: 10px; color: var(--text-secondary);"></div>
                 <div id="segment-error" class="segment-error"></div>
+            </div>
+        </div>
+
+        <!-- StarDist Nuclei Panel -->
+        <div id="stardist-panel" class="segment-panel">
+            <div class="segment-panel-header">
+                <div class="segment-panel-title">🧬 Nuclei AI (StarDist)</div>
+                <div class="segment-panel-actions">
+                    <button id="stardist-run-btn" class="btn btn-secondary" type="button" title="Run now">Run</button>
+                    <button id="stardist-clear-btn" class="btn btn-secondary" type="button" title="Clear overlay">Clear</button>
+                    <button id="stardist-hide-btn" class="btn btn-primary" type="button" title="Disable">Done</button>
+                </div>
+            </div>
+            <div class="segment-panel-body">
+                <div id="stardist-status" style="padding: 10px; margin-bottom: 12px; border-radius: 6px; background: var(--bg-tertiary); font-size: 12px;">
+                    <div id="stardist-status-icon" style="display: inline-block; margin-right: 8px;">⏸️</div>
+                    <span id="stardist-status-text">Click 🧬 badge to enable</span>
+                    <div id="stardist-progress" style="display: none; margin-top: 8px;">
+                        <div style="height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;">
+                            <div id="stardist-progress-bar" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 10px; font-size: 11px; color: var(--text-secondary);">
+                    Tip: for IHC positivity, set stain type to <strong>H-DAB</strong> and view to <strong>DAB</strong>, then tune the threshold.
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                        MODEL URL (HF resolve to .onnx)
+                    </label>
+                    <input id="stardist-model-url" type="text" placeholder="https://huggingface.co/<org>/<repo>/resolve/main/model.onnx"
+                           style="width: 100%; padding: 8px 10px; font-size: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary);">
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                            PROB THRESH: <span id="stardist-prob-threshold-value">0.45</span>
+                        </label>
+                        <input type="range" id="stardist-prob-threshold" min="0" max="1" step="0.01" value="0.45"
+                               style="width: 100%;">
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 10px;">
+                            POS IF DARKER THAN: <span id="stardist-pos-threshold-value">0.55</span>
+                        </label>
+                        <input type="range" id="stardist-pos-threshold" min="0" max="1" step="0.01" value="0.55"
+                               style="width: 100%;">
+                    </div>
+                </div>
+
+                <div id="stardist-stats" style="margin-top: 10px; font-size: 10px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;"></div>
+                <div id="stardist-error" style="margin-top: 6px; font-size: 11px; color: var(--danger); white-space: pre-wrap;"></div>
             </div>
         </div>
 
@@ -736,6 +792,7 @@
     <script src="annotations.js?v=1.2.0"></script>
     <script src="space-navigator.js?v=1.20.3"></script>
     <script src="js/sam-segmentation.js?v=0.9.0"></script>
+    <script src="js/stardist-segmentation.js?v=0.1.0"></script>
     <script src="js/stain-segmentation.js?v=0.8.0"></script>
     <script src="js/watershed-segmentation.js?v=1.0.1"></script>
     

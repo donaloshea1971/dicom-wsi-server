@@ -414,6 +414,15 @@ async function loadStudy(studyId) {
                 console.warn('SAM attach failed:', e);
             }
 
+            // Nuclei AI (StarDist) - attach to this viewer instance
+            try {
+                if (window.StarDistSegmentation && typeof window.StarDistSegmentation.attachToViewer === 'function') {
+                    window.StarDistSegmentation.attachToViewer(viewer, { key: 'v1' });
+                }
+            } catch (e) {
+                console.warn('StarDist attach failed:', e);
+            }
+
             // Classic segmentation (threshold + blob size) - optional, used from Analysis panel
             try {
                 console.log('[viewer-main] About to attach StainSegmentation, window.StainSegmentation:', !!window.StainSegmentation);
@@ -680,6 +689,15 @@ async function loadStudyInViewer2(studyId, slideName) {
                 }
             } catch (e) {
                 console.warn('SAM attach failed (viewer2):', e);
+            }
+
+            // Nuclei AI (StarDist) - attach to viewer2 when it opens (compare mode)
+            try {
+                if (window.StarDistSegmentation && typeof window.StarDistSegmentation.attachToViewer === 'function') {
+                    window.StarDistSegmentation.attachToViewer(viewer2, { key: 'v2' });
+                }
+            } catch (e) {
+                console.warn('StarDist attach failed (viewer2):', e);
             }
         });
         
