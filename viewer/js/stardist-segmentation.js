@@ -88,8 +88,10 @@
 
   function showPanel(show) {
     const p = getPanelEl();
+    console.log('[StarDist] showPanel:', show, 'panel found:', !!p, 'panel id:', p?.id);
     if (!p) return;
     p.classList.toggle('active', !!show);
+    console.log('[StarDist] panel classList after toggle:', p.classList.toString());
   }
 
   function setBadgeActive(active) {
@@ -793,6 +795,7 @@
 
   function setEnabled(enabled) {
     const on = !!enabled;
+    console.log('[StarDist] setEnabled called with:', enabled, '-> on:', on);
     setBadgeActive(on);
     showPanel(on);
     setError('');
@@ -834,6 +837,7 @@
       return;
     }
     const any = Array.from(controllers.values()).some(x => x.state.enabled);
+    console.log('[StarDist] toggle: any enabled =', any, '-> will set to', !any);
     setEnabled(!any);
   }
 
