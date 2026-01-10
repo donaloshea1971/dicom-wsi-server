@@ -129,6 +129,12 @@ services:
       - SMTP_FROM=${SMTP_FROM:-noreply@pathviewpro.com}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME:-PathView Pro}
       - APP_URL=${APP_URL:-https://pathviewpro.com}
+      # Auth bypass (dev/test only - disabled by default)
+      - AUTH_BYPASS_ENABLED=${AUTH_BYPASS_ENABLED:-false}
+      - AUTH_BYPASS_SECRET=${AUTH_BYPASS_SECRET:-}
+      - AUTH_BYPASS_ALLOWLIST=${AUTH_BYPASS_ALLOWLIST:-127.0.0.1,::1,localhost}
+      - AUTH_BYPASS_EMAIL=${AUTH_BYPASS_EMAIL:-evaluator@local}
+      - AUTH_BYPASS_ROLE=${AUTH_BYPASS_ROLE:-user}
     depends_on:
       orthanc:
         condition: service_healthy
