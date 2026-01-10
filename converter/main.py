@@ -1583,7 +1583,8 @@ async def convert_wsi_to_dicom(job_id: str, file_path: Path):
                 recoverable_errors = [
                     'compression', 'unsupported', 'decode',  # Compression issues
                     'levels needs to be integer', 'tolerance',  # Pyramid level issues
-                    'cannot read', 'failed to read', 'openslide'  # Read issues
+                    'cannot read', 'failed to read', 'openslide',  # Read issues
+                    "'h' format", 'struct.error', '65535'  # opentile JPEG encoding limits (tiles > 65535 px)
                 ]
                 is_recoverable = any(err in error_msg for err in recoverable_errors)
                 
