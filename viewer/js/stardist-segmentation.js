@@ -563,15 +563,25 @@
     return { probT, distT };
   }
 
-  function renderPolys(viewer, key, state, polys, cap) {
+  function renderPolys(viewer, key, state, polys, cap, dims) {
     const overlay = ensureOverlayCanvas(viewer, key);
     if (!overlay) return;
     resizeOverlayToViewer(viewer, overlay);
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-    const sx = overlay.width / cap.inputW;
-    const sy = overlay.height / cap.inputH;
+    const outW = (dims && dims.W) || cap.inputW;
+    const outH = (dims && dims.H) || cap.inputH;
+    const strideX = outW > 0 ? cap.inputW / outW : 0;
+    const strideY = outH > 0 ? cap.inputH / outH : 0;
+    if (!isFinite(strideX) || !isFinite(strideY) || strideX <= 0 || strideY <= 0) {
+      setError('StarDist: invalid output stride (check model outputs)');
+      return;
+    }
+
+    // Map input-sized coords to overlay
+    const overlayScaleX = overlay.width / cap.inputW;
+    const overlayScaleY = overlay.height / cap.inputH;
 
     ctx.lineWidth = state.strokeWidth;
     ctx.globalAlpha = clamp(state.alpha, 0.05, 1.0);
@@ -583,10 +593,12 @@
     const posThresh = clamp(parseFloat(state.positiveIfDarkerThan), 0, 1);
 
     for (const poly of polys) {
-      const verts = poly.verts;
+      const verts = poly.verts || [];
+      // Scale polygon from output grid to captured input grid for both drawing and luminance
+      const vertsInput = verts.map(v => ({ x: v.x * strideX, y: v.y * strideY }));
       let isPos = false;
       if (posEnabled) {
-        const lum = meanLuminanceInPoly(cap.imageData, cap.inputW, cap.inputH, verts, 2);
+        const lum = meanLuminanceInPoly(cap.imageData, cap.inputW, cap.inputH, vertsInput, 2);
         // For DAB-like views: stained nuclei tend to be darker.
         isPos = lum < posThresh;
       }
@@ -598,9 +610,9 @@
       }
 
       ctx.beginPath();
-      for (let i = 0; i < verts.length; i++) {
-        const vx = verts[i].x * sx;
-        const vy = verts[i].y * sy;
+      for (let i = 0; i < vertsInput.length; i++) {
+        const vx = vertsInput[i].x * overlayScaleX;
+        const vy = vertsInput[i].y * overlayScaleY;
         if (i === 0) ctx.moveTo(vx, vy);
         else ctx.lineTo(vx, vy);
       }
@@ -695,17 +707,27 @@
         const nRays = distT.dims[3];
         console.log('[StarDist] Output spatial dims:', H, 'x', W, ', rays:', nRays);
 
+        if (!isFinite(H) || !isFinite(W) || H <= 0 || W <= 0) {
+          throw new Error('StarDist: invalid output dimensions');
+        }
+
         const hw = H * W;
 
         // prob -> [H*W] from NHWC [1,H,W,1]
         const prob = new Float32Array(hw);
         const probData = probT.data;
+        if (!probData || probData.length < hw) {
+          throw new Error(`StarDist: prob tensor size mismatch (expected ${hw}, got ${probData ? probData.length : 0})`);
+        }
         for (let i = 0; i < hw; i++) prob[i] = probData[i];
 
         // dist -> ray-major [nRays, H, W] from NHWC [1,H,W,nRays]
         const distRayMajor = new Float32Array(nRays * hw);
         const distData = distT.data;
         // [1,H,W,nRays] => transpose to ray-major [nRays,H,W]
+        if (!distData || distData.length < nRays * hw) {
+          throw new Error(`StarDist: dist tensor size mismatch (expected ${nRays * hw}, got ${distData ? distData.length : 0})`);
+        }
         for (let y = 0; y < H; y++) {
           for (let x = 0; x < W; x++) {
             const base = ((y * W + x) * nRays);
@@ -745,8 +767,8 @@
           type: 'postprocess',
           prob: probCopy,
           dist: distCopy,
-          w: cap.inputW,
-          h: cap.inputH,
+          w: extracted.W,
+          h: extracted.H,
           nRays: extracted.nRays,
           probThreshold: clamp(parseFloat(state.probThreshold), 0, 1),
           nmsDistPx: Math.max(1, parseInt(state.nmsDistPx, 10) || 8),
@@ -756,7 +778,7 @@
 
       if (runId !== state._runSeq) return; // stale
 
-      renderPolys(viewer, key, state, postRes, cap);
+      renderPolys(viewer, key, state, postRes, cap, { W: extracted.W, H: extracted.H });
       const ms = Math.round(safeNow() - t0);
       updateStatus('✅', `Done (${ms}ms)`, false);
       state._lastResult = { ms, count: postRes.length, ts: Date.now() };
