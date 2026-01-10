@@ -816,11 +816,21 @@
   }
 
   function toggleEnabled() {
+    console.log('[StarDist] toggleEnabled called, controllers:', controllers.size);
+    
+    // Auto-attach if no controllers but viewer exists
+    if (controllers.size === 0 && window.viewer) {
+      console.log('[StarDist] Auto-attaching to window.viewer in toggle');
+      attachToViewer(window.viewer, { key: 'v1' });
+    }
+    
     if (controllers.size === 0) {
+      // No viewer - just show panel anyway for status
       const b = getBadgeEl();
       const isActive = b && b.classList.contains('active');
       setBadgeActive(!isActive);
       showPanel(!isActive);
+      if (!isActive) setError('No viewer - load a slide first');
       return;
     }
     const any = Array.from(controllers.values()).some(x => x.state.enabled);

@@ -450,8 +450,10 @@ async function loadStudy(studyId) {
 
             // Nuclei AI (StarDist) - attach to this viewer instance
             try {
+                console.log('[viewer-main] StarDist check:', !!window.StarDistSegmentation, typeof window.StarDistSegmentation?.attachToViewer);
                 if (window.StarDistSegmentation && typeof window.StarDistSegmentation.attachToViewer === 'function') {
                     window.StarDistSegmentation.attachToViewer(viewer, { key: 'v1' });
+                    console.log('[viewer-main] StarDist attached to viewer1');
                 }
             } catch (e) {
                 console.warn('StarDist attach failed:', e);
