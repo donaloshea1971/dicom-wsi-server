@@ -293,8 +293,10 @@
 
     let sess;
     // Prefer bytes-based load for clearer errors; if ORT build doesn't accept bytes, fall back to URL.
+    // Add cache-busting param to avoid stale browser cache (especially after initial 404/HTML responses)
+    const bustUrl = modelUrl + (modelUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now();
     try {
-      const bytes = await fetchModelBytes(modelUrl);
+      const bytes = await fetchModelBytes(bustUrl);
       sess = await ort.InferenceSession.create(bytes, {
         executionProviders: ['webgl', 'wasm'],
         graphOptimizationLevel: 'all',
