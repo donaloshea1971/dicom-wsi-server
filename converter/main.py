@@ -171,19 +171,29 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
     # Use 'random' access for better compatibility with pyramid generation
     image = pyvips.Image.new_from_file(str(source_path), access='random')
     
-    logger.info(f"Loaded image: {image.width}x{image.height}, {image.bands} bands")
+    logger.info(f"Loaded image: {image.width}x{image.height}, {image.bands} bands, interpretation={image.interpretation}")
+    
+    # Ensure image is in sRGB color space (fixes color issues from various source formats)
+    # This handles CMYK, LAB, or other color spaces that might come from source TIFFs
+    if image.interpretation != 'srgb':
+        try:
+            image = image.colourspace('srgb')
+            logger.info(f"Converted to sRGB, now {image.bands} bands")
+        except Exception as e:
+            logger.warning(f"Could not convert to sRGB: {e}")
     
     # Ensure image is in a format compatible with JPEG (RGB, no alpha)
     if image.bands == 4:
         # Remove alpha channel
         image = image.flatten(background=[255, 255, 255])
+        logger.info("Flattened 4-band to 3-band RGB")
     elif image.bands == 1:
         # Convert grayscale to RGB
         image = image.colourspace('srgb')
+        logger.info("Converted grayscale to sRGB")
     
     # Save as pyramid TIFF with JPEG compression
-    # depth='one' means only store the largest image, let OpenSlide generate pyramid
-    # This avoids the non-integer level issue
+    # Use RGB photometric interpretation (not YCbCr) for compatibility
     image.tiffsave(
         str(output_path),
         tile=True,
@@ -192,7 +202,8 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
         pyramid=False,  # Don't create pyramid - let wsidicomizer do it with add_missing_levels
         compression='jpeg',
         Q=90,
-        bigtiff=True  # Support files > 4GB
+        bigtiff=True,  # Support files > 4GB
+        rgbjpeg=True   # Use RGB JPEG (not YCbCr) for better color fidelity
     )
     
     logger.info(f"Created JPEG-compressed TIFF: {output_path}")
