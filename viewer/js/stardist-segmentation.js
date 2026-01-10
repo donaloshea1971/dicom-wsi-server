@@ -659,7 +659,8 @@
       // Extract prob + dist into a normalized layout for worker:
       // - prob: Float32Array [H*W] row-major
       // - distRayMajor: Float32Array [nRays*H*W] where each ray is a plane
-      const extracted = (function extract(outputsMap, H, W) {
+      // Note: StarDist outputs are typically downsampled 2x from input (256->128)
+      const extracted = (function extract(outputsMap, inputH, inputW) {
         const outs = outputsMap || {};
         const tensors = Object.keys(outs).map(k => ({ name: k, t: outs[k] }));
 
@@ -669,80 +670,42 @@
           dims: t?.dims,
           size: t?.data?.length
         })));
-        console.log('[StarDist] Expected spatial dims:', H, 'x', W);
 
-        // Find candidates with spatial dims matching (allow some flex for padding)
-        const spatial = tensors.filter(({ t }) => {
-          const d = t && t.dims;
-          if (!d || d.length < 3) return false;
-          // 4D: NCHW [1,C,H,W] or NHWC [1,H,W,C]
-          if (d.length === 4) {
-            if (d[2] === H && d[3] === W) return true;
-            if (d[1] === H && d[2] === W) return true;
-          }
-          // 3D: CHW [C,H,W] or HWC [H,W,C]
-          if (d.length === 3) {
-            if (d[1] === H && d[2] === W) return true;
-            if (d[0] === H && d[1] === W) return true;
-          }
-          return false;
-        });
-        console.log('[StarDist] Spatial candidates:', spatial.length);
-        if (spatial.length < 2) throw new Error('Unexpected model outputs (need prob + dist). Got: ' + 
-          tensors.map(({name, t}) => `${name}:${t?.dims?.join('x')}`).join(', '));
-
-        // Heuristic: prob has channel=1, dist has channel>1.
-        function getChannelCount(d) {
-          if (!d || d.length !== 4) return null;
-          // NCHW
-          if (d[2] === H && d[3] === W) return d[1];
-          // NHWC
-          if (d[1] === H && d[2] === W) return d[3];
-          return null;
-        }
-
+        // StarDist outputs NHWC format: [1, H, W, C]
+        // Find prob (C=1) and dist (C=32 typically) by checking last dimension
         let probT = null, distT = null;
-        for (const { t } of spatial) {
-          const c = getChannelCount(t.dims);
-          if (c === 1) probT = t;
-          else if (typeof c === 'number' && c > 1) distT = t;
+        for (const { name, t } of tensors) {
+          const d = t && t.dims;
+          if (!d || d.length !== 4) continue;
+          const channels = d[3]; // NHWC: last dim is channels
+          if (channels === 1) probT = t;
+          else if (channels > 1) distT = t;
         }
-        // Fallback: pick smallest C as prob, largest C as dist
-        if (!probT || !distT) {
-          const sorted = spatial.slice().sort((a, b) => (getChannelCount(a.t.dims) || 0) - (getChannelCount(b.t.dims) || 0));
-          probT = probT || sorted[0].t;
-          distT = distT || sorted[sorted.length - 1].t;
-        }
-        if (!probT || !distT) throw new Error('Could not identify prob/dist outputs.');
 
-        const probDims = probT.dims;
-        const distDims = distT.dims;
-        const probIsNCHW = (probDims[2] === H && probDims[3] === W);
-        const distIsNCHW = (distDims[2] === H && distDims[3] === W);
-        const nRays = distIsNCHW ? (distDims[1] | 0) : (distDims[3] | 0);
+        if (!probT || !distT) {
+          throw new Error('Unexpected model outputs (need prob + dist). Got: ' + 
+            tensors.map(({name, t}) => `${name}:${t?.dims?.join('x')}`).join(', '));
+        }
+
+        // Get actual output spatial dims from prob tensor (NHWC: [1, H, W, 1])
+        const H = probT.dims[1];
+        const W = probT.dims[2];
+        const nRays = distT.dims[3];
+        console.log('[StarDist] Output spatial dims:', H, 'x', W, ', rays:', nRays);
+
         const hw = H * W;
 
-        // prob -> [H*W]
+        // prob -> [H*W] from NHWC [1,H,W,1]
         const prob = new Float32Array(hw);
         const probData = probT.data;
-        if (probIsNCHW) {
-          // [1,1,H,W] flattened => direct copy
-          for (let i = 0; i < hw; i++) prob[i] = probData[i];
-        } else {
-          // [1,H,W,1]
-          for (let i = 0; i < hw; i++) prob[i] = probData[i];
-        }
+        for (let i = 0; i < hw; i++) prob[i] = probData[i];
 
-        // dist -> ray-major [nRays, H, W]
+        // dist -> ray-major [nRays, H, W] from NHWC [1,H,W,nRays]
         const distRayMajor = new Float32Array(nRays * hw);
         const distData = distT.data;
-        if (distIsNCHW) {
-          // [1,nRays,H,W] already ray-major planes
-          for (let i = 0; i < distRayMajor.length; i++) distRayMajor[i] = distData[i];
-        } else {
-          // [1,H,W,nRays] => transpose to ray-major
-          for (let y = 0; y < H; y++) {
-            for (let x = 0; x < W; x++) {
+        // [1,H,W,nRays] => transpose to ray-major [nRays,H,W]
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
               const base = ((y * W + x) * nRays);
               const idx = y * W + x;
               for (let r = 0; r < nRays; r++) {
