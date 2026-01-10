@@ -178,6 +178,11 @@ Anonymous link-based access (no login required).
 
 **Constraint:** Either `slide_id` OR `case_id` must be set, not both.
 
+**Public metadata contract (important):**
+
+- Public-link endpoints must **not** expose PHI/PII (patient name/DOB/MRN, accession numbers, etc.).
+- Public responses should be limited to **non-sensitive display fields** (e.g. link `title`, slide `display_name` if treated as non-PHI, optional `stain`, optional sharer `owner_name`) and **technical identifiers required to render** (e.g. Orthanc `study_id` and Orthanc series id for WSI tiles).
+
 ---
 
 ## Annotation Tables

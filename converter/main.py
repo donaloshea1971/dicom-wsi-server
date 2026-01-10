@@ -3908,7 +3908,9 @@ async def secure_dicomweb_proxy(path: str, request: Request, user: User = Depend
 # =============================================================================
 
 import secrets
+import time
 from datetime import datetime, timedelta
+from fastapi.responses import JSONResponse
 
 class PublicLinkCreate(BaseModel):
     """Request to create a public share link"""
@@ -3928,6 +3930,36 @@ class PublicLinkResponse(BaseModel):
     max_views: Optional[int]
     view_count: int
     created_at: str
+
+
+_PUBLIC_SERIES_CACHE_TTL_SECONDS = 300
+_public_series_cache: dict[str, tuple[float, str]] = {}  # token -> (expires_at_monotonic, orthanc_series_id)
+
+
+async def _resolve_public_orthanc_series_id(token: str, study_id: str) -> Optional[str]:
+    """
+    Resolve the Orthanc series ID for a public share token.
+
+    We cache by token because tile requests are extremely frequent.
+    """
+    now = time.monotonic()
+    cached = _public_series_cache.get(token)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    orthanc_series_id = None
+    try:
+        study_resp = await orthanc_client.get(f"/studies/{study_id}")
+        if study_resp.status_code == 200:
+            study_data = study_resp.json()
+            if study_data.get("Series"):
+                orthanc_series_id = study_data["Series"][0]
+    except Exception as e:
+        logger.warning(f"Failed to resolve Orthanc series for public token: {e}")
+
+    if orthanc_series_id:
+        _public_series_cache[token] = (now + _PUBLIC_SERIES_CACHE_TTL_SECONDS, orthanc_series_id)
+    return orthanc_series_id
 
 
 @app.post("/studies/{study_id}/public-link")
@@ -4070,7 +4102,7 @@ async def delete_public_link(study_id: str, link_id: int, user: User = Depends(r
 
 # Public access endpoint (NO AUTH REQUIRED)
 @app.get("/public/{token}")
-async def access_public_link(token: str, password: Optional[str] = None):
+async def access_public_link(token: str, request: Request, password: Optional[str] = None):
     """
     Access a publicly shared study - NO LOGIN REQUIRED.
     Returns study info and access token for tile loading.
@@ -4119,33 +4151,57 @@ async def access_public_link(token: str, password: Optional[str] = None):
             """, share["id"])
             
             # Get series info from Orthanc (needed for tile loading)
+            #
+            # IMPORTANT:
+            # - Orthanc WSI plugin endpoints `/wsi/pyramids/{series}` and `/wsi/tiles/{series}/...`
+            #   expect the *Orthanc series ID* (the value in `Study.Series[0]`), not a DICOM
+            #   SeriesInstanceUID. Returning the wrong identifier breaks public viewing.
             study_id = share["orthanc_study_id"]
-            series_id = None
-            try:
-                study_resp = await orthanc_client.get(f"/studies/{study_id}")
-                if study_resp.status_code == 200:
-                    study_data = study_resp.json()
-                    if study_data.get("Series"):
-                        # Get first series
-                        first_series = study_data["Series"][0]
-                        series_resp = await orthanc_client.get(f"/series/{first_series}")
-                        if series_resp.status_code == 200:
-                            series_data = series_resp.json()
-                            series_id = series_data.get("MainDicomTags", {}).get("SeriesInstanceUID") or first_series
-            except Exception as e:
-                logger.warning(f"Failed to get series info for public link: {e}")
+            orthanc_series_id = await _resolve_public_orthanc_series_id(token, study_id)
+            series_instance_uid = None
+            if orthanc_series_id:
+                # Optional: also return the DICOM SeriesInstanceUID for debugging/interop
+                try:
+                    series_resp = await orthanc_client.get(f"/series/{orthanc_series_id}")
+                    if series_resp.status_code == 200:
+                        series_data = series_resp.json()
+                        series_instance_uid = series_data.get("MainDicomTags", {}).get("SeriesInstanceUID")
+                except Exception:
+                    series_instance_uid = None
             
-            # Return study info including series
-            return {
+            # Public metadata contract:
+            # - Do NOT return patient/case PHI from internal records here.
+            # - Only return non-sensitive display fields + technical IDs required to render.
+            payload = {
                 "study_id": study_id,
-                "series_id": series_id,  # Include series ID for tile loading
+                # Orthanc series ID used for /wsi/pyramids and /wsi/tiles
+                "orthanc_series_id": orthanc_series_id,
+                # Back-compat: keep `series_id` but set it to Orthanc series ID
+                "series_id": orthanc_series_id,
+                # Optional debug/interop value
+                "series_instance_uid": series_instance_uid,
                 "display_name": share["display_name"] or share["title"] or "Shared Slide",
                 "stain": share["stain"],
                 "owner_name": share["owner_name"],
                 "permission": share["permission"],
-                "public_token": token,  # Used for tile access
-                "title": share["title"]
+                "public_token": token,
+                "title": share["title"],
             }
+
+            # If password-protected, set a same-origin cookie after successful verification.
+            # Tile/pyramid endpoints can require this cookie to prevent bypassing password via direct tile URLs.
+            resp = JSONResponse(content=payload)
+            if share["password_hash"]:
+                # cookie value doesn't need to be secret; the protection is the password check above.
+                # keep it scoped to this token to avoid collisions.
+                resp.set_cookie(
+                    key=f"pv_public_{token}",
+                    value="1",
+                    httponly=True,
+                    samesite="lax",
+                    secure=(request.url.scheme == "https"),
+                )
+            return resp
     except HTTPException:
         raise
     except Exception as e:
@@ -4155,7 +4211,7 @@ async def access_public_link(token: str, password: Optional[str] = None):
 
 # Public tile access (NO AUTH - uses token)
 @app.get("/public/{token}/tiles/{series_id}/{level}/{x}/{y}")
-async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int):
+async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int, request: Request):
     """Fetch a tile for a publicly shared study - no auth required"""
     try:
         # Validate token
@@ -4165,7 +4221,7 @@ async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int
         
         async with pool.acquire() as conn:
             share = await conn.fetchrow("""
-                SELECT ps.id, ps.expires_at, ps.max_views, ps.view_count, s.orthanc_study_id
+                SELECT ps.id, ps.expires_at, ps.max_views, ps.view_count, ps.password_hash, s.orthanc_study_id
                 FROM public_shares ps
                 JOIN slides s ON ps.slide_id = s.id
                 WHERE ps.token = $1
@@ -4178,8 +4234,18 @@ async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int
             if share["expires_at"] and share["expires_at"] < datetime.utcnow():
                 raise HTTPException(status_code=410, detail="Link expired")
             
-            if share["max_views"] and share["view_count"] > share["max_views"]:
+            if share["max_views"] and share["view_count"] >= share["max_views"]:
                 raise HTTPException(status_code=410, detail="View limit reached")
+
+            # Enforce password protection on tiles/pyramids too (avoid bypass by direct tile fetch)
+            if share["password_hash"]:
+                if request.cookies.get(f"pv_public_{token}") != "1":
+                    raise HTTPException(status_code=401, detail="Password required")
+
+            # Lock series_id to the one belonging to the shared study to prevent cross-series leakage
+            expected_series_id = await _resolve_public_orthanc_series_id(token, share["orthanc_study_id"])
+            if expected_series_id and series_id != expected_series_id:
+                raise HTTPException(status_code=404, detail="Not found")
         
         # Fetch tile from Orthanc
         async with httpx.AsyncClient() as client:
@@ -4207,7 +4273,7 @@ async def get_public_tile(token: str, series_id: str, level: int, x: int, y: int
 
 # Public pyramid metadata (NO AUTH - uses token)
 @app.get("/public/{token}/pyramid/{series_id}")
-async def get_public_pyramid(token: str, series_id: str):
+async def get_public_pyramid(token: str, series_id: str, request: Request):
     """Get pyramid metadata for a publicly shared study"""
     try:
         # Validate token
@@ -4217,13 +4283,21 @@ async def get_public_pyramid(token: str, series_id: str):
         
         async with pool.acquire() as conn:
             share = await conn.fetchrow("""
-                SELECT ps.id FROM public_shares ps
+                SELECT ps.id, ps.password_hash, s.orthanc_study_id FROM public_shares ps
                 JOIN slides s ON ps.slide_id = s.id
                 WHERE ps.token = $1
             """, token)
             
             if not share:
                 raise HTTPException(status_code=404, detail="Invalid token")
+
+            if share["password_hash"]:
+                if request.cookies.get(f"pv_public_{token}") != "1":
+                    raise HTTPException(status_code=401, detail="Password required")
+
+            expected_series_id = await _resolve_public_orthanc_series_id(token, share["orthanc_study_id"])
+            if expected_series_id and series_id != expected_series_id:
+                raise HTTPException(status_code=404, detail="Not found")
         
         # Fetch pyramid from Orthanc
         async with httpx.AsyncClient() as client:

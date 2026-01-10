@@ -858,6 +858,9 @@ async function openShareDialog(studyId) {
                 Loading...
             </div>
             <div class="public-link-create">
+                <input type="text" id="public-link-title" placeholder="Link title (optional)">
+                <input type="password" id="public-link-password" placeholder="Password (optional)">
+                <input type="number" id="public-link-max-views" min="1" placeholder="Max views (optional)">
                 <select id="public-link-expiry">
                     <option value="">Never expires</option>
                     <option value="1">1 day</option>
@@ -1077,7 +1080,17 @@ async function loadPublicLinks(studyId) {
             }
             container.innerHTML = links.map(link => `
                 <div class="public-link-item">
-                    <span>${link.title || 'Public Link'}</span>
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <span style="font-weight:600;">${link.title || 'Public Link'}</span>
+                        <span style="font-size:12px; color: var(--text-muted);">
+                            Views: ${link.view_count ?? 0}
+                            ${link.max_views ? ` / ${link.max_views}` : ''}
+                            ${link.expires_at ? ` • Expires: ${new Date(link.expires_at).toLocaleDateString()}` : ' • Never expires'}
+                            ${link.has_password ? ' • 🔒 Password' : ''}
+                            ${link.is_expired ? ' • ⚠️ Expired' : ''}
+                        </span>
+                    </div>
+                    <button onclick="openPublicLink('${link.token}')">Open</button>
                     <button onclick="copyPublicLink('${link.token}')">Copy</button>
                     <button onclick="deletePublicLink(${link.id})">Del</button>
                 </div>
@@ -1092,15 +1105,27 @@ async function loadPublicLinks(studyId) {
 async function createPublicLink() {
     if (!currentShareStudyId) return;
     const days = document.getElementById('public-link-expiry')?.value;
+    const title = document.getElementById('public-link-title')?.value?.trim() || null;
+    const password = document.getElementById('public-link-password')?.value || null;
+    const maxViewsRaw = document.getElementById('public-link-max-views')?.value;
+    const max_views = maxViewsRaw ? parseInt(maxViewsRaw) : null;
     try {
         const response = await authFetch(`/api/studies/${currentShareStudyId}/public-link`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ expires_in_days: days ? parseInt(days) : null })
+            body: JSON.stringify({
+                expires_in_days: days ? parseInt(days) : null,
+                title,
+                password,
+                max_views
+            })
         });
         if (response.ok) {
             const result = await response.json();
             copyPublicLink(result.token);
+            // Clear password field after creation (avoid leaving it visible in DOM state)
+            const pwEl = document.getElementById('public-link-password');
+            if (pwEl) pwEl.value = '';
             loadPublicLinks(currentShareStudyId);
         }
     } catch (e) {
@@ -1114,6 +1139,14 @@ async function createPublicLink() {
 function copyPublicLink(token) {
     const url = window.location.origin + '/viewer/public/' + token;
     navigator.clipboard.writeText(url).then(() => alert('Link copied!'));
+}
+
+/**
+ * Open public link in a new tab
+ */
+function openPublicLink(token) {
+    const url = window.location.origin + '/viewer/public/' + token;
+    window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 /**

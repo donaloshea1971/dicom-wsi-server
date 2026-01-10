@@ -197,7 +197,9 @@
                 document.getElementById('viewer-container').style.display = 'block';
                 
                 // Initialize OpenSeadragon with public tile source
-                await initViewer(data.study_id, data.series_id);
+                // Prefer Orthanc series ID for /wsi/pyramids + /wsi/tiles.
+                const seriesId = data.orthanc_series_id || data.series_id;
+                await initViewer(data.study_id, seriesId);
                 
             } catch (e) {
                 console.error('Failed to load public slide:', e);
