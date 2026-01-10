@@ -26,6 +26,9 @@ COPY test-auth.html /usr/share/nginx/html/
 COPY css/ /usr/share/nginx/html/css/
 COPY js/ /usr/share/nginx/html/js/
 
+# Copy AI models (StarDist ONNX, etc.)
+COPY models/ /usr/share/nginx/html/models/
+
 # Create cache directory for tile proxy cache
 RUN mkdir -p /var/cache/nginx/tiles && chown nginx:nginx /var/cache/nginx/tiles
 
@@ -175,8 +178,8 @@ http {
             root /usr/share/nginx/html;
             try_files \$uri \$uri/ /landing.html;
             
-            # Cache static assets
-            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|mp4|webm)\$ {
+            # Cache static assets (including AI models)
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|mp4|webm|onnx|wasm)\$ {
                 expires 30d;
                 add_header Cache-Control "public, immutable";
             }
