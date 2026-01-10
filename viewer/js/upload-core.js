@@ -12,6 +12,19 @@ const CONCURRENT_CHUNKS = 3; // Upload 3 chunks in parallel
 // Threshold for using chunked upload (50MB)
 const LARGE_DICOM_THRESHOLD = 50 * 1024 * 1024;
 
+function getAuthBypassSecretForUploads() {
+    try {
+        return (localStorage.getItem('PATHVIEW_AUTH_BYPASS_SECRET') || '').trim() || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getBypassHeadersForUploads() {
+    const secret = getAuthBypassSecretForUploads();
+    return secret ? { 'X-Auth-Bypass': secret } : {};
+}
+
 /**
  * Upload a DICOM group via REST API
  * Uses chunked upload for large files (>50MB) to avoid timeouts
@@ -116,7 +129,8 @@ async function uploadLargeDicom(item, token) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
+            ...(token && { 'Authorization': `Bearer ${token}` }),
+            ...getBypassHeadersForUploads()
         },
         body: JSON.stringify({
             filename: item.file.name,
@@ -179,10 +193,29 @@ async function uploadLargeDicom(item, token) {
     item.message = 'Sending to DICOM server...';
     item.progress = 85;
     if (typeof updateQueueUI === 'function') updateQueueUI();
-    
+
+    // Refresh token right before finalization (large uploads can take long enough for tokens to expire)
+    let finalToken = token;
+    if (typeof getAuthToken === 'function') {
+        try {
+            finalToken = await getAuthToken();
+        } catch (e) {
+            console.warn('Failed to refresh auth token before DICOM finalize');
+        }
+    } else if (typeof auth0Client !== 'undefined' && auth0Client) {
+        try {
+            finalToken = await auth0Client.getTokenSilently();
+        } catch (e) {
+            console.warn('Failed to refresh auth token before DICOM finalize');
+        }
+    }
+
     const completeResponse = await fetchWithRetry(`/api/upload/${upload_id}/complete-dicom`, {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        headers: {
+            ...(finalToken ? { 'Authorization': `Bearer ${finalToken}` } : {}),
+            ...getBypassHeadersForUploads()
+        }
     });
     
     if (completeResponse.status === 'complete' || completeResponse.success) {
@@ -335,7 +368,8 @@ async function uploadChunked(item, token) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
+            ...(token && { 'Authorization': `Bearer ${token}` }),
+            ...getBypassHeadersForUploads()
         },
         body: JSON.stringify({
             filename: item.file.name,
@@ -398,7 +432,10 @@ async function uploadChunked(item, token) {
     
     await fetchWithRetry(`/api/upload/${upload_id}/complete`, {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...getBypassHeadersForUploads()
+        }
     });
     
     if (typeof pollChunkedUploadStatus === 'function') {
@@ -420,7 +457,8 @@ async function uploadChunk(item, uploadId, chunkIndex, chunkSize, token) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/octet-stream',
-                    ...(token && { 'Authorization': `Bearer ${token}` })
+                    ...(token && { 'Authorization': `Bearer ${token}` }),
+                    ...getBypassHeadersForUploads()
                 },
                 body: chunk
             });
@@ -476,6 +514,11 @@ function uploadWithProgress(url, formData, token, onProgress) {
         if (token) {
             xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
+
+        const bypassHeaders = getBypassHeadersForUploads();
+        if (bypassHeaders['X-Auth-Bypass']) {
+            xhr.setRequestHeader('X-Auth-Bypass', bypassHeaders['X-Auth-Bypass']);
+        }
         
         xhr.send(formData);
     });
@@ -490,7 +533,11 @@ async function fetchWithRetry(url, options = {}, retries = MAX_RETRIES) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             const controller = new AbortController();
-            const timeoutMs = url.includes('/status') ? 60000 : 300000;
+            // Default to 5 minutes; allow much longer for finalize steps that assemble+forward huge files server-side
+            const timeoutMs =
+                url.includes('/status') ? 60000 :
+                url.includes('/complete-dicom') ? 30 * 60 * 1000 :
+                300000;
             const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
             
             const response = await fetch(url, {

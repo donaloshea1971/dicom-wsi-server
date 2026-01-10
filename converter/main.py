@@ -3467,7 +3467,7 @@ async def complete_chunked_upload(
 @app.post("/upload/{upload_id}/complete-dicom")
 async def complete_dicom_chunked_upload(
     upload_id: str,
-    user: User = Depends(require_user)
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """
     Complete a chunked DICOM upload - assembles chunks and sends directly to Orthanc.
@@ -3498,47 +3498,52 @@ async def complete_dicom_chunked_upload(
     
     try:
         upload_dir = Path(upload["upload_dir"])
-        temp_dicom = upload_dir / "assembled.dcm"
-        
-        # Assemble chunks
-        logger.info(f"📦 Assembling DICOM chunks for {upload_id} ({upload['total_chunks']} chunks)")
-        
-        with open(temp_dicom, "wb") as outfile:
-            for i in range(upload["total_chunks"]):
-                chunk_path = upload_dir / f"chunk_{i:06d}"
-                with open(chunk_path, "rb") as chunk_file:
-                    outfile.write(chunk_file.read())
-        
-        # Verify file size
-        actual_size = temp_dicom.stat().st_size
-        if actual_size != upload["file_size"]:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Assembled file size mismatch: expected {upload['file_size']}, got {actual_size}"
-            )
-        
-        logger.info(f"📦 Assembled DICOM: {actual_size / (1024*1024):.1f} MB")
-        
-        # Send to Orthanc using streaming to avoid loading entire file into memory
+
+        logger.info(f"📦 Finalizing chunked DICOM upload {upload_id} ({upload['total_chunks']} chunks)")
+
+        # Validate chunk files exist and sizes match expectation (guards against partial/corrupt uploads)
+        for i in range(upload["total_chunks"]):
+            chunk_path = upload_dir / f"chunk_{i:06d}"
+            if not chunk_path.exists():
+                raise HTTPException(status_code=400, detail=f"Missing chunk file on server: {chunk_path.name}")
+
+            expected_size = upload["chunk_size"]
+            if i == upload["total_chunks"] - 1:
+                expected_size = upload["file_size"] - (i * upload["chunk_size"])
+
+            actual_chunk_size = chunk_path.stat().st_size
+            if actual_chunk_size != expected_size:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Chunk file size mismatch for {chunk_path.name}: expected {expected_size}, got {actual_chunk_size}"
+                )
+
+        # Send to Orthanc by streaming directly from chunk files (no assembled.dcm on disk)
         upload["message"] = "Sending to DICOM server..."
         upload["progress"] = 90
-        
-        # Stream the file in chunks to Orthanc using async generator
-        async def file_stream():
-            with open(temp_dicom, "rb") as f:
-                while True:
-                    chunk = f.read(8 * 1024 * 1024)  # 8MB chunks
-                    if not chunk:
-                        break
-                    yield chunk
-        
-        async with httpx.AsyncClient(timeout=1800.0) as client:  # 30 minute timeout for very large files
+
+        async def chunked_file_stream():
+            for i in range(upload["total_chunks"]):
+                chunk_path = upload_dir / f"chunk_{i:06d}"
+                with open(chunk_path, "rb") as f:
+                    while True:
+                        data = f.read(8 * 1024 * 1024)  # 8MB sub-chunks
+                        if not data:
+                            break
+                        yield data
+
+        total_size = int(upload["file_size"])
+        logger.info(f"📦 Streaming DICOM to Orthanc: {total_size / (1024*1024):.1f} MB")
+
+        upload_timeout = httpx.Timeout(1800.0, connect=30.0)
+        async with httpx.AsyncClient(timeout=upload_timeout) as client:  # 30 minute timeout for very large files
             response = await client.post(
                 f"{settings.orthanc_url}/instances",
-                content=file_stream(),
+                content=chunked_file_stream(),
                 headers={
                     "Content-Type": "application/dicom",
-                    "Content-Length": str(actual_size)  # Required for streaming
+                    # Ensure Orthanc/HTTP layer knows the full size up front
+                    "Content-Length": str(total_size),
                 },
                 auth=(settings.orthanc_username, settings.orthanc_password)
             )
@@ -3552,16 +3557,16 @@ async def complete_dicom_chunked_upload(
         result = response.json()
         logger.info(f"✅ DICOM uploaded to Orthanc: {result.get('ID', 'unknown')}")
         
-        # Claim ownership
+        # Claim ownership (best-effort; uploads can be anonymous like /instances)
         study_id = result.get("ParentStudy")
-        if study_id and user.id:
+        if study_id and current_user and current_user.id:
             try:
-                await set_study_owner(study_id, user.id)
-                logger.info(f"✅ Claimed study {study_id} for user {user.id}")
+                await set_study_owner(study_id, current_user.id)
+                logger.info(f"✅ Claimed study {study_id} for user {current_user.id}")
             except Exception as e:
                 logger.warning(f"Failed to claim study {study_id}: {e}")
         
-        # Clean up
+        # Clean up chunk files once Orthanc has accepted the instance
         shutil.rmtree(upload_dir, ignore_errors=True)
         
         upload["status"] = "complete"
@@ -3573,7 +3578,7 @@ async def complete_dicom_chunked_upload(
             "success": True,
             "orthanc_id": result.get("ID"),
             "study_id": study_id,
-            "message": f"DICOM uploaded successfully ({actual_size / (1024*1024):.1f} MB)"
+            "message": f"DICOM uploaded successfully ({total_size / (1024*1024):.1f} MB)"
         }
         
     except HTTPException:

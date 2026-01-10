@@ -42,7 +42,7 @@
   "LogExportedResources": false,
   "KeepAlive": true,
   "TcpNoDelay": true,
-  "HttpRequestTimeout": 300,
+  "HttpRequestTimeout": 3600,
   "StoreDicom": true,
   "DicomScpTimeout": 300,
   "DicomScuTimeout": 300,

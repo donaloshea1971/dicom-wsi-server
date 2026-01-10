@@ -3,8 +3,8 @@
   "HttpServerEnabled": true,
   "HttpPort": 8042,
   "HttpThreadsCount": 32,
-  "HttpTimeout": 120,
-  "HttpRequestTimeout": 120,
+  "HttpTimeout": 3600,
+  "HttpRequestTimeout": 3600,
   
   "DicomServerEnabled": true,
   "DicomAet": "ORTHANC",
