@@ -12,6 +12,26 @@ var AUTH0_AUDIENCE = 'https://pathviewpro.com/api';
 var auth0Client = null;
 var currentUser = null;
 
+// -----------------------------------------------------------------------------
+// Dev/Test Auth Bypass (frontend helper)
+//
+// If localStorage contains a bypass secret, authFetch will attach:
+//   X-Auth-Bypass: <secret>
+// This enables test/evaluation without Auth0 *only if* the backend has
+// AUTH_BYPASS_ENABLED=true and the same AUTH_BYPASS_SECRET configured.
+// -----------------------------------------------------------------------------
+function getAuthBypassSecret() {
+    try {
+        return (localStorage.getItem('PATHVIEW_AUTH_BYPASS_SECRET') || '').trim() || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function isAuthBypassMode() {
+    return !!getAuthBypassSecret();
+}
+
 // Configuration (only define if not already defined)
 if (typeof CONFIG === 'undefined') {
     var CONFIG = {
@@ -26,6 +46,14 @@ if (typeof CONFIG === 'undefined') {
  */
 async function initAuth(redirectIfUnauthed = true) {
     try {
+        // Bypass mode: don't require Auth0 to use the app (header-based backend bypass)
+        if (isAuthBypassMode()) {
+            currentUser = { email: 'bypass@local', name: 'Bypass Evaluator', picture: '' };
+            updateUserUI(true);
+            console.warn('🔓 Auth bypass mode enabled (frontend). Requests will send X-Auth-Bypass header.');
+            return true;
+        }
+
         console.log('🔐 Initializing Auth0...');
         auth0Client = await auth0.createAuth0Client({
             domain: AUTH0_DOMAIN,
@@ -127,7 +155,7 @@ async function syncUserProfile() {
     
     try {
         const token = await auth0Client.getTokenSilently();
-        await fetch('/api/users/me', {
+        await authFetch('/api/users/me', {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -190,6 +218,19 @@ async function getAuthToken() {
  * Automatically adds auth token to requests
  */
 async function authFetch(url, options = {}) {
+    // Attach bypass header if configured locally (dev/test).
+    // Only attach to same-origin API routes to avoid leaking secrets.
+    const bypassSecret = getAuthBypassSecret();
+    const isSameOriginApi =
+        (typeof url === 'string') &&
+        (url.startsWith('/api/') || url === '/api' || url.startsWith('/dicom-web'));
+    if (bypassSecret && isSameOriginApi) {
+        options.headers = {
+            ...options.headers,
+            'X-Auth-Bypass': bypassSecret
+        };
+    }
+
     if (auth0Client) {
         try {
             const token = await auth0Client.getTokenSilently();
@@ -245,7 +286,7 @@ function formatDicomDate(date) {
 async function checkServerStatus() {
     const badge = document.getElementById('server-status');
     try {
-        const response = await fetch('/api/system');
+        const response = await authFetch('/api/system');
         const data = await response.json();
         
         if (data.Version) {

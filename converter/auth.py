@@ -31,6 +31,20 @@ if not os.getenv("AUTH0_DOMAIN"):
 if not os.getenv("AUTH0_AUDIENCE"):
     logger.info(f"ℹ️ AUTH0_AUDIENCE not set - using fallback: {AUTH0_AUDIENCE}")
 
+# -----------------------------------------------------------------------------
+# Dev/Test Auth Bypass (disabled by default)
+#
+# This provides a controlled "back door" for automation / evaluation when Auth0
+# gets in the way. It is strictly opt-in via env vars and requires a shared
+# secret header on each request.
+# -----------------------------------------------------------------------------
+AUTH_BYPASS_ENABLED = os.getenv("AUTH_BYPASS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+AUTH_BYPASS_SECRET = os.getenv("AUTH_BYPASS_SECRET")  # required when enabled
+AUTH_BYPASS_ALLOWLIST = os.getenv("AUTH_BYPASS_ALLOWLIST", "127.0.0.1,::1,localhost").strip()
+AUTH_BYPASS_EMAIL = os.getenv("AUTH_BYPASS_EMAIL", "evaluator@local").strip()
+AUTH_BYPASS_NAME = os.getenv("AUTH_BYPASS_NAME", "Bypass Evaluator").strip()
+AUTH_BYPASS_ROLE = os.getenv("AUTH_BYPASS_ROLE", "user").strip()  # 'user' or 'admin'
+
 # Database configuration - MUST be set via environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -60,6 +74,79 @@ class TokenPayload(BaseModel):
 
 # Cache for Auth0 JWKS (JSON Web Key Set)
 _jwks_cache = None
+
+
+def _parse_allowlist(value: str) -> set[str]:
+    if not value:
+        return set()
+    return {v.strip() for v in value.split(",") if v.strip()}
+
+
+def _client_host(request: Request) -> str:
+    # Note: in proxied deployments, this may be the proxy container IP.
+    try:
+        return request.client.host if request and request.client else ""
+    except Exception:
+        return ""
+
+
+async def _try_bypass_user(request: Request) -> Optional["User"]:
+    """
+    Return a User if the request is authorized via dev/test bypass header.
+    Otherwise return None.
+
+    Requirements:
+    - AUTH_BYPASS_ENABLED=true
+    - AUTH_BYPASS_SECRET is set
+    - Request includes header: X-Auth-Bypass: <secret>
+    - (Optional) client host must be in AUTH_BYPASS_ALLOWLIST, unless allowlist contains '*'
+    """
+    if not AUTH_BYPASS_ENABLED:
+        return None
+    if not AUTH_BYPASS_SECRET:
+        logger.error("🔐 AUTH_BYPASS_ENABLED=true but AUTH_BYPASS_SECRET is not set")
+        return None
+
+    bypass_header = (request.headers.get("X-Auth-Bypass") or "").strip()
+    if not bypass_header:
+        return None
+    if bypass_header != AUTH_BYPASS_SECRET:
+        logger.warning("🔐 ❌ Auth bypass header present but secret mismatch")
+        return None
+
+    allow = _parse_allowlist(AUTH_BYPASS_ALLOWLIST)
+    host = _client_host(request)
+    if "*" not in allow and allow and host not in allow:
+        logger.warning(f"🔐 ❌ Auth bypass rejected due to host allowlist: host={host!r}, allowlist={sorted(allow)}")
+        return None
+
+    # Optional per-request identity override (useful for tests)
+    bypass_email = (request.headers.get("X-Auth-Bypass-Email") or AUTH_BYPASS_EMAIL).strip()
+    bypass_name = (request.headers.get("X-Auth-Bypass-Name") or AUTH_BYPASS_NAME).strip()
+    bypass_role = (request.headers.get("X-Auth-Bypass-Role") or AUTH_BYPASS_ROLE).strip()
+    if bypass_role not in {"user", "admin"}:
+        bypass_role = "user"
+
+    payload = TokenPayload(
+        sub=f"bypass|{bypass_email.lower()}",
+        email=bypass_email,
+        name=bypass_name,
+        picture=None,
+    )
+
+    try:
+        user = await get_or_create_user(payload)
+        # Ensure role reflects bypass config even if DB isn't available
+        user.role = bypass_role
+        if user.id is None:
+            # Some endpoints require a numeric user.id; use 0 as a non-persisted placeholder.
+            user.id = 0
+        logger.info(f"🔐 ✅ Auth bypass accepted for {user.email} (id={user.id}, role={user.role}, host={host})")
+        return user
+    except Exception as e:
+        logger.error(f"🔐 ❌ Auth bypass failed to create user: {e}", exc_info=True)
+        # If bypass is configured but DB isn't available, still allow a non-persisted user
+        return User(id=0, auth0_id=payload.sub, email=bypass_email, name=bypass_name, picture=None, role=bypass_role)
 
 
 async def get_jwks():
@@ -314,12 +401,17 @@ async def process_pending_shares(user_id: int, user_email: str):
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[User]:
     """
     FastAPI dependency to get current authenticated user.
     Returns None if no valid token (allows public access with filtering)
     """
+    bypass_user = await _try_bypass_user(request)
+    if bypass_user is not None:
+        return bypass_user
+
     if credentials is None:
         logger.debug("No credentials provided")
         return None
@@ -338,12 +430,17 @@ async def get_current_user(
 
 
 async def require_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> User:
     """
     FastAPI dependency that requires authentication.
     Raises 401 if not authenticated.
     """
+    bypass_user = await _try_bypass_user(request)
+    if bypass_user is not None:
+        return bypass_user
+
     if credentials is None:
         logger.warning("require_user: No credentials provided")
         raise HTTPException(

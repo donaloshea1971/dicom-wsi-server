@@ -274,6 +274,37 @@ python test_auth_flow.py
   allow_origins=["https://pathviewpro.com"]
   ```
 
+## Dev/Test Auth Bypass (for automation/evaluation)
+
+This repo supports an **opt-in auth bypass** intended for **automated testing** and **evaluation** when Auth0 login is a blocker.
+
+- **Backend**: set env vars (converter service)
+
+```bash
+AUTH_BYPASS_ENABLED=true
+AUTH_BYPASS_SECRET=some-long-random-string
+# optional:
+AUTH_BYPASS_ALLOWLIST=127.0.0.1,::1,localhost
+AUTH_BYPASS_EMAIL=evaluator@local
+AUTH_BYPASS_ROLE=user
+```
+
+- **Client/API calls**: include a header on requests:
+  - `X-Auth-Bypass: <AUTH_BYPASS_SECRET>`
+
+- **Viewer/uploader UI**: set localStorage key in the browser (same origin as the app):
+
+```javascript
+localStorage.setItem('PATHVIEW_AUTH_BYPASS_SECRET', '<AUTH_BYPASS_SECRET>');
+location.reload();
+```
+
+### Safety notes
+
+- **Disabled by default** and requires an explicit secret.
+- Keep it **off in production** deployments.
+- If you run behind a proxy and the host allowlist blocks you, either update `AUTH_BYPASS_ALLOWLIST` appropriately or set it to `*` for local-only setups.
+
 ## Troubleshooting Checklist
 
 - [ ] Auth0 domain and client ID configured correctly

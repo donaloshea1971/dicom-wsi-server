@@ -353,12 +353,24 @@ async function loadStudy(studyId) {
         });
 
         let tileAuthHeaders = {};
+        // Dev/test bypass support: send bypass header for tile requests if configured
+        try {
+            if (typeof getAuthBypassSecret === 'function') {
+                const bypassSecret = getAuthBypassSecret();
+                if (bypassSecret) {
+                    tileAuthHeaders['X-Auth-Bypass'] = bypassSecret;
+                    console.warn('🔓 [viewer-main] Auth bypass enabled - tiles will include X-Auth-Bypass header');
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
         try {
             if (!window.auth0Client) {
                 console.warn('🔒 [viewer-main] auth0Client not available - tiles will be unauthenticated');
             } else {
                 const token = await window.auth0Client.getTokenSilently();
-                tileAuthHeaders = { 'Authorization': `Bearer ${token}` };
+                tileAuthHeaders = { ...tileAuthHeaders, 'Authorization': `Bearer ${token}` };
                 console.log('🔒 [viewer-main] Got auth token for tiles');
             }
         } catch (e) {
