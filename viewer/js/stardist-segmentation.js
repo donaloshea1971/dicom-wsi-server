@@ -663,17 +663,33 @@
         const outs = outputsMap || {};
         const tensors = Object.keys(outs).map(k => ({ name: k, t: outs[k] }));
 
-        // Find candidates with spatial dims matching.
+        // Debug: log what the model actually outputs
+        console.log('[StarDist] Model outputs:', tensors.map(({ name, t }) => ({
+          name,
+          dims: t?.dims,
+          size: t?.data?.length
+        })));
+        console.log('[StarDist] Expected spatial dims:', H, 'x', W);
+
+        // Find candidates with spatial dims matching (allow some flex for padding)
         const spatial = tensors.filter(({ t }) => {
           const d = t && t.dims;
-          if (!d || d.length !== 4) return false;
-          // NCHW: [1,C,H,W]
-          if (d[2] === H && d[3] === W) return true;
-          // NHWC: [1,H,W,C]
-          if (d[1] === H && d[2] === W) return true;
+          if (!d || d.length < 3) return false;
+          // 4D: NCHW [1,C,H,W] or NHWC [1,H,W,C]
+          if (d.length === 4) {
+            if (d[2] === H && d[3] === W) return true;
+            if (d[1] === H && d[2] === W) return true;
+          }
+          // 3D: CHW [C,H,W] or HWC [H,W,C]
+          if (d.length === 3) {
+            if (d[1] === H && d[2] === W) return true;
+            if (d[0] === H && d[1] === W) return true;
+          }
           return false;
         });
-        if (spatial.length < 2) throw new Error('Unexpected model outputs (need prob + dist).');
+        console.log('[StarDist] Spatial candidates:', spatial.length);
+        if (spatial.length < 2) throw new Error('Unexpected model outputs (need prob + dist). Got: ' + 
+          tensors.map(({name, t}) => `${name}:${t?.dims?.join('x')}`).join(', '));
 
         // Heuristic: prob has channel=1, dist has channel>1.
         function getChannelCount(d) {
