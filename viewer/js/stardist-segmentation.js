@@ -798,6 +798,12 @@
     setError('');
     setStats('');
 
+    // Auto-attach to window.viewer if no controller exists
+    if (controllers.size === 0 && window.viewer) {
+      console.log('[StarDist] Auto-attaching to window.viewer on enable');
+      attachToViewer(window.viewer, { key: 'v1' });
+    }
+
     if (on) updateStatus('⏳', 'Initializing nuclei AI...', true, 5);
     else updateStatus('⏸️', 'Nuclei AI disabled', false);
 
@@ -832,8 +838,22 @@
   }
 
   function run() {
-    const first = controllers.get('v1') || Array.from(controllers.values())[0];
-    if (!first) return;
+    let first = controllers.get('v1') || Array.from(controllers.values())[0];
+    
+    // Auto-attach to window.viewer if no controller exists
+    if (!first && window.viewer) {
+      console.log('[StarDist] Auto-attaching to window.viewer');
+      attachToViewer(window.viewer, { key: 'v1' });
+      first = controllers.get('v1');
+    }
+    
+    if (!first) {
+      console.warn('[StarDist] No viewer attached. Call attachToViewer(viewer) first or ensure window.viewer exists.');
+      setError('No viewer attached');
+      return;
+    }
+    
+    console.log('[StarDist] Running on viewer:', first.viewer?.id);
     scheduleRun({ viewer: first.viewer, key: 'v1', state: first.state });
     // force immediate
     if (first.state._runTimer) clearTimeout(first.state._runTimer);
