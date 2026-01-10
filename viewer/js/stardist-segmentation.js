@@ -706,16 +706,15 @@
         // [1,H,W,nRays] => transpose to ray-major [nRays,H,W]
         for (let y = 0; y < H; y++) {
           for (let x = 0; x < W; x++) {
-              const base = ((y * W + x) * nRays);
-              const idx = y * W + x;
-              for (let r = 0; r < nRays; r++) {
-                distRayMajor[r * hw + idx] = distData[base + r];
-              }
+            const base = ((y * W + x) * nRays);
+            const idx = y * W + x;
+            for (let r = 0; r < nRays; r++) {
+              distRayMajor[r * hw + idx] = distData[base + r];
             }
           }
         }
 
-        return { prob, distRayMajor, nRays };
+        return { prob, distRayMajor, nRays, H, W };
       })(outputs, cap.inputH, cap.inputW);
 
       if (!state.worker) state.worker = makePostprocessWorker();
