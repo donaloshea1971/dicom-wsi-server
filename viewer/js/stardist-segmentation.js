@@ -266,7 +266,7 @@
       // and avoid ORT trying to parse an HTML error page as an ONNX model.
       let res;
       try {
-        res = await fetch(url, { method: 'GET', mode: 'cors', redirect: 'follow', cache: 'force-cache' });
+        res = await fetch(url, { method: 'GET', mode: 'cors', redirect: 'follow', cache: 'default' });
       } catch (e) {
         // Network/CORS failures - let caller decide whether to fall back
         const msg = e && e.message ? e.message : String(e);
