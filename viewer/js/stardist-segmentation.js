@@ -261,10 +261,56 @@
     updateStatus('📦', 'Loading model...', true, 25);
     const t0 = safeNow();
 
-    const sess = await ort.InferenceSession.create(modelUrl, {
-      executionProviders: ['webgl', 'wasm'],
-      graphOptimizationLevel: 'all',
-    });
+    async function fetchModelBytes(url) {
+      // Preflight fetch so we can surface clean HTTP errors (e.g., 401 gated HF repos)
+      // and avoid ORT trying to parse an HTML error page as an ONNX model.
+      let res;
+      try {
+        res = await fetch(url, { method: 'GET', mode: 'cors', redirect: 'follow', cache: 'force-cache' });
+      } catch (e) {
+        // Network/CORS failures - let caller decide whether to fall back
+        const msg = e && e.message ? e.message : String(e);
+        throw new Error('Failed to fetch model (network/CORS): ' + msg);
+      }
+      if (!res.ok) {
+        const hint =
+          res.status === 401 ? ' (unauthorized / gated repo - you must use a public file or host it yourself)' :
+          res.status === 403 ? ' (forbidden - gated repo or blocked by policy)' :
+          '';
+        throw new Error(`Failed to fetch model: HTTP ${res.status} ${res.statusText}${hint}`);
+      }
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      // HF sometimes serves as application/octet-stream; that's fine. If it's html, it's almost certainly an error page.
+      if (ct.includes('text/html')) {
+        throw new Error('Model URL returned HTML (not an ONNX file). Check the URL (use /resolve/main/<file>.onnx) and access permissions.');
+      }
+      const buf = await res.arrayBuffer();
+      if (!buf || buf.byteLength < 1024) {
+        throw new Error(`Model download too small (${buf ? buf.byteLength : 0} bytes). Check URL/permissions.`);
+      }
+      return new Uint8Array(buf);
+    }
+
+    let sess;
+    // Prefer bytes-based load for clearer errors; if ORT build doesn't accept bytes, fall back to URL.
+    try {
+      const bytes = await fetchModelBytes(modelUrl);
+      sess = await ort.InferenceSession.create(bytes, {
+        executionProviders: ['webgl', 'wasm'],
+        graphOptimizationLevel: 'all',
+      });
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      // If the error is our fetch error, propagate it. Otherwise try URL-based load as a fallback.
+      if (msg.startsWith('Failed to fetch model:') || msg.startsWith('Model URL returned HTML') || msg.startsWith('Model download too small')) {
+        throw e;
+      }
+      log(state, 'Byte-load failed, falling back to URL load:', msg);
+      sess = await ort.InferenceSession.create(modelUrl, {
+        executionProviders: ['webgl', 'wasm'],
+        graphOptimizationLevel: 'all',
+      });
+    }
 
     const ms = Math.round(safeNow() - t0);
     log(state, 'Model loaded in', ms, 'ms', 'inputs:', sess.inputNames, 'outputs:', sess.outputNames);
@@ -280,6 +326,20 @@
       out[i] = data[j] / 255;           // R
       out[hw + i] = data[j + 1] / 255;  // G
       out[2 * hw + i] = data[j + 2] / 255; // B
+    }
+    return out;
+  }
+
+  function rgbaToHWCFloat(imageData, w, h) {
+    const data = imageData.data;
+    const out = new Float32Array(1 * w * h * 3);
+    const hw = w * h;
+    for (let i = 0; i < hw; i++) {
+      const j = i * 4;
+      const k = i * 3;
+      out[k] = data[j] / 255;       // R
+      out[k + 1] = data[j + 1] / 255; // G
+      out[k + 2] = data[j + 2] / 255; // B
     }
     return out;
   }
@@ -578,17 +638,105 @@
       const sess = await ensureSession(state);
 
       const inputName = (sess.inputNames && sess.inputNames[0]) ? sess.inputNames[0] : 'input';
-      const chw = rgbaToCHWFloat(cap.imageData, cap.inputW, cap.inputH);
       const ort = window.ort;
-      const inputTensor = new ort.Tensor('float32', chw, [1, 3, cap.inputH, cap.inputW]);
+      const inMeta = (sess.inputMetadata && sess.inputMetadata[inputName]) ? sess.inputMetadata[inputName] : null;
+      const inDims = (inMeta && Array.isArray(inMeta.dimensions)) ? inMeta.dimensions : null;
+      const modelExpectsNHWC = (inDims && inDims.length === 4 && (inDims[3] === 3 || inDims[3] === '3')) ||
+                               (!inDims && false);
+
+      const inputData = modelExpectsNHWC
+        ? rgbaToHWCFloat(cap.imageData, cap.inputW, cap.inputH)
+        : rgbaToCHWFloat(cap.imageData, cap.inputW, cap.inputH);
+
+      const inputTensor = modelExpectsNHWC
+        ? new ort.Tensor('float32', inputData, [1, cap.inputH, cap.inputW, 3])
+        : new ort.Tensor('float32', inputData, [1, 3, cap.inputH, cap.inputW]);
 
       const outputs = await sess.run({ [inputName]: inputTensor });
       if (runId !== state._runSeq) return; // stale
 
-      const { probT, distT } = pickProbAndDist(outputs, cap.inputW, cap.inputH);
-      const prob = probT.data; // Float32Array
-      const dist = distT.data; // Float32Array
-      const nRays = distT.dims[1] | 0;
+      // Extract prob + dist into a normalized layout for worker:
+      // - prob: Float32Array [H*W] row-major
+      // - distRayMajor: Float32Array [nRays*H*W] where each ray is a plane
+      const extracted = (function extract(outputsMap, H, W) {
+        const outs = outputsMap || {};
+        const tensors = Object.keys(outs).map(k => ({ name: k, t: outs[k] }));
+
+        // Find candidates with spatial dims matching.
+        const spatial = tensors.filter(({ t }) => {
+          const d = t && t.dims;
+          if (!d || d.length !== 4) return false;
+          // NCHW: [1,C,H,W]
+          if (d[2] === H && d[3] === W) return true;
+          // NHWC: [1,H,W,C]
+          if (d[1] === H && d[2] === W) return true;
+          return false;
+        });
+        if (spatial.length < 2) throw new Error('Unexpected model outputs (need prob + dist).');
+
+        // Heuristic: prob has channel=1, dist has channel>1.
+        function getChannelCount(d) {
+          if (!d || d.length !== 4) return null;
+          // NCHW
+          if (d[2] === H && d[3] === W) return d[1];
+          // NHWC
+          if (d[1] === H && d[2] === W) return d[3];
+          return null;
+        }
+
+        let probT = null, distT = null;
+        for (const { t } of spatial) {
+          const c = getChannelCount(t.dims);
+          if (c === 1) probT = t;
+          else if (typeof c === 'number' && c > 1) distT = t;
+        }
+        // Fallback: pick smallest C as prob, largest C as dist
+        if (!probT || !distT) {
+          const sorted = spatial.slice().sort((a, b) => (getChannelCount(a.t.dims) || 0) - (getChannelCount(b.t.dims) || 0));
+          probT = probT || sorted[0].t;
+          distT = distT || sorted[sorted.length - 1].t;
+        }
+        if (!probT || !distT) throw new Error('Could not identify prob/dist outputs.');
+
+        const probDims = probT.dims;
+        const distDims = distT.dims;
+        const probIsNCHW = (probDims[2] === H && probDims[3] === W);
+        const distIsNCHW = (distDims[2] === H && distDims[3] === W);
+        const nRays = distIsNCHW ? (distDims[1] | 0) : (distDims[3] | 0);
+        const hw = H * W;
+
+        // prob -> [H*W]
+        const prob = new Float32Array(hw);
+        const probData = probT.data;
+        if (probIsNCHW) {
+          // [1,1,H,W] flattened => direct copy
+          for (let i = 0; i < hw; i++) prob[i] = probData[i];
+        } else {
+          // [1,H,W,1]
+          for (let i = 0; i < hw; i++) prob[i] = probData[i];
+        }
+
+        // dist -> ray-major [nRays, H, W]
+        const distRayMajor = new Float32Array(nRays * hw);
+        const distData = distT.data;
+        if (distIsNCHW) {
+          // [1,nRays,H,W] already ray-major planes
+          for (let i = 0; i < distRayMajor.length; i++) distRayMajor[i] = distData[i];
+        } else {
+          // [1,H,W,nRays] => transpose to ray-major
+          for (let y = 0; y < H; y++) {
+            for (let x = 0; x < W; x++) {
+              const base = ((y * W + x) * nRays);
+              const idx = y * W + x;
+              for (let r = 0; r < nRays; r++) {
+                distRayMajor[r * hw + idx] = distData[base + r];
+              }
+            }
+          }
+        }
+
+        return { prob, distRayMajor, nRays };
+      })(outputs, cap.inputH, cap.inputW);
 
       if (!state.worker) state.worker = makePostprocessWorker();
       const worker = state.worker;
@@ -607,10 +755,10 @@
         worker.addEventListener('message', onMsg);
 
         // Copy to transferable ArrayBuffers to reduce overhead
-        const probCopy = new Float32Array(prob.length);
-        probCopy.set(prob);
-        const distCopy = new Float32Array(dist.length);
-        distCopy.set(dist);
+        const probCopy = new Float32Array(extracted.prob.length);
+        probCopy.set(extracted.prob);
+        const distCopy = new Float32Array(extracted.distRayMajor.length);
+        distCopy.set(extracted.distRayMajor);
 
         worker.postMessage({
           type: 'postprocess',
@@ -618,7 +766,7 @@
           dist: distCopy,
           w: cap.inputW,
           h: cap.inputH,
-          nRays,
+          nRays: extracted.nRays,
           probThreshold: clamp(parseFloat(state.probThreshold), 0, 1),
           nmsDistPx: Math.max(1, parseInt(state.nmsDistPx, 10) || 8),
           maxDetections: Math.max(1, parseInt(state.maxDetections, 10) || 512),
