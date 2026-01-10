@@ -160,6 +160,7 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
     to a JPEG-compressed pyramid TIFF using pyvips.
     
     This creates a proper pyramid TIFF that OpenSlide/wsidicomizer can read.
+    Handles YCbCr JPEG TIFFs (PhotometricInterpretation=6) correctly.
     """
     import pyvips
     
@@ -167,16 +168,41 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
     
     output_path = output_dir / f"{source_path.stem}_jpeg.tiff"
     
-    # Load image with pyvips (handles LZW natively)
-    # Use 'random' access for better compatibility with pyramid generation
+    # Check source TIFF photometric interpretation using tifffile
+    # YCbCr (6) JPEGs need special handling
+    source_is_ycbcr = False
+    try:
+        import tifffile
+        with tifffile.TiffFile(str(source_path)) as tif:
+            if tif.pages:
+                photometric = tif.pages[0].photometric
+                logger.info(f"Source photometric: {photometric} (6=YCbCr, 2=RGB)")
+                source_is_ycbcr = (photometric == 6)  # PHOTOMETRIC.YCBCR
+    except Exception as e:
+        logger.warning(f"Could not check photometric: {e}")
+    
+    # Load image with pyvips
+    # For YCbCr JPEG TIFFs, we need to ensure proper color conversion
     image = pyvips.Image.new_from_file(str(source_path), access='random')
     
     logger.info(f"Loaded image: {image.width}x{image.height}, {image.bands} bands, interpretation={image.interpretation}")
     
+    # Handle YCbCr source images - pyvips should auto-convert, but let's be explicit
+    if source_is_ycbcr or image.interpretation in ['ycc', 'ycbcr']:
+        logger.info("Source is YCbCr - converting to sRGB")
+        try:
+            # For YCbCr JPEG, pyvips usually reads as RGB already, but if it's still YCC:
+            if image.interpretation in ['ycc', 'ycbcr']:
+                image = image.colourspace('srgb')
+                logger.info(f"Converted YCbCr to sRGB")
+        except Exception as e:
+            logger.warning(f"YCbCr conversion warning: {e}")
+    
     # Ensure image is in sRGB color space (fixes color issues from various source formats)
     # This handles CMYK, LAB, or other color spaces that might come from source TIFFs
-    if image.interpretation != 'srgb':
+    if image.interpretation not in ['srgb', 'rgb', 'b-w']:
         try:
+            logger.info(f"Converting from {image.interpretation} to sRGB")
             image = image.colourspace('srgb')
             logger.info(f"Converted to sRGB, now {image.bands} bands")
         except Exception as e:
@@ -193,7 +219,7 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
         logger.info("Converted grayscale to sRGB")
     
     # Save as pyramid TIFF with JPEG compression
-    # Use RGB photometric interpretation (not YCbCr) for compatibility
+    # Use RGB photometric interpretation for compatibility (rgbjpeg=True means store as RGB not YCbCr)
     image.tiffsave(
         str(output_path),
         tile=True,
@@ -203,10 +229,10 @@ def convert_to_jpeg_tiff(source_path: Path, output_dir: Path) -> Path:
         compression='jpeg',
         Q=90,
         bigtiff=True,  # Support files > 4GB
-        rgbjpeg=True   # Use RGB JPEG (not YCbCr) for better color fidelity
+        rgbjpeg=True   # Store JPEG as RGB (PhotometricInterpretation=2), not YCbCr (6)
     )
     
-    logger.info(f"Created JPEG-compressed TIFF: {output_path}")
+    logger.info(f"Created JPEG-compressed TIFF (RGB): {output_path}")
     return output_path
 
 
