@@ -304,6 +304,8 @@ async function loadStudy(studyId) {
                 this.wsiLevels = options.wsiLevels;
                 this.pyramid = options.pyramid;
                 this.sessionId = options.sessionId;
+                // Auth headers for tile requests (used by OSD navigator as well as main viewer)
+                this.authHeaders = options.authHeaders || {};
                 this.width = options.width;
                 this.height = options.height;
                 this.aspectRatio = options.width / options.height;
@@ -322,6 +324,17 @@ async function loadStudy(studyId) {
             OpenSeadragon.WsiTileSource.prototype.getLevelScale = function(level) { return this.wsiLevels[level]?.scale || 1; };
             OpenSeadragon.WsiTileSource.prototype.getTileWidth = function(level) { return this.wsiLevels[level]?.tileWidth || 256; };
             OpenSeadragon.WsiTileSource.prototype.getTileHeight = function(level) { return this.wsiLevels[level]?.tileHeight || 256; };
+            OpenSeadragon.WsiTileSource.prototype.setAuthHeaders = function(headers) {
+                this.authHeaders = headers || {};
+            };
+            // Critical: navigator/overview can use its own internal viewer; per-tile headers here
+            // ensure every tile XHR carries auth (not just the main viewer's ajaxHeaders).
+            OpenSeadragon.WsiTileSource.prototype.getTileAjaxHeaders = function(level, x, y) {
+                return {
+                    'Accept': 'image/jpeg, image/png, image/jp2',
+                    ...(this.authHeaders || {})
+                };
+            };
             OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
                 const wsi = this.wsiLevels[level];
                 if (!wsi || x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) return null;
@@ -375,6 +388,15 @@ async function loadStudy(studyId) {
             }
         } catch (e) {
             console.error('🔒 [viewer-main] Failed to get tile auth token:', e.message || e);
+        }
+
+        // Ensure tile source also has auth headers (navigator uses tile source headers reliably)
+        try {
+            if (wsiTileSource && typeof wsiTileSource.setAuthHeaders === 'function') {
+                wsiTileSource.setAuthHeaders(tileAuthHeaders);
+            }
+        } catch (e) {
+            // ignore
         }
 
         viewer = OpenSeadragon({
@@ -609,10 +631,22 @@ async function loadStudyInViewer2(studyId, slideName) {
         });
         
         let authHeaders = {};
+        // Dev/test bypass support (match viewer1 behavior)
+        try {
+            if (typeof getAuthBypassSecret === 'function') {
+                const bypassSecret = getAuthBypassSecret();
+                if (bypassSecret) {
+                    authHeaders['X-Auth-Bypass'] = bypassSecret;
+                    console.warn('🔓 [viewer-main] Auth bypass enabled - viewer2 tiles will include X-Auth-Bypass header');
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
         try {
             if (window.auth0Client) {
                 const token = await window.auth0Client.getTokenSilently();
-                authHeaders = { 'Authorization': `Bearer ${token}` };
+                authHeaders = { ...authHeaders, 'Authorization': `Bearer ${token}` };
             }
         } catch (e) {
             console.warn('🔒 [viewer-main] Viewer2 auth token failed:', e.message || e);
@@ -629,6 +663,7 @@ async function loadStudyInViewer2(studyId, slideName) {
                 this.sessionId = options.sessionId;
                 this.width = options.width;
                 this.height = options.height;
+                this.authHeaders = options.authHeaders || {};
                 this.tileSize = options.wsiLevels[0]?.tileWidth || 256;
                 this.tileOverlap = 0;
                 this.minLevel = 0;
@@ -641,6 +676,15 @@ async function loadStudyInViewer2(studyId, slideName) {
             OpenSeadragon.WsiTileSource.prototype.getLevelScale = function(level) { return this.wsiLevels[level]?.scale || 1; };
             OpenSeadragon.WsiTileSource.prototype.getTileWidth = function(level) { return this.wsiLevels[level]?.tileWidth || 256; };
             OpenSeadragon.WsiTileSource.prototype.getTileHeight = function(level) { return this.wsiLevels[level]?.tileHeight || 256; };
+            OpenSeadragon.WsiTileSource.prototype.setAuthHeaders = function(headers) {
+                this.authHeaders = headers || {};
+            };
+            OpenSeadragon.WsiTileSource.prototype.getTileAjaxHeaders = function(level, x, y) {
+                return {
+                    'Accept': 'image/jpeg, image/png, image/jp2',
+                    ...(this.authHeaders || {})
+                };
+            };
             OpenSeadragon.WsiTileSource.prototype.getTileUrl = function(level, x, y) {
                 const wsi = this.wsiLevels[level];
                 if (!wsi || x < 0 || y < 0 || x >= wsi.tilesX || y >= wsi.tilesY) return null;
@@ -658,6 +702,13 @@ async function loadStudyInViewer2(studyId, slideName) {
             wsiSeriesId: seriesId, wsiLevels: wsiLevels2, pyramid: pyramidData,
             sessionId: Date.now(), width: pyramidData.TotalWidth, height: pyramidData.TotalHeight
         });
+        try {
+            if (tileSource2 && typeof tileSource2.setAuthHeaders === 'function') {
+                tileSource2.setAuthHeaders(authHeaders);
+            }
+        } catch (e) {
+            // ignore
+        }
         
         viewer2 = OpenSeadragon({
             id: 'osd-viewer-2',
